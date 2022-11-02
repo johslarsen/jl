@@ -2,6 +2,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <charconv>
+#include <concepts>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -144,6 +146,29 @@ class tmpfd {
   const char *value = std::getenv(name);  // NOLINT(*mt-unsafe)
   if (value == nullptr) return std::nullopt;
   return value;
+}
+
+template <typename T>
+requires std::integral<T> || std::floating_point<T>
+[[nodiscard]] inline std::optional<T> env_as(const char *name) {
+  auto value = optenv(name);
+  if (!value) return std::nullopt;
+
+  T parsed;
+  char *end = value->data() + value->size();  // NOLINT(*pointer-arithmetic), how else?
+  if (auto res = std::from_chars(value->data(), end, parsed); res.ec != std::errc()) {
+    throw make_system_error(res.ec, "Failed to parse " + *value);
+  }
+  return parsed;
+}
+
+template <typename T>
+requires std::integral<T> || std::floating_point<T>
+[[nodiscard]] inline T env_or(const char *name, T fallback) {
+  return env_as<T>(name).value_or(fallback);
+}
+[[nodiscard]] inline std::string env_or(const char *name, const std::string &fallback) {
+  return optenv(name).value_or(fallback);
 }
 
 /// @throws std::runtime_error if there is no environment variable with this name.
