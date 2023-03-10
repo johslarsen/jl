@@ -140,7 +140,7 @@ class tmpfd {
 }
 
 template <typename T>
-requires std::integral<T> || std::floating_point<T>
+  requires std::integral<T> || std::floating_point<T>
 [[nodiscard]] inline std::optional<T> env_as(const char *name) {
   auto value = optenv(name);
   if (!value) return std::nullopt;
@@ -154,7 +154,7 @@ requires std::integral<T> || std::floating_point<T>
 }
 
 template <typename T>
-requires std::integral<T> || std::floating_point<T>
+  requires std::integral<T> || std::floating_point<T>
 [[nodiscard]] inline T env_or(const char *name, T fallback) {
   return env_as<T>(name).value_or(fallback);
 }
