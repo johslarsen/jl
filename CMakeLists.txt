@@ -16,7 +16,7 @@ add_definitions(-Wall -Wextra -fno-omit-frame-pointer -g3 -fstack-protector)
 add_library(jl INTERFACE)
 target_include_directories(jl INTERFACE include/)
 
-if(JL_ENABLE_TESTING AND EXISTS external/googletest/CMakeLists.txt)
+if(JL_ENABLE_TESTING AND EXISTS ${CMAKE_SOURCE_DIR}/external/googletest/CMakeLists.txt)
   add_subdirectory(external/googletest)
   enable_testing()
   add_subdirectory(test)
