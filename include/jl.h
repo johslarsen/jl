@@ -2,13 +2,18 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <charconv>
 #include <concepts>
+#include <cstring>
 #include <filesystem>
+#include <limits>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <system_error>
+#include <vector>
 
 /// Johs's <mail@johslarsen.net> Library. Use however you see fit.
 namespace jl {
@@ -168,5 +173,104 @@ template <typename T>
   if (value == nullptr) throw std::runtime_error(std::string("Missing ") + name + " environment value");
   return value;
 }
+
+/// A ring (aka. circular) buffer. Given an atomic Index type, one writer and
+/// one reader can safely use this to share data across threads. Nevertheless,
+/// It is not thread-safe to use this with multiple readers or writers.
+template <size_t Capacity, typename Index = uint32_t>
+  requires std::unsigned_integral<Index> || std::unsigned_integral<typename Index::value_type>
+class RingBuffer {
+  static_assert(std::has_single_bit(Capacity),
+                "RingBuffer capacity must be a power-of-2 for performance, and so it divides the integer overflow evenly");
+  static_assert(Capacity >= 4 << 10,
+                "RingBuffer capacity must be page aligned");
+  static_assert(std::bit_width(Capacity) < CHAR_BIT * sizeof(Index) - 1,
+                "RingBuffer capacity is too large for the Index type");
+
+  jl::unique_mmap<uint8_t> _data;
+  Index _head = 0;
+  Index _tail = 0;
+
+ public:
+  RingBuffer() : _data(Capacity * 2, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE) {
+    jl::tmpfd fd;
+    ftruncate(*fd, Capacity);
+
+    // _data is a continues virtual memory span twice as big as the Capacity
+    // where the first and second half is mapped to the same shared buffer.
+    // This gives a circular buffer that supports continuous memory spans even
+    // when those bytes span across the wrap-around threshold, because
+    // &_data[0] and &_data[Capacity] are both valid addresses that essentially
+    // refer to the same physical address.
+    //
+    // This concept/trick originates from https://github.com/willemt/cbuffer
+    if (::mmap(_data->data(), Capacity, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, *fd, 0) == MAP_FAILED) {
+      throw errno_as_error("RingBuffer mmap data failed");
+    }
+    if (::mmap(_data->data() + Capacity, Capacity, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, *fd, 0) == MAP_FAILED) {
+      throw errno_as_error("RingBuffer mmap mirror failed");
+    }
+  }
+
+  /// @returns a span into the buffer at the end of the ring where you can
+  /// write new data. Its size is limited by the free space available.
+  [[nodiscard]] std::span<uint8_t> peek_back(size_t max) {
+    return {&_data[_tail % Capacity], std::min(max, Capacity - size())};
+  }
+
+  /// "Give back" the part at the beginning of the span from peek_back() where
+  /// you wrote data.
+  void commit_written(std::span<uint8_t> &&written) {
+    assert(written.data() == &_data[_tail % Capacity]);
+    assert(size() + written.size() <= Capacity);
+    _tail += written.size();
+  }
+
+  /// @returns a span into the buffer at the start of the ring where you can
+  /// read available data. Its size is limited by the amount of available data.
+  [[nodiscard]] std::span<const uint8_t> peek_front(size_t max) const {
+    return {&_data[_head % Capacity], std::min(max, size())};
+  }
+
+  /// "Give back" the part at the beginning of the span from peek_front() that
+  /// you read.
+  void commit_read(std::span<const uint8_t> &&read) {
+    assert(read.data() == &_data[_head % Capacity]);
+    assert(read.size() <= size());
+    _head += read.size();
+  }
+
+  /// @returns the amount of data available to be read. In a threaded
+  /// environment it is respectively an upper/lower bound for a writer/reader.
+  [[nodiscard]] size_t size() const { return _tail - _head; }
+  [[nodiscard]] bool empty() const { return size() == 0; }
+  [[nodiscard]] size_t capacity() const { return Capacity; }
+
+  /// Copies bytes from data to the end of the ring.
+  /// @returns the amount of data copied.
+  size_t push_back(const std::span<uint8_t> data) {
+    auto writeable = peek_back(data.size());
+    memmove(writeable.data(), data.data(), writeable.size());
+    commit_written(std::move(writeable));
+    return writeable.size();
+  }
+
+  /// Copies bytes from the front of the ring into data.
+  /// @returns the amount of data copied.
+  size_t fill_from_front(std::span<uint8_t> data) {
+    auto readable = peek_front(data.size());
+    memmove(data.data(), readable.data(), readable.size());
+    commit_read(std::move(readable));
+    return readable.size();
+  }
+
+  /// @returns a copy of up to max available bytes from the front of the ring.
+  [[nodiscard]] std::vector<uint8_t> pop_front(size_t max) {
+    auto readable = peek_front(max);
+    std::vector<uint8_t> output(readable.size());
+    fill_from_front(output);
+    return output;
+  }
+};
 
 }  // namespace jl
