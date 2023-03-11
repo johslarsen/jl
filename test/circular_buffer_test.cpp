@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 #include <jl.h>
 
-TEST(RingBuffer, StaticAsserts) {
-  // jl::RingBuffer<4 << 10, int> integer_overflow_would_be_ub;
-  // jl::RingBuffer<(4 << 10) + 1> not_power_of_2_capacity;
-  // jl::RingBuffer<1U<<15, uint16_t> index_type_is_too_small>;
+TEST(CircularBuffer, StaticAsserts) {
+  // jl::CircularBuffer<4 << 10, int> integer_overflow_would_be_ub;
+  // jl::CircularBuffer<(4 << 10) + 1> not_power_of_2_capacity;
+  // jl::CircularBuffer<1U<<15, uint16_t> index_type_is_too_small>;
 }
 
 template <typename T>
@@ -25,35 +25,46 @@ static inline size_t advance(T& buf, size_t max) {
 template <typename T>
 static inline size_t write_string(T& buf, const std::string& str) {
   auto writeable = buf.peek_back(str.size());
-  size_t written = writeable.size();
-  const auto* as_u8 = std::bit_cast<uint8_t*>(str.data());
-  std::copy(as_u8, as_u8 + written, writeable.begin());
+  ssize_t written = writeable.size();
+  std::copy(str.begin(), str.begin() + written, writeable.begin());
   buf.commit_written(std::move(writeable));
   return written;
 }
 
-TEST(RingBuffer, ReadWriteSpansAcrossWrapAround) {
-  jl::RingBuffer<4 << 10> buf;
+TEST(CircularBuffer, ReadWriteSpansAcrossWrapAround) {
+  jl::CircularBuffer<char, 4 << 10> buf;
   EXPECT_EQ((4 << 10) - 1, advance(buf, (4 << 10) - 1));
 
   EXPECT_EQ(2, write_string(buf, "42"));
   auto readable = buf.peek_front(2);
 
-  EXPECT_EQ("42", std::string(std::bit_cast<char*>(readable.data()), readable.size()));
+  EXPECT_EQ("42", std::string(readable.data(), readable.size()));
 }
 
-TEST(RingBuffer, ReadWriteSpansAcrossIndexTypeOverflow) {
-  jl::RingBuffer<4 << 10, uint16_t> buf;
+TEST(CircularBuffer, ReadWriteSpansAcrossIndexTypeOverflow) {
+  jl::CircularBuffer<char, 4 << 10, uint16_t> buf;
   EXPECT_EQ(UINT16_MAX, advance(buf, UINT16_MAX));
 
   EXPECT_EQ(2, write_string(buf, "42"));
   auto readable = buf.peek_front(2);
 
-  EXPECT_EQ("42", std::string(std::bit_cast<char*>(readable.data()), readable.size()));
+  EXPECT_EQ("42", std::string(readable.data(), readable.size()));
 }
 
-TEST(RingBuffer, PeekBackClampedToFreeSpaceLeft) {
-  jl::RingBuffer<4 << 10> buf;
+TEST(CircularBuffer, MultiByteValueType) {
+  jl::CircularBuffer<int32_t, 1<<10> buf;
+  std::vector<int32_t> values{1,2};
+  EXPECT_EQ(2U, buf.push_back(values));
+  EXPECT_EQ(values, buf.pop_front(2));
+
+  EXPECT_EQ((1 << 10) - 1, advance(buf, (1 << 10) - 1));
+
+  EXPECT_EQ(2U, buf.push_back(values));
+  EXPECT_EQ(values, buf.pop_front(2));
+}
+
+TEST(CircularBuffer, PeekBackClampedToFreeSpaceLeft) {
+  jl::CircularBuffer<char, 4 << 10> buf;
   EXPECT_EQ(4 << 10, buf.peek_back(std::numeric_limits<size_t>::max()).size())
       << "Empty buffer have the full capacity available";
 
@@ -66,8 +77,8 @@ TEST(RingBuffer, PeekBackClampedToFreeSpaceLeft) {
       << "When bytes have been read new space is available";
 }
 
-TEST(RingBuffer, PeekFrontClampedToUsedSpace) {
-  jl::RingBuffer<4 << 10> buf;
+TEST(CircularBuffer, PeekFrontClampedToUsedSpace) {
+  jl::CircularBuffer<char, 4 << 10> buf;
   EXPECT_EQ(0, buf.peek_front(std::numeric_limits<size_t>::max()).size())
       << "Empty buffer have no bytes to read";
 
@@ -84,13 +95,13 @@ TEST(RingBuffer, PeekFrontClampedToUsedSpace) {
       << "When the buffer is full the whole capacity is readable";
 }
 
-TEST(RingBuffer, PushBackAndPopFront) {
-  jl::RingBuffer<4 << 10> buf;
+TEST(CircularBuffer, PushBackAndPopFront) {
+  jl::CircularBuffer<char, 4 << 10> buf;
 
-  EXPECT_EQ(std::vector<uint8_t>(), buf.pop_front(1))
+  EXPECT_EQ(std::vector<char>(), buf.pop_front(1))
       << "No bytes to read from empty buffer";
 
-  std::vector<uint8_t> to_write{1, 2, 3};
+  std::vector<char> to_write{1, 2, 3};
   EXPECT_EQ(3, buf.push_back(to_write));
   EXPECT_EQ(to_write, buf.pop_front(to_write.size() + 1))
       << "Written bytes read back";

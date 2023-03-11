@@ -2,7 +2,7 @@ add_executable(
   run_test
   environment_test.cpp
   errno_as_error_test.cpp
-  ring_buffer_test.cpp
+  circular_buffer_test.cpp
   tmpfd_test.cpp
   unique_fd_test.cpp
   unique_mmap_test.cpp

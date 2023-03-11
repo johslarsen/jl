@@ -17,12 +17,14 @@ target_include_directories(jl INTERFACE include/)
 add_definitions(-Wall -Wextra)
 
 set(BENCHMARK_ENABLE_TESTING OFF)
-if(JL_ENABLE_TESTING AND EXISTS ${CMAKE_SOURCE_DIR}/external/benchmark/CMakeLists.txt)
+if(JL_ENABLE_TESTING AND EXISTS
+                         ${CMAKE_SOURCE_DIR}/external/benchmark/CMakeLists.txt)
   add_subdirectory(external/benchmark)
   add_subdirectory(benchmark)
 endif()
 
-if(JL_ENABLE_TESTING AND EXISTS ${CMAKE_SOURCE_DIR}/external/googletest/CMakeLists.txt)
+if(JL_ENABLE_TESTING AND EXISTS
+                         ${CMAKE_SOURCE_DIR}/external/googletest/CMakeLists.txt)
   set(SANITIZE_FLAGS -fsanitize=undefined,address)
   add_compile_options(${SANITIZE_FLAGS})
   add_link_options(${SANITIZE_FLAGS})
