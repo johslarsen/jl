@@ -217,13 +217,13 @@ class CircularBuffer {
 
   /// @returns a span where you can write new data into the buffer where. Its
   /// size is limited to the amount of free space available.
-  [[nodiscard]] std::span<T> peek_back(size_t max) {
+  [[nodiscard]] std::span<T> peek_back(size_t max) noexcept {
     return {&_data[_write % Capacity], std::min(max, Capacity - size())};
   }
 
   /// "Give back" the part at the beginning of the span from peek_back() where
   /// you wrote data.
-  void commit_written(std::span<T> &&written) {
+  void commit_written(std::span<T> &&written) noexcept {
     assert(written.data() == &_data[_write % Capacity]);
     assert(size() + written.size() <= Capacity);
     _write += written.size();
@@ -231,16 +231,16 @@ class CircularBuffer {
 
   /// @returns a span where you can read available data from the buffer. Its
   /// size is limited by the amount of available data.
-  [[nodiscard]] std::span<const T> peek_front(size_t max) const {
+  [[nodiscard]] std::span<const T> peek_front(size_t max) const noexcept {
     return {&_data[_read % Capacity], std::min(max, size())};
   }
-  [[nodiscard]] std::span<T> peek_front(size_t max) {
+  [[nodiscard]] std::span<T> peek_front(size_t max) noexcept {
     return {&_data[_read % Capacity], std::min(max, size())};
   }
 
   /// "Give back" the part at the beginning of the span from peek_front() that
   /// you read.
-  void commit_read(std::span<const T> &&read) {
+  void commit_read(std::span<const T> &&read) noexcept {
     assert(read.data() == &_data[_read % Capacity]);
     assert(read.size() <= size());
     _read += read.size();
@@ -249,13 +249,13 @@ class CircularBuffer {
   /// @returns the amount of data available to be read. In a threaded
   /// environment where there is exactly one reader and one writer this is
   /// respectively the lower and the upper bound for the current size.
-  [[nodiscard]] size_t size() const { return _write - _read; }
-  [[nodiscard]] bool empty() const { return size() == 0; }
-  [[nodiscard]] size_t capacity() const { return Capacity; }
+  [[nodiscard]] size_t size() const noexcept { return _write - _read; }
+  [[nodiscard]] bool empty() const noexcept { return size() == 0; }
+  [[nodiscard]] size_t capacity() const noexcept { return Capacity; }
 
   /// Writes elements from data into the buffer.
   /// @returns the number of elements copied, and appended to the buffer.
-  size_t push_back(const std::span<T> data) {
+  size_t push_back(const std::span<T> data) noexcept {
     auto writeable = peek_back(data.size());
     std::copy(data.begin(), data.begin() + writeable.size(), writeable.begin());
     commit_written(std::move(writeable));
@@ -264,7 +264,7 @@ class CircularBuffer {
 
   /// Read elements from the buffer into data.
   /// @returns the number of elements copied and erased from the buffer.
-  size_t fill_from_front(std::span<T> data) {
+  size_t fill_from_front(std::span<T> data) noexcept {
     auto readable = peek_front(data.size());
     std::copy(readable.begin(), readable.end(), data.begin());
     commit_read(std::move(readable));
