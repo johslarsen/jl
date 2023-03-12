@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
 #include <jl.h>
 
+#include <future>
+#include <latch>
+#include <random>
+#include <thread>
+
 TEST(CircularBuffer, StaticAsserts) {
   // jl::CircularBuffer<4 << 10, int> integer_overflow_would_be_ub;
   // jl::CircularBuffer<(4 << 10) + 1> not_power_of_2_capacity;
@@ -52,8 +57,8 @@ TEST(CircularBuffer, ReadWriteSpansAcrossIndexTypeOverflow) {
 }
 
 TEST(CircularBuffer, MultiByteValueType) {
-  jl::CircularBuffer<int32_t, 1<<10> buf;
-  std::vector<int32_t> values{1,2};
+  jl::CircularBuffer<int32_t, 1 << 10> buf;
+  std::vector<int32_t> values{1, 2};
   EXPECT_EQ(2U, buf.push_back(values));
   EXPECT_EQ(values, buf.pop_front(2));
 
@@ -109,4 +114,45 @@ TEST(CircularBuffer, PushBackAndPopFront) {
   buf.commit_written(buf.peek_back(std::numeric_limits<size_t>::max()));
   EXPECT_EQ(0, buf.push_back(to_write))
       << "No space available in full buffer";
+}
+
+TEST(CircularBuffer, BeingWrittenToAndReadFromInSeparateThreads) {
+  jl::CircularBuffer<int, 1 << 10, std::atomic<uint32_t>> buf;
+  uint64_t writer_sum = 0, writer_hash = 0;
+
+  std::latch ready(2);
+  std::atomic<bool> still_writing = true;
+  std::jthread writer([&]() {
+    ready.arrive_and_wait();
+    for (int i = 0; i <= 1'000'000; /* incremented in inner loop */) {
+      std::span<int> writeable = buf.peek_back(1 + i % 100);  // write in random-ish sized chunks;
+      for (size_t off = 0; off < writeable.size(); ++off, ++i) {
+        if (i > 1'000'000) {
+          writeable = writeable.subspan(0, off);
+          break;
+        }
+
+        writeable[off] = i;
+        writer_sum += i;
+        writer_hash += writer_sum;
+      }
+      buf.commit_written(std::move(writeable));
+    }
+    still_writing = false;
+  });
+  ready.arrive_and_wait();
+
+  uint64_t reader_sum = 0, reader_hash = 0;
+  while (still_writing || !buf.empty()) {
+    std::span<const int> readable = buf.peek_front(100);
+    for (const auto& n : readable) {
+      reader_sum += n;
+      reader_hash += reader_sum;
+    }
+    buf.commit_read(std::move(readable));
+  }
+
+  EXPECT_EQ(500'000'500'000, writer_sum);
+  EXPECT_EQ(500'000'500'000, reader_sum);
+  EXPECT_EQ(writer_hash, reader_hash) << "Elements are read in the order they were written";
 }

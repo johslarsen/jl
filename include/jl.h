@@ -234,6 +234,9 @@ class CircularBuffer {
   [[nodiscard]] std::span<const T> peek_front(size_t max) const {
     return {&_data[_read % Capacity], std::min(max, size())};
   }
+  [[nodiscard]] std::span<T> peek_front(size_t max) {
+    return {&_data[_read % Capacity], std::min(max, size())};
+  }
 
   /// "Give back" the part at the beginning of the span from peek_front() that
   /// you read.
