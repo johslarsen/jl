@@ -56,6 +56,32 @@ class unique_fd {
   }
 };
 
+/// A named file descriptor that is closed and removed upon destruction.
+class tmpfd {
+  unique_fd _fd;
+  std::filesystem::path _path;
+
+ public:
+  explicit tmpfd(const std::string &prefix = "/tmp/jl_tmpfile_", const std::string &suffix = "")
+      : tmpfd(prefix + "XXXXXX" + suffix, static_cast<int>(suffix.length())) {}
+
+  ~tmpfd() {
+    if (*_fd >= 0) std::filesystem::remove(_path);
+  }
+
+  [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
+  int operator*() const noexcept { return *_fd; }
+
+  tmpfd(const tmpfd &) = delete;
+  tmpfd &operator=(const tmpfd &) = delete;
+  tmpfd(tmpfd &&) = default;
+  tmpfd &operator=(tmpfd &&) = default;
+
+ private:
+  tmpfd(std::string path, int suffixlen)
+      : _fd(mkstemps(path.data(), suffixlen)), _path(path) {}
+};
+
 /// An owned and managed memory mapped span.
 template <typename T>
 class unique_mmap {
@@ -111,68 +137,6 @@ class unique_mmap {
     return *this;
   }
 };
-
-/// A named file descriptor that is closed and removed upon destruction.
-class tmpfd {
-  unique_fd _fd;
-  std::filesystem::path _path;
-
- public:
-  explicit tmpfd(const std::string &prefix = "/tmp/jl_tmpfile_", const std::string &suffix = "")
-      : tmpfd(prefix + "XXXXXX" + suffix, static_cast<int>(suffix.length())) {}
-
-  ~tmpfd() {
-    if (*_fd >= 0) std::filesystem::remove(_path);
-  }
-
-  [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
-  int operator*() const noexcept { return *_fd; }
-
-  tmpfd(const tmpfd &) = delete;
-  tmpfd &operator=(const tmpfd &) = delete;
-  tmpfd(tmpfd &&) = default;
-  tmpfd &operator=(tmpfd &&) = default;
-
- private:
-  tmpfd(std::string path, int suffixlen)
-      : _fd(mkstemps(path.data(), suffixlen)), _path(path) {}
-};
-
-[[nodiscard]] inline std::optional<std::string> optenv(const char *name) noexcept {
-  const char *value = std::getenv(name);  // NOLINT(*mt-unsafe)
-  if (value == nullptr) return std::nullopt;
-  return value;
-}
-
-template <typename T>
-  requires std::integral<T> || std::floating_point<T>
-[[nodiscard]] inline std::optional<T> env_as(const char *name) {
-  auto value = optenv(name);
-  if (!value) return std::nullopt;
-
-  T parsed;
-  char *end = value->data() + value->size();  // NOLINT(*pointer-arithmetic), how else?
-  if (auto res = std::from_chars(value->data(), end, parsed); res.ec != std::errc()) {
-    throw make_system_error(res.ec, "Failed to parse " + *value);
-  }
-  return parsed;
-}
-
-template <typename T>
-  requires std::integral<T> || std::floating_point<T>
-[[nodiscard]] inline T env_or(const char *name, T fallback) {
-  return env_as<T>(name).value_or(fallback);
-}
-[[nodiscard]] inline std::string env_or(const char *name, const std::string &fallback) {
-  return optenv(name).value_or(fallback);
-}
-
-/// @throws std::runtime_error if there is no environment variable with this name.
-[[nodiscard]] inline std::string reqenv(const char *name) {
-  const char *value = std::getenv(name);  // NOLINT(*mt-unsafe)
-  if (value == nullptr) throw std::runtime_error(std::string("Missing ") + name + " environment value");
-  return value;
-}
 
 /// A circular (aka. ring) buffer with support for copy-free read/write of
 /// contiguous elements anywhere in the buffer, even across the wrap-around
@@ -279,5 +243,41 @@ class CircularBuffer {
     return output;
   }
 };
+
+[[nodiscard]] inline std::optional<std::string> optenv(const char *name) noexcept {
+  const char *value = std::getenv(name);  // NOLINT(*mt-unsafe)
+  if (value == nullptr) return std::nullopt;
+  return value;
+}
+
+template <typename T>
+  requires std::integral<T> || std::floating_point<T>
+[[nodiscard]] inline std::optional<T> env_as(const char *name) {
+  auto value = optenv(name);
+  if (!value) return std::nullopt;
+
+  T parsed;
+  char *end = value->data() + value->size();  // NOLINT(*pointer-arithmetic), how else?
+  if (auto res = std::from_chars(value->data(), end, parsed); res.ec != std::errc()) {
+    throw make_system_error(res.ec, "Failed to parse " + *value);
+  }
+  return parsed;
+}
+
+template <typename T>
+  requires std::integral<T> || std::floating_point<T>
+[[nodiscard]] inline T env_or(const char *name, T fallback) {
+  return env_as<T>(name).value_or(fallback);
+}
+[[nodiscard]] inline std::string env_or(const char *name, const std::string &fallback) {
+  return optenv(name).value_or(fallback);
+}
+
+/// @throws std::runtime_error if there is no environment variable with this name.
+[[nodiscard]] inline std::string reqenv(const char *name) {
+  const char *value = std::getenv(name);  // NOLINT(*mt-unsafe)
+  if (value == nullptr) throw std::runtime_error(std::string("Missing ") + name + " environment value");
+  return value;
+}
 
 }  // namespace jl
