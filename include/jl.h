@@ -18,12 +18,27 @@
 /// Johs's <mail@johslarsen.net> Library. Use however you see fit.
 namespace jl {
 
+[[nodiscard]] inline std::string str_or_empty(const char *str) {
+  return {str == nullptr ? "" : str};
+}
+
 [[nodiscard]] inline std::system_error make_system_error(std::errc err, const std::string &message) noexcept {
   return {std::make_error_code(err), message};
 }
 
 [[nodiscard]] inline std::system_error errno_as_error(const std::string &message) noexcept {
   return make_system_error(static_cast<std::errc>(errno), message);
+}
+
+/// @returns n usually or 0 for EAGAIN
+/// @throws std::system_error on other errors
+template <typename T>
+T check_rw_error(T n, const std::string &message) {
+  if (n < 0) {
+    if (errno == EAGAIN) return 0;
+    throw errno_as_error(message);
+  }
+  return n;
 }
 
 /// An owned and managed file descriptor.
@@ -41,6 +56,7 @@ class unique_fd {
   }
 
   [[nodiscard]] int operator*() const noexcept { return _fd; }
+  [[nodiscard]] int fd() const noexcept { return _fd; }
 
   unique_fd(const unique_fd &) = delete;
   unique_fd &operator=(const unique_fd &) = delete;
@@ -54,11 +70,35 @@ class unique_fd {
     }
     return *this;
   }
+
+  template <typename C>
+    requires std::constructible_from<std::span<const typename C::value_type>, C>
+  size_t write(const C &data) {  // NOLINT(*const)
+    constexpr size_t size = sizeof(typename C::value_type);
+    return check_rw_error(::write(_fd, data.data(), size * data.size()), "write failed") / size;
+  }
+  size_t write(std::string_view data) {  // NOLINT(*const)
+    return check_rw_error(::write(_fd, data.data(), data.size()), "write failed");
+  }
+
+  template <typename T>
+  std::span<T> read(std::span<T> buffer) {  // NOLINT(*const)
+    auto n = check_rw_error(::read(_fd, buffer.data(), sizeof(T) * buffer.size()), "read failed");
+    return buffer.subspan(0, n / sizeof(T));
+  }
+  template <typename C>
+    requires std::constructible_from<std::span<const typename C::value_type>, C>
+  std::span<typename C::value_type> read(C &data) {  // NOLINT(*const)
+    return read(std::span<typename C::value_type>(data));
+  }
+  std::string_view read(std::string &buffer) {  // NOLINT(*const)
+    auto n = check_rw_error(::read(_fd, buffer.data(), buffer.size()), "read failed");
+    return {buffer.begin(), buffer.begin() + n};
+  }
 };
 
 /// A named file descriptor that is closed and removed upon destruction.
-class tmpfd {
-  unique_fd _fd;
+class tmpfd : public unique_fd {
   std::filesystem::path _path;
 
  public:
@@ -66,20 +106,19 @@ class tmpfd {
       : tmpfd(prefix + "XXXXXX" + suffix, static_cast<int>(suffix.length())) {}
 
   ~tmpfd() {
-    if (*_fd >= 0) std::filesystem::remove(_path);
+    if (fd() >= 0) std::filesystem::remove(_path);
   }
 
   [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
-  int operator*() const noexcept { return *_fd; }
 
   tmpfd(const tmpfd &) = delete;
   tmpfd &operator=(const tmpfd &) = delete;
-  tmpfd(tmpfd &&) = default;
-  tmpfd &operator=(tmpfd &&) = default;
+  tmpfd(tmpfd &&) noexcept = default;
+  tmpfd &operator=(tmpfd &&) noexcept = default;
 
  private:
   tmpfd(std::string path, int suffixlen)
-      : _fd(mkstemps(path.data(), suffixlen)), _path(path) {}
+      : unique_fd(mkstemps(path.data(), suffixlen)), _path(path) {}
 };
 
 /// An owned and managed memory mapped span.
