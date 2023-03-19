@@ -6,10 +6,10 @@
 #include <latch>
 #include <thread>
 
-static std::vector<int64_t> sizes{1, 128, 1024};
+static std::vector<int64_t> sizes{1, 128, 1024, 65500};
 static std::vector<int64_t> bursts{128};
 
-static void send_loop(const std::stop_token& token, jl::unique_socket fd, size_t message_size) {
+static void send_loop(const std::stop_token& token, std::atomic<bool>& finished, jl::unique_socket fd, size_t message_size) {
   std::vector<char> buffer(message_size);
   while (!token.stop_requested()) {
     try {
@@ -18,11 +18,13 @@ static void send_loop(const std::stop_token& token, jl::unique_socket fd, size_t
       // ignore intermittent ECONNREFUSED errors
     }
   }
+  finished = true;
 }
 
-void drain(jl::unique_socket& fd, std::span<char> buffer) {
-  while (!fd.recv(buffer, MSG_DONTWAIT).empty())
-    ;
+void drain(std::atomic<bool>& sender_finished, jl::unique_socket& fd, std::span<char> buffer) {
+  while (!sender_finished) {
+    (void)fd.recv(buffer, MSG_DONTWAIT).empty();
+  }
 }
 
 static inline std::pair<jl::unique_socket, jl::unique_socket> connected_udp() {
@@ -37,14 +39,15 @@ static inline std::pair<jl::unique_socket, jl::unique_socket> connected_tcp() {
   server.listen(1);
   auto client = jl::unique_socket::tcp();
   client.connect({"::", "1234"});
-  auto [conn, _] = server.accept().value(); // NOLINT(*unchecked-optional*), crashing is fine
+  auto [conn, _] = server.accept().value();  // NOLINT(*unchecked-optional*), crashing is fine
   return {std::move(conn), std::move(client)};
 }
 
-void BM_RecvIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets) {
+void BM_RecvIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
   size_t message_size = state.range(0);
   auto [in, out] = std::move(sockets);
-  std::jthread sender(send_loop, std::move(out), message_size);
+  std::atomic<bool> sender_finished = false;
+  std::jthread sender(sender_loop, std::ref(sender_finished), std::move(out), message_size);
 
   std::vector<char> buffer(message_size);
   size_t packets = 0, bytes = 0;
@@ -53,25 +56,29 @@ void BM_RecvIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket,
     packets += 1;
   }
   sender.request_stop();
-  drain(in, buffer);
+  drain(sender_finished, in, buffer);
 
   state.counters["Bytes"] = benchmark::Counter(static_cast<double>(bytes), benchmark::Counter::kIsRate);
   state.counters["Packets"] = benchmark::Counter(static_cast<double>(packets), benchmark::Counter::kIsRate);
 }
-BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, UnixPipe, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM))
+BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, DatagramPipe, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM), send_loop)
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
-BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, UDP, connected_udp())
+BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, UDP, connected_udp(), send_loop)
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
-BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, TCP, connected_tcp())
+BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, StreamPipe, jl::unique_socket::pipes(), send_loop)
+    ->ArgName("MessageSize")
+    ->ArgsProduct({sizes});
+BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, TCP, connected_tcp(), send_loop)
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
 
-void BM_RecvIntoCircularBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets) {
+void BM_RecvIntoCircularBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
   size_t message_size = state.range(0);
   auto [in, out] = std::move(sockets);
-  std::jthread sender(send_loop, std::move(out), message_size);
+  std::atomic<bool> sender_finished = false;
+  std::jthread sender(sender_loop, std::ref(sender_finished), std::move(out), message_size);
 
   jl::CircularBuffer<char, 1 << 20> buffer;
   size_t packets = 0, bytes = 0;
@@ -84,26 +91,30 @@ void BM_RecvIntoCircularBuffer(benchmark::State& state, std::pair<jl::unique_soc
     buffer.commit_read(std::move(received));
   }
   sender.request_stop();
-  drain(in, buffer.peek_back(message_size));
+  drain(sender_finished, in, buffer.peek_back(message_size));
 
   state.counters["Bytes"] = benchmark::Counter(static_cast<double>(bytes), benchmark::Counter::kIsRate);
   state.counters["Packets"] = benchmark::Counter(static_cast<double>(packets), benchmark::Counter::kIsRate);
 }
-BENCHMARK_CAPTURE(BM_RecvIntoCircularBuffer, UnixPipe, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM))
+BENCHMARK_CAPTURE(BM_RecvIntoCircularBuffer, DatagramPipe, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM), send_loop)
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
-BENCHMARK_CAPTURE(BM_RecvIntoCircularBuffer, UDP, connected_udp())
+BENCHMARK_CAPTURE(BM_RecvIntoCircularBuffer, UDP, connected_udp(), send_loop)
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
-BENCHMARK_CAPTURE(BM_RecvIntoCircularBuffer, TCP, connected_tcp())
+BENCHMARK_CAPTURE(BM_RecvIntoCircularBuffer, StreamPipe, jl::unique_socket::pipes(), send_loop)
+    ->ArgName("MessageSize")
+    ->ArgsProduct({sizes});
+BENCHMARK_CAPTURE(BM_RecvIntoCircularBuffer, TCP, connected_tcp(), send_loop)
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
 
-void BM_RecvmmsgIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets) {
+void BM_RecvmmsgIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
   size_t message_size = state.range(0);
   size_t messages_per_burst = state.range(1);
   auto [in, out] = std::move(sockets);
-  std::jthread sender(send_loop, std::move(out), message_size);
+  std::atomic<bool> sender_finished = false;
+  std::jthread sender(sender_loop, std::ref(sender_finished), std::move(out), message_size);
 
   std::vector<char> buffer(message_size);
   std::vector<std::span<char>> messages(messages_per_burst, buffer);
@@ -116,26 +127,30 @@ void BM_RecvmmsgIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_soc
     }
   }
   sender.request_stop();
-  drain(mmsg.fd(), buffer);
+  drain(sender_finished, mmsg.fd(), buffer);
 
   state.counters["Bytes"] = benchmark::Counter(static_cast<double>(bytes), benchmark::Counter::kIsRate);
   state.counters["Packets"] = benchmark::Counter(static_cast<double>(packets), benchmark::Counter::kIsRate);
 }
-BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, UnixPipe, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM))
+BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, DatagramPipe, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM), send_loop)
     ->ArgNames({"MessageSize", "MessagesPerBurst"})
     ->ArgsProduct({sizes, bursts});
-BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, UDP, connected_udp())
+BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, UDP, connected_udp(), send_loop)
     ->ArgNames({"MessageSize", "MessagesPerBurst"})
     ->ArgsProduct({sizes, bursts});
-BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, TCP, connected_tcp())
+BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, StreamPipe, jl::unique_socket::pipes(), send_loop)
+    ->ArgNames({"MessageSize", "MessagesPerBurst"})
+    ->ArgsProduct({sizes, bursts});
+BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, TCP, connected_tcp(), send_loop)
     ->ArgNames({"MessageSize", "MessagesPerBurst"})
     ->ArgsProduct({sizes, bursts});
 
-void BM_RecvmmsgPerMessageBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets) {
+void BM_RecvmmsgPerMessageBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
   size_t message_size = state.range(0);
   size_t messages_per_burst = state.range(1);
   auto [in, out] = std::move(sockets);
-  std::jthread sender(send_loop, std::move(out), message_size);
+  std::atomic<bool> sender_finished = false;
+  std::jthread sender(sender_loop, std::ref(sender_finished), std::move(out), message_size);
 
   jl::mmsg_buffer<char> mmsg(std::move(in), messages_per_burst, message_size);
   size_t packets = 0, bytes = 0;
@@ -146,19 +161,63 @@ void BM_RecvmmsgPerMessageBuffer(benchmark::State& state, std::pair<jl::unique_s
     }
   }
   sender.request_stop();
-  drain(mmsg.fd(), mmsg.buffer(0));
+  drain(sender_finished, mmsg.fd(), mmsg.buffer(0));
 
   state.counters["Bytes"] = benchmark::Counter(static_cast<double>(bytes), benchmark::Counter::kIsRate);
   state.counters["Packets"] = benchmark::Counter(static_cast<double>(packets), benchmark::Counter::kIsRate);
 }
-BENCHMARK_CAPTURE(BM_RecvmmsgPerMessageBuffer, UnixPipe, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM))
+BENCHMARK_CAPTURE(BM_RecvmmsgPerMessageBuffer, DatagramPipe, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM), send_loop)
     ->ArgNames({"MessageSize", "MessagesPerBurst"})
     ->ArgsProduct({sizes, bursts});
-BENCHMARK_CAPTURE(BM_RecvmmsgPerMessageBuffer, UDP, connected_udp())
+BENCHMARK_CAPTURE(BM_RecvmmsgPerMessageBuffer, UDP, connected_udp(), send_loop)
     ->ArgNames({"MessageSize", "MessagesPerBurst"})
     ->ArgsProduct({sizes, bursts});
-BENCHMARK_CAPTURE(BM_RecvmmsgPerMessageBuffer, TCP, connected_tcp())
+BENCHMARK_CAPTURE(BM_RecvmmsgPerMessageBuffer, StreamPipe, jl::unique_socket::pipes(), send_loop)
     ->ArgNames({"MessageSize", "MessagesPerBurst"})
     ->ArgsProduct({sizes, bursts});
+BENCHMARK_CAPTURE(BM_RecvmmsgPerMessageBuffer, TCP, connected_tcp(), send_loop)
+    ->ArgNames({"MessageSize", "MessagesPerBurst"})
+    ->ArgsProduct({sizes, bursts});
+
+#if 1
+template <size_t MessagesPerBurst>
+static void sendmmsg_loop(const std::stop_token& token, std::atomic<bool>& finished, jl::unique_socket fd, size_t message_size) {
+  std::vector<char> buffer(message_size);
+  std::vector<std::span<char>> messages(MessagesPerBurst, buffer);
+  jl::mmsg_socket<char> mmsg(std::move(fd), messages);
+  while (!token.stop_requested()) {
+    try {
+      mmsg.sendmmsg();
+    } catch (const std::system_error&) {
+      // ignore intermittent ECONNREFUSED errors
+    }
+  }
+  finished = true;
+}
+BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, DatagramPipeSendmmsg, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM), sendmmsg_loop<256>)
+    ->ArgName("MessageSize")
+    ->ArgsProduct({sizes});
+BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, UDPSendmmsg, connected_udp(), sendmmsg_loop<256>)
+    ->ArgName("MessageSize")
+    ->ArgsProduct({sizes});
+BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, StreamPipeSendmmsg, jl::unique_socket::pipes(), sendmmsg_loop<256>)
+    ->ArgName("MessageSize")
+    ->ArgsProduct({sizes});
+BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, TCPSendmmsg, connected_tcp(), sendmmsg_loop<256>)
+    ->ArgName("MessageSize")
+    ->ArgsProduct({sizes});
+BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, DatagramPipeSendmmsg, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM), sendmmsg_loop<256>)
+    ->ArgNames({"MessageSize", "MessagesPerBurst"})
+    ->ArgsProduct({sizes, bursts});
+BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, UDPSendmmsg, connected_udp(), sendmmsg_loop<256>)
+    ->ArgNames({"MessageSize", "MessagesPerBurst"})
+    ->ArgsProduct({sizes, bursts});
+BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, StreamPipeSendmmsg, jl::unique_socket::pipes(), sendmmsg_loop<256>)
+    ->ArgNames({"MessageSize", "MessagesPerBurst"})
+    ->ArgsProduct({sizes, bursts});
+BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, TCPSendmmsg, connected_tcp(), sendmmsg_loop<256>)
+    ->ArgNames({"MessageSize", "MessagesPerBurst"})
+    ->ArgsProduct({sizes, bursts});
+#endif
 
 BENCHMARK_MAIN();
