@@ -220,4 +220,32 @@ BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, TCPSendmmsg, connected_tcp(), sendm
     ->ArgsProduct({sizes, bursts});
 #endif
 
+void BM_NonBlockingRecvOnEmptySocket(benchmark::State& state, int socket_type, int recv_flags) {
+  auto [in, _] = jl::unique_socket::pipes(AF_UNIX, socket_type);
+  std::vector<char> buffer(1024);
+  for (auto _ : state) {
+    size_t n = 0;
+    benchmark::DoNotOptimize(n = in.recv(buffer, recv_flags).size());
+  }
+}
+BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, DatagramOnSocketCreation, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, DatagramOnRecvCalls, SOCK_DGRAM, MSG_DONTWAIT);
+BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, StreamOnSocketCreation, SOCK_STREAM | SOCK_NONBLOCK, 0);
+BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, StreamOnRecvCalls, SOCK_STREAM, MSG_DONTWAIT);
+
+void BM_NonBlockingSendOnFullSocket(benchmark::State& state, int socket_type, int recv_flags) {
+  auto [_, out] = jl::unique_socket::pipes(AF_UNIX, socket_type);
+  std::vector<char> buffer(1024);
+  while (send(out.fd(), buffer.data(), buffer.size(), recv_flags) >= 0)
+    ;  // fill the socket
+  for (auto _ : state) {
+    size_t n = 0;
+    benchmark::DoNotOptimize(n = out.send(buffer, recv_flags));
+  }
+}
+BENCHMARK_CAPTURE(BM_NonBlockingSendOnFullSocket, DatagramOnSocketCreation, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+BENCHMARK_CAPTURE(BM_NonBlockingSendOnFullSocket, DatagramOnRecvCalls, SOCK_DGRAM, MSG_DONTWAIT);
+BENCHMARK_CAPTURE(BM_NonBlockingSendOnFullSocket, StreamOnSocketCreation, SOCK_STREAM | SOCK_NONBLOCK, 0);
+BENCHMARK_CAPTURE(BM_NonBlockingSendOnFullSocket, StreamOnRecvCalls, SOCK_STREAM, MSG_DONTWAIT);
+
 BENCHMARK_MAIN();
