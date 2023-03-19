@@ -1,5 +1,9 @@
 #pragma once
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -7,6 +11,7 @@
 #include <concepts>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <ranges>
@@ -39,6 +44,16 @@ T check_rw_error(T n, const std::string &message) {
     throw errno_as_error(message);
   }
   return n;
+}
+
+template <typename T>
+[[nodiscard]] std::vector<std::span<T>> sliced(std::span<T> buffer, size_t size) {
+  assert(buffer.size() % size == 0);
+  std::vector<std::span<T>> slices(buffer.size() / size);
+  for (size_t i = 0; i < slices.size(); ++i) {
+    slices[i] = {&buffer[i * size], size};
+  }
+  return slices;
 }
 
 /// An owned and managed file descriptor.
@@ -119,6 +134,284 @@ class tmpfd : public unique_fd {
  private:
   tmpfd(std::string path, int suffixlen)
       : unique_fd(mkstemps(path.data(), suffixlen)), _path(path) {}
+};
+
+[[nodiscard]] inline std::string uri_host(const std::string &host) {
+  return host.find(':') == std::string::npos ? host : "[" + host + "]";
+}
+
+/// An owned addrinfo wrapper that also remembers the hostname you looked up.
+class unique_addr {
+  std::string _host;
+  std::string _port;
+
+  struct addrinfo_deleter {
+    void operator()(addrinfo *p) {
+      if (p != nullptr) freeaddrinfo(p);
+    }
+  };
+  std::unique_ptr<addrinfo, addrinfo_deleter> _addr;
+
+ public:
+  unique_addr(std::string host, std::string port, int family = 0, addrinfo hints = {}) : _host(std::move(host)), _port(std::move(port)) {
+    hints.ai_family = family;
+    if (host.empty()) hints.ai_flags |= AI_PASSIVE;
+
+    addrinfo *result = nullptr;
+    if (int status = ::getaddrinfo(_host.empty() ? nullptr : _host.c_str(), _port.c_str(), &hints, &result); status != 0) {
+      throw std::runtime_error("getaddrinfo(" + string() + ") failed: " + gai_strerror(status));
+    }
+    _addr.reset(result);
+  }
+
+  [[nodiscard]] const addrinfo *get() const { return _addr.get(); }
+  [[nodiscard]] std::string string() const { return uri_host(_host) + ":" + _port; }
+
+  unique_addr(const unique_addr &) = delete;
+  unique_addr &operator=(const unique_addr &) = delete;
+  unique_addr(unique_addr &&) noexcept = default;
+  unique_addr &operator=(unique_addr &&) noexcept = default;
+  ~unique_addr() = default;
+};
+
+/// A converter from the IPv4/6 type-erased sockaddr stuctures
+struct host_port {
+  std::string host;
+  uint16_t port = 0;
+
+  static host_port from(const sockaddr *addr) {
+    std::array<char, 16> buf{};
+    switch (addr->sa_family) {
+      case AF_INET: {
+        const auto *v4 = std::bit_cast<const sockaddr_in *>(addr);
+        return {str_or_empty(inet_ntop(addr->sa_family, &v4->sin_addr, buf.data(), sizeof(buf))),
+                ntohs(v4->sin_port)};
+      }
+      case AF_INET6: {
+        const auto *v6 = std::bit_cast<const sockaddr_in6 *>(addr);
+        return {str_or_empty(inet_ntop(addr->sa_family, &v6->sin6_addr, buf.data(), sizeof(buf))),
+                ntohs(v6->sin6_port)};
+      }
+      default:
+        return {};
+    }
+  }
+  static host_port from(const addrinfo *ai) { return from(ai->ai_addr); }
+  static host_port from(const unique_addr &addr) { return from(addr.get()); }
+
+  [[nodiscard]] std::string string() const { return uri_host(host) + ":" + std::to_string(port); }
+  bool operator==(const host_port &) const = default;
+};
+
+/// An owned socket descriptor that simplifies common network usage.
+class unique_socket : public unique_fd {
+ public:
+  explicit unique_socket(int fd) : unique_fd(fd, "unique_socket(-1)") {}
+
+  static std::pair<unique_socket, unique_socket> pipes(int domain = AF_UNIX, int type = SOCK_STREAM) {
+    std::array<int, 2> sv{-1, -1};
+    if (socketpair(domain, type, 0, sv.data()) < 0) {
+      throw errno_as_error("socketpair failed");
+    }
+    return {unique_socket(sv[0]), unique_socket(sv[1])};
+  }
+
+  static unique_socket bound(
+      const unique_addr &source = {"::", "0"},
+      std::optional<int> domain = {},
+      std::optional<int> type = {},
+      std::optional<int> protocol = {},
+      const std::function<void(unique_socket &)> &before_bind = [](auto &) {}) {
+    for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
+      if (int fd = ::socket(domain.value_or(p->ai_family), type.value_or(p->ai_socktype), protocol.value_or(p->ai_protocol)); fd >= 0) {
+        unique_socket ufd(std::move(fd));
+        before_bind(ufd);
+        if (::bind(fd, p->ai_addr, p->ai_addrlen) == 0) return ufd;
+      }
+    }
+    throw errno_as_error("socket/bind(" + source.string() + ") failed");
+  }
+  static unique_socket udp(
+      const unique_addr &source = {"::", "0"},
+      std::optional<int> domain = {},
+      std::optional<int> protocol = IPPROTO_UDP,
+      const std::function<void(unique_socket &)> &before_bind = [](auto &) {}) {
+    return bound(source, domain, SOCK_DGRAM, protocol, before_bind);
+  }
+  static unique_socket tcp(
+      const unique_addr &source = {"::", "0"},
+      std::optional<int> domain = {},
+      std::optional<int> protocol = IPPROTO_TCP,
+      const std::function<void(unique_socket &)> &before_bind = [](auto &) {}) {
+    return bound(source, domain, SOCK_STREAM, protocol, [&](auto &fd) {
+      fd.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1);
+      before_bind(fd);
+    });
+  }
+
+  void bind(const unique_addr &source = unique_addr("", "0")) {
+    for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
+      if (::bind(fd(), p->ai_addr, p->ai_addrlen) == 0) return;
+    }
+    throw errno_as_error("bind(" + source.string() + ") failed");
+  }
+
+  void connect(const unique_addr &source) {
+    for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
+      if (::connect(fd(), p->ai_addr, p->ai_addrlen) == 0) return;
+    }
+    throw errno_as_error("connect(" + source.string() + ") failed");
+  }
+
+  void listen(int backlog) {
+    check_rw_error(::listen(fd(), backlog), "listen failed");
+  }
+  std::optional<std::pair<unique_socket, host_port>> accept(int flags = 0) {
+    sockaddr_in6 addr_buf{};
+    auto *addr = std::bit_cast<sockaddr *>(&addr_buf);
+    socklen_t addr_len = sizeof(addr_buf);
+
+    auto client = check_rw_error(::accept4(fd(), addr, &addr_len, flags), "accept failed");
+    if (client < 0) return std::nullopt;
+    return {{unique_socket(client), host_port::from(addr)}};
+  }
+
+  template <typename T>
+  int try_setsockopt(int level, int option_name, const T &value) {
+    return ::setsockopt(fd(), level, option_name, &value, sizeof(value));
+  }
+  template <typename T>
+  void setsockopt(int level, int option_name, const T &value) {
+    if (try_setsockopt(level, option_name, value) < 0) {
+      throw errno_as_error("setsockopt(" + std::to_string(level) + ", " + std::to_string(option_name) + ") failed");
+    }
+  }
+
+  template <typename C>
+    requires std::constructible_from<std::span<const typename C::value_type>, C>
+  size_t send(const C &data, int flags = 0) {  // NOLINT(*-function-const)
+    constexpr size_t size = sizeof(typename C::value_type);
+    return check_rw_error(::send(fd(), data.data(), size * data.size(), flags), "send failed") / size;
+  }
+  size_t send(std::string_view data, int flags = 0) {  // NOLINT(*-function-const)
+    return check_rw_error(::send(fd(), data.data(), data.size(), flags), "send failed");
+  }
+
+  template <typename T>
+  std::span<T> recv(std::span<T> buffer, int flags = 0) {  // NOLINT(*-function-const)
+    auto n = check_rw_error(::recv(fd(), buffer.data(), sizeof(T) * buffer.size(), flags), "recv failed");
+    return buffer.subspan(0, n / sizeof(T));
+  }
+  template <typename C>
+    requires std::constructible_from<std::span<const typename C::value_type>, C>
+  std::span<typename C::value_type> recv(C &data, int flags = 0) {  // NOLINT(*-function-const)
+    return recv(std::span<typename C::value_type>(data), flags);
+  }
+  std::string_view recv(std::string &buffer, int flags = 0) {  // NOLINT(*-function-const)
+    auto n = check_rw_error(::recv(fd(), buffer.data(), buffer.size(), flags), "recv failed");
+    return {buffer.begin(), buffer.begin() + n};
+  }
+};
+
+/// An abstraction for managing the POSIX "span" structures required by
+/// multi-message system calls like recvmmsg/sendmmsg.
+template <typename T = char>
+class mmsg_socket {
+  unique_socket _fd;
+  std::vector<mmsghdr> _msgs;
+  std::vector<iovec> _iovecs;
+  std::vector<std::span<T>> _received;  /// lazily initialized
+
+ public:
+  /// WARN: Buffers should be large enough to fit the expected messages
+  /// otherwise those could be truncated (see `man recvmsg` for details).
+  mmsg_socket(unique_socket fd, std::span<std::span<T>> buffers)
+      : _fd(std::move(fd)), _msgs(buffers.size()), _iovecs(buffers.size()) {
+    reset(buffers);
+  }
+
+  void reset(std::span<std::span<T>> buffers) {
+    _msgs.resize(buffers.size());
+    _iovecs.resize(buffers.size());
+    for (size_t i = 0; i < buffers.size(); ++i) {
+      _iovecs[i].iov_base = buffers[i].data();
+      _iovecs[i].iov_len = sizeof(T) * buffers[i].size();
+      _msgs[i].msg_hdr.msg_iov = &_iovecs[i];
+      _msgs[i].msg_hdr.msg_iovlen = 1;
+    }
+  }
+
+  /// WARN: new_count only updates the length field in the message header, so
+  /// it assumes that the original message buffer is large enough for this.
+  ///
+  /// @returns the buffer for the message at idx.
+  [[nodiscard]] std::span<T> buffer(size_t idx, std::optional<size_t> new_count = std::nullopt) {
+    if (new_count) {
+      _iovecs[idx].iov_len = sizeof(T) * *new_count;
+    }
+    T *base = std::bit_cast<T *>(_iovecs[idx].iov_base);  // NOLINT(*reinterpret-cast)
+    return {base, base + _iovecs[idx].iov_len / sizeof(T)};
+  }
+  /// WARN: Assumes that the message buffer is large enough to fit data.
+  void write(size_t idx, std::span<const T> data) {
+    auto buf = buffer(idx, data.size());
+    std::copy(data.begin(), data.end(), buf.begin());
+  }
+  [[nodiscard]] mmsghdr &message(size_t idx) { return _msgs[idx]; }
+
+  /// Sends message buffers off through off + count.
+  /// @returns the number of messages sent.
+  size_t sendmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = 0) {
+    // assert(off + count <= _msgs.size());
+    return check_rw_error(::sendmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags), "sendmmsg failed");
+  }
+
+  /// Receives message into buffers off through off + count. Returned spans are
+  /// valid until further operations on those same message slots.
+  std::span<std::span<T>> recvmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
+    int msgs = check_rw_error(::recvmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags, nullptr), "recvmmsg failed");
+    if (static_cast<int>(_received.size()) < msgs) {
+      _received.resize(_msgs.size());
+    }
+    for (int i = 0; i < msgs; ++i) {
+      T *base = reinterpret_cast<T *>(_iovecs[i].iov_base);  // NOLINT(*reinterpret-cast)
+      _received[i] = {base, base + _msgs[i].msg_len / sizeof(T)};
+    }
+    return {_received.begin(), _received.begin() + msgs};
+  }
+
+  [[nodiscard]] unique_socket &fd() noexcept { return _fd; }
+
+  mmsg_socket(const mmsg_socket &) = delete;
+  mmsg_socket &operator=(const mmsg_socket &) = delete;
+  mmsg_socket(mmsg_socket &&) noexcept = default;
+  mmsg_socket &operator=(mmsg_socket &&) noexcept = default;
+  ~mmsg_socket() = default;
+};
+
+/// An abstraction for doing
+template <typename T = char>
+class mmsg_buffer : public mmsg_socket<T> {
+  std::vector<T> _buffer;
+
+ public:
+  /// WARN: The mtu (Maximum Transfer Unit) size is an upper limited to the
+  /// size of messages that are sent or received. Writing messages larger than
+  /// that would overflow its buffer, and received messages could be truncated
+  /// to fit in the buffers (see `man recvmsg` for details).
+  mmsg_buffer(unique_socket fd, size_t msgs, size_t mtu = 1500)
+      : mmsg_socket<T>(std::move(fd), {}), _buffer(msgs * mtu) {
+    auto slices = sliced<T>(_buffer, mtu);
+    mmsg_socket<T>::reset(slices);
+  }
+
+  void reset(std::span<std::span<T>> buffers) = delete;
+
+  mmsg_buffer(const mmsg_buffer &) = delete;
+  mmsg_buffer &operator=(const mmsg_buffer &) = delete;
+  mmsg_buffer(mmsg_buffer &&) noexcept = default;
+  mmsg_buffer &operator=(mmsg_buffer &&) noexcept = default;
+  ~mmsg_buffer() = default;
 };
 
 /// An owned and managed memory mapped span.
