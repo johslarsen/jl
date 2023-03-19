@@ -220,6 +220,31 @@ BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, TCPSendmmsg, connected_tcp(), sendm
     ->ArgsProduct({sizes, bursts});
 #endif
 
+void BM_PollThenNonBlockRecvIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
+  size_t message_size = state.range(0);
+  auto [in, out] = std::move(sockets);
+  std::atomic<bool> sender_finished = false;
+  std::jthread sender(sender_loop, std::ref(sender_finished), std::move(out), message_size);
+
+  std::vector<char> buffer(message_size);
+  size_t packets = 0, bytes = 0;
+  pollfd fds{.fd = in.fd(), .events = POLLIN, .revents = 0};
+  for (auto _ : state) {
+    if (jl::check_rw_error(poll(&fds, 1, 1 /*ms*/), "poll") > 0) {
+      bytes += in.recv(buffer, MSG_DONTWAIT).size();
+      packets += 1;
+    }
+  }
+  sender.request_stop();
+  drain(sender_finished, in, buffer);
+
+  state.counters["Bytes"] = benchmark::Counter(static_cast<double>(bytes), benchmark::Counter::kIsRate);
+  state.counters["Packets"] = benchmark::Counter(static_cast<double>(packets), benchmark::Counter::kIsRate);
+}
+BENCHMARK_CAPTURE(BM_PollThenNonBlockRecvIntoSameBuffer, DatagramPipe, jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM), send_loop)
+    ->ArgName("MessageSize")
+    ->ArgsProduct({sizes});
+
 void BM_NonBlockingRecvOnEmptySocket(benchmark::State& state, int socket_type, int recv_flags) {
   auto [in, _] = jl::unique_socket::pipes(AF_UNIX, socket_type);
   std::vector<char> buffer(1024);
