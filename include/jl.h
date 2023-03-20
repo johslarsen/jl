@@ -503,10 +503,12 @@ class CircularBuffer {
     // refer to the same physical address.
     //
     // This concept/trick originates from https://github.com/willemt/cbuffer
-    if (::mmap(_data->data(), len, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, *fd, 0) == MAP_FAILED) {
+    int prot = PROT_READ | PROT_WRITE;
+    int flags = MAP_FIXED | MAP_SHARED;
+    if (::mmap(_data->data(), len, prot, flags, *fd, 0) == MAP_FAILED) {  // NOLINT(*cstyle-cast,*int-to-ptr)
       throw errno_as_error("CircularBuffer mmap data failed");
     }
-    if (::mmap(_data->data() + Capacity, len, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_SHARED, *fd, 0) == MAP_FAILED) {
+    if (::mmap(_data->data() + Capacity, len, prot, flags, *fd, 0) == MAP_FAILED) {  // NOLINT(*cstyle-cast,*int-to-ptr)
       throw errno_as_error("CircularBuffer mmap shadow failed");
     }
   }

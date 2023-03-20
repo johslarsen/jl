@@ -40,5 +40,5 @@ TEST(TmpFD, ReadAndWriteWorksWithVariousInputs) {
   EXPECT_EQ("foo", std::string_view(foo.begin(), foo.end()));
   EXPECT_EQ("bar", fd.read(string));
   auto int123 = fd.read(std::span<int>(int_vector));
-  EXPECT_EQ((std::vector<int>{1,2,3}), std::vector<int>(int123.begin(), int123.end()));
+  EXPECT_EQ((std::vector<int>{1, 2, 3}), std::vector<int>(int123.begin(), int123.end()));
 }
