@@ -180,15 +180,15 @@ struct host_port {
   uint16_t port = 0;
 
   static host_port from(const sockaddr *addr) {
-    std::array<char, 16> buf{};
+    std::array<char, INET6_ADDRSTRLEN> buf{};
     switch (addr->sa_family) {
       case AF_INET: {
-        const auto *v4 = std::bit_cast<const sockaddr_in *>(addr);
+        const auto *v4 = reinterpret_cast<const sockaddr_in *>(addr); //NOLINT(*reinterpret-cast) from type-erased C-struct
         return {str_or_empty(inet_ntop(addr->sa_family, &v4->sin_addr, buf.data(), sizeof(buf))),
                 ntohs(v4->sin_port)};
       }
       case AF_INET6: {
-        const auto *v6 = std::bit_cast<const sockaddr_in6 *>(addr);
+        const auto *v6 = reinterpret_cast<const sockaddr_in6 *>(addr); //NOLINT(*reinterpret-cast) from type-erased C-struct
         return {str_or_empty(inet_ntop(addr->sa_family, &v6->sin6_addr, buf.data(), sizeof(buf))),
                 ntohs(v6->sin6_port)};
       }
@@ -268,7 +268,7 @@ class unique_socket : public unique_fd {
   }
   std::optional<std::pair<unique_socket, host_port>> accept(int flags = 0) {
     sockaddr_in6 addr_buf{};
-    auto *addr = std::bit_cast<sockaddr *>(&addr_buf);
+    auto *addr = reinterpret_cast<sockaddr *>(&addr_buf); //NOLINT(*reinterpret-cast) to type-erased C-struct
     socklen_t addr_len = sizeof(addr_buf);
 
     auto client = check_rw_error(::accept4(fd(), addr, &addr_len, flags), "accept failed");
@@ -316,6 +316,7 @@ class unique_socket : public unique_fd {
 /// An abstraction for managing the POSIX "span" structures required by
 /// multi-message system calls like recvmmsg/sendmmsg.
 template <typename T = char>
+  requires std::is_trivially_copyable<T>::value
 class mmsg_socket {
   unique_socket _fd;
   std::vector<mmsghdr> _msgs;
@@ -349,7 +350,8 @@ class mmsg_socket {
     if (new_count) {
       _iovecs[idx].iov_len = sizeof(T) * *new_count;
     }
-    T *base = std::bit_cast<T *>(_iovecs[idx].iov_base);  // NOLINT(*reinterpret-cast)
+    // NOLINTNEXTLINE(*reinterpret-cast) is safe because iov_base originate from std::span<T>.data()
+    T *base = reinterpret_cast<T *>(_iovecs[idx].iov_base);
     return {base, base + _iovecs[idx].iov_len / sizeof(T)};
   }
   /// WARN: Assumes that the message buffer is large enough to fit data.
@@ -374,7 +376,8 @@ class mmsg_socket {
       _received.resize(_msgs.size());
     }
     for (int i = 0; i < msgs; ++i) {
-      T *base = reinterpret_cast<T *>(_iovecs[i].iov_base);  // NOLINT(*reinterpret-cast)
+      // NOLINTNEXTLINE(*reinterpret-cast) is safe because iov_base originate from std::span<T>.data()
+      T *base = reinterpret_cast<T *>(_iovecs[i].iov_base);
       _received[i] = {base, base + _msgs[i].msg_len / sizeof(T)};
     }
     return {_received.begin(), _received.begin() + msgs};
@@ -391,6 +394,7 @@ class mmsg_socket {
 
 /// An abstraction for doing
 template <typename T = char>
+  requires std::is_trivially_copyable<T>::value
 class mmsg_buffer : public mmsg_socket<T> {
   std::vector<T> _buffer;
 
@@ -416,6 +420,7 @@ class mmsg_buffer : public mmsg_socket<T> {
 
 /// An owned and managed memory mapped span.
 template <typename T>
+  requires std::is_trivially_copyable<T>::value
 class unique_mmap {
   std::span<T> _map;
 
@@ -426,14 +431,14 @@ class unique_mmap {
       : unique_mmap(nullptr, count, prot, flags, fd, offset, errmsg) {
   }
 
-  /// More advanced constructor for e.g. MAP_FIXED when you need the addr
+  /// More advanced constructoR for e.g. MAP_FIXED when you need the addr
   /// parameter. The size/offset parameters are in counts of T, not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
   unique_mmap(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap failed")
       : _map([&] {
           void *pa = ::mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T));
           if (pa == MAP_FAILED) throw errno_as_error(errmsg);     // NOLINT(*cstyle-cast,*int-to-ptr)
-          return std::span<T>(reinterpret_cast<T *>(pa), count);  // NOLINT(*reinterpret-cast)
+          return std::span<T>(reinterpret_cast<T *>(pa), count);  // NOLINT(*reinterpret-cast), mmap returns page-aligned address
         }()) {}
 
   ~unique_mmap() noexcept {
@@ -453,7 +458,7 @@ class unique_mmap {
   void remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap failed") {
     void *pa = ::mremap(_map.data(), _map.size() * sizeof(T), count * sizeof(T), flags, addr);
     if (pa == MAP_FAILED) throw errno_as_error(errmsg);     // NOLINT(*cstyle-cast,*int-to-ptr)
-    _map = std::span<T>(reinterpret_cast<T *>(pa), count);  // NOLINT(*reinterpret-cast)
+    _map = std::span<T>(reinterpret_cast<T *>(pa), count);  // NOLINT(*reinterpret-cast), mremap returns page-aligned address
   }
 
   unique_mmap(const unique_mmap &) = delete;
