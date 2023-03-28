@@ -183,12 +183,12 @@ struct host_port {
     std::array<char, INET6_ADDRSTRLEN> buf{};
     switch (addr->sa_family) {
       case AF_INET: {
-        const auto *v4 = reinterpret_cast<const sockaddr_in *>(addr); //NOLINT(*reinterpret-cast) from type-erased C-struct
+        const auto *v4 = reinterpret_cast<const sockaddr_in *>(addr);  // NOLINT(*reinterpret-cast) from type-erased C-struct
         return {str_or_empty(inet_ntop(addr->sa_family, &v4->sin_addr, buf.data(), sizeof(buf))),
                 ntohs(v4->sin_port)};
       }
       case AF_INET6: {
-        const auto *v6 = reinterpret_cast<const sockaddr_in6 *>(addr); //NOLINT(*reinterpret-cast) from type-erased C-struct
+        const auto *v6 = reinterpret_cast<const sockaddr_in6 *>(addr);  // NOLINT(*reinterpret-cast) from type-erased C-struct
         return {str_or_empty(inet_ntop(addr->sa_family, &v6->sin6_addr, buf.data(), sizeof(buf))),
                 ntohs(v6->sin6_port)};
       }
@@ -268,7 +268,7 @@ class unique_socket : public unique_fd {
   }
   std::optional<std::pair<unique_socket, host_port>> accept(int flags = 0) {
     sockaddr_in6 addr_buf{};
-    auto *addr = reinterpret_cast<sockaddr *>(&addr_buf); //NOLINT(*reinterpret-cast) to type-erased C-struct
+    auto *addr = reinterpret_cast<sockaddr *>(&addr_buf);  // NOLINT(*reinterpret-cast) to type-erased C-struct
     socklen_t addr_len = sizeof(addr_buf);
 
     auto client = check_rw_error(::accept4(fd(), addr, &addr_len, flags), "accept failed");
