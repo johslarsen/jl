@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <gtest/gtest.h>
 #include <jl.h>
 
@@ -25,4 +26,13 @@ TEST(UniqueMMAP, Integer) {
   // NOTE: mmap would have returned EINVAL if  offset were not 4KiB page aligned
   jl::unique_mmap<int32_t> map(1024, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 1024);
   EXPECT_EQ(4096, map->size_bytes());
+}
+
+TEST(UniqueMMAP, NamedAnonymousPages) {
+  auto map = jl::unique_mmap<char>::anon(1 << 20, PROT_READ | PROT_WRITE, "NamedAnonymousPages");
+
+  std::string smaps_path = "/proc/" + std::to_string(getpid()) + "/smaps";
+  jl::unique_fd smaps_fd(open(smaps_path.c_str(), O_RDONLY | O_CLOEXEC));
+  auto smaps = smaps_fd.readall(*map);
+  EXPECT_NE(std::string::npos, std::string_view(smaps.begin(), smaps.end()).find("[anon:NamedAnonymousPages]"));
 }

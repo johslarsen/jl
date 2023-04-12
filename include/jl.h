@@ -3,6 +3,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -14,7 +15,6 @@
 #include <functional>
 #include <limits>
 #include <optional>
-#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <system_error>
@@ -109,6 +109,15 @@ class unique_fd {
   std::string_view read(std::string &buffer) {  // NOLINT(*const)
     auto n = check_rw_error(::read(_fd, buffer.data(), buffer.size()), "read failed");
     return {buffer.begin(), buffer.begin() + n};
+  }
+
+  template <typename T>
+  std::span<T> readall(std::span<T> buffer) {
+    for (size_t count = 0, offset = 0; offset < buffer.size(); offset += count) {
+      count = read(buffer.subspan(offset)).size();
+      if (count == 0) return buffer.subspan(0, offset);
+    }
+    return buffer;
   }
 };
 
@@ -431,7 +440,7 @@ class unique_mmap {
       : unique_mmap(nullptr, count, prot, flags, fd, offset, errmsg) {
   }
 
-  /// More advanced constructoR for e.g. MAP_FIXED when you need the addr
+  /// More advanced constructor for e.g. MAP_FIXED when you need the addr
   /// parameter. The size/offset parameters are in counts of T, not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
   unique_mmap(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap failed")
@@ -440,6 +449,12 @@ class unique_mmap {
           if (pa == MAP_FAILED) throw errno_as_error(errmsg);     // NOLINT(*cstyle-cast,*int-to-ptr)
           return std::span<T>(reinterpret_cast<T *>(pa), count);  // NOLINT(*reinterpret-cast), mmap returns page-aligned address
         }()) {}
+
+  static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap failed") {
+    unique_mmap<T> map(count, prot, flags, -1, 0, errmsg);
+    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());
+    return map;
+  }
 
   ~unique_mmap() noexcept {
     if (!_map.empty()) ::munmap(_map.data(), _map.size() * sizeof(T));
@@ -495,7 +510,8 @@ class CircularBuffer {
   Index _write = 0;
 
  public:
-  CircularBuffer() : _data(Capacity * 2, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE) {
+  explicit CircularBuffer(const std::string &mmap_name = "CircularBuffer")
+      : _data(unique_mmap<T>::anon(Capacity * 2, PROT_NONE, mmap_name)) {
     jl::tmpfd fd;
     off_t len = Capacity * sizeof(T);
     ftruncate(*fd, len);
