@@ -57,12 +57,40 @@ constexpr Int be(Int n) {
     return n;
   }
 }
+constexpr float be(float n) {
+  if constexpr (std::endian::native == std::endian::little) {
+    return std::bit_cast<float>(be(std::bit_cast<uint32_t>(n)));
+  } else {
+    return n;
+  }
+}
+constexpr double be(double n) {
+  if constexpr (std::endian::native == std::endian::little) {
+    return std::bit_cast<double>(be(std::bit_cast<uint64_t>(n)));
+  } else {
+    return n;
+  }
+}
 /// @returns returns byteswapped n on big-endian architectures
 template <typename Int>
 constexpr Int le(Int n) {
   static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little, "jl::le only supported on big/little-endian architectures");
   if constexpr (std::endian::native == std::endian::big) {
     return std::byteswap(n);
+  } else {
+    return n;
+  }
+}
+constexpr float le(float n) {
+  if constexpr (std::endian::native == std::endian::big) {
+    return std::bit_cast<float>(le(std::bit_cast<uint32_t>(n)));
+  } else {
+    return n;
+  }
+}
+constexpr double le(double n) {
+  if constexpr (std::endian::native == std::endian::big) {
+    return std::bit_cast<double>(le(std::bit_cast<uint64_t>(n)));
   } else {
     return n;
   }
