@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <bit>
 #include <cassert>
 #include <charconv>
 #include <concepts>
@@ -132,6 +133,56 @@ T check_rw_error(T n, const std::string &message) {
     throw errno_as_error(message);
   }
   return n;
+}
+
+// clang-format off
+/// Type trait to select a same sized integer based on the size of a type
+template <size_t N> struct uint_from_size {};
+template <> struct uint_from_size<1> { using type = uint8_t; };
+template <> struct uint_from_size<2> { using type = uint16_t; };
+template <> struct uint_from_size<4> { using type = uint32_t; };
+template <> struct uint_from_size<8> { using type = uint64_t; };
+// clang-format on
+
+/// @returns returns byteswapped n on little-endian architectures
+template <std::integral Int>
+constexpr Int be(Int n) noexcept {
+  static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little,
+                "jl::be only supported on big/little-endian architectures");
+  if constexpr (std::endian::native == std::endian::little) {
+    return std::byteswap(n);
+  } else {
+    return n;
+  }
+}
+template <typename T, typename U = uint_from_size<sizeof(T)>::type>
+  requires(!std::integral<T>)
+constexpr T be(T n) noexcept {
+  if constexpr (std::endian::native == std::endian::little) {
+    return std::bit_cast<T>(be(std::bit_cast<U>(n)));
+  } else {
+    return n;
+  }
+}
+/// @returns returns byteswapped n on big-endian architectures
+template <std::integral Int>
+constexpr Int le(Int n) noexcept {
+  static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little,
+                "jl::le only supported on big/little-endian architectures");
+  if constexpr (std::endian::native == std::endian::big) {
+    return std::byteswap(n);
+  } else {
+    return n;
+  }
+}
+template <typename T, typename U = uint_from_size<sizeof(T)>::type>
+  requires(!std::integral<T>)
+constexpr T le(T n) noexcept {
+  if constexpr (std::endian::native == std::endian::big) {
+    return std::bit_cast<float>(le(std::bit_cast<U>(n)));
+  } else {
+    return n;
+  }
 }
 
 template <typename T>
