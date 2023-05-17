@@ -1,5 +1,6 @@
 add_executable(
   run_test
+  bit_test.cpp
   environment_test.cpp
   errno_as_error_test.cpp
   circular_buffer_test.cpp

@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <bit>
 #include <charconv>
 #include <concepts>
 #include <cstring>
@@ -44,6 +45,27 @@ T check_rw_error(T n, const std::string &message) {
     throw errno_as_error(message);
   }
   return n;
+}
+
+/// @returns returns byteswapped n on little-endian architectures
+template <typename Int>
+constexpr Int be(Int n) {
+  static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little, "jl::be only supported on big/little-endian architectures");
+  if constexpr (std::endian::native == std::endian::little) {
+    return std::byteswap(n);
+  } else {
+    return n;
+  }
+}
+/// @returns returns byteswapped n on big-endian architectures
+template <typename Int>
+constexpr Int le(Int n) {
+  static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little, "jl::le only supported on big/little-endian architectures");
+  if constexpr (std::endian::native == std::endian::big) {
+    return std::byteswap(n);
+  } else {
+    return n;
+  }
 }
 
 template <typename T>
