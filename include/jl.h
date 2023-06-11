@@ -497,6 +497,28 @@ class unique_mmap {
   }
 };
 
+template <typename T>
+  requires std::is_trivially_copyable<T>::value
+class fd_mmap {
+  // ordered matters, so during destruction unmap before closing fd.
+  unique_fd _fd;
+  unique_mmap<T> _map;
+
+ public:
+  explicit fd_mmap(unique_fd fd, int prot = PROT_READ, int flags = MAP_SHARED, off_t offset = 0, std::optional<size_t> size = std::nullopt, const std::string &errmsg = "fd_mmap failed") : _fd(std::move(fd)),
+                                                                                                                                                                                            _map(size ? *size : _fd.stat().st_size / sizeof(T) - offset, prot, flags, _fd.fd(), offset, errmsg) {}
+
+  [[nodiscard]] int fd() const noexcept { return _fd.fd(); }
+
+  [[nodiscard]] T &operator[](size_t idx) noexcept { return _map[idx]; }
+  [[nodiscard]] const T &operator[](size_t idx) const noexcept { return _map[idx]; }
+
+  [[nodiscard]] std::span<T> &operator*() noexcept { return *_map; }
+  [[nodiscard]] const std::span<T> &operator*() const noexcept { return *_map; }
+  [[nodiscard]] std::span<T> *operator->() noexcept { return &_map; }
+  [[nodiscard]] const std::span<T> *operator->() const noexcept { return &_map; }
+};
+
 /// A circular (aka. ring) buffer with support for copy-free read/write of
 /// contiguous elements anywhere in the buffer, even across the wrap-around
 /// threshold. Given an atomic Index type, one writer and one reader can safely
