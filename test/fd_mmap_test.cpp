@@ -6,20 +6,20 @@ static inline std::string_view as_view(std::span<char> data) {
 }
 
 TEST(FdMMAP, Reading) {
-  jl::tmpfd fd;
+  jl::unique_fd fd = jl::tmpfd().unlink();
   fd.write("foo");
 
-  jl::fd_mmap<char> map(std::move(fd).unlink());
+  jl::fd_mmap<char> map(std::move(fd));
 
   EXPECT_EQ('f', map[0]);
   EXPECT_EQ("foo", as_view(*map));
 }
 
 TEST(FdMMAP, ReadWrite) {
-  jl::tmpfd fd;
+  jl::unique_fd fd = jl::tmpfd().unlink();
   fd.write("foo");
 
-  jl::fd_mmap<char> map(std::move(fd).unlink(), PROT_READ | PROT_WRITE);
+  jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
   std::string_view ba = "ba";
   std::copy(ba.begin(), ba.end(), map->begin());
   map[2] = 'r';
@@ -28,12 +28,12 @@ TEST(FdMMAP, ReadWrite) {
 }
 
 TEST(FdMMAP, AutomaticSizeTakesOffsetIntoAccount) {
-  jl::tmpfd fd;
+  jl::unique_fd fd = jl::tmpfd().unlink();
   fd.truncate(4096);
   ASSERT_EQ(4096, lseek(fd.fd(), 4096, SEEK_SET));
   fd.write("foo");
 
-  jl::fd_mmap<char> map(std::move(fd).unlink(), PROT_READ, MAP_SHARED, 4096);
+  jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
 
   EXPECT_EQ("foo", as_view(*map));
 }

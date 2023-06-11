@@ -57,8 +57,6 @@ template <typename T>
   return slices;
 }
 
-class tmpfd;
-
 /// An owned and managed file descriptor.
 class unique_fd {
  protected:
@@ -79,7 +77,6 @@ class unique_fd {
 
   unique_fd(const unique_fd &) = delete;
   unique_fd &operator=(const unique_fd &) = delete;
-  unique_fd(tmpfd &&) = delete;  // block implicit slicing from this subclass
   unique_fd(unique_fd &&other) noexcept : _fd(other._fd) {
     other._fd = -1;
   }
@@ -137,7 +134,8 @@ class unique_fd {
 };
 
 /// A named file descriptor that is closed and removed upon destruction.
-class tmpfd : public unique_fd {
+class tmpfd {
+  unique_fd _fd;
   std::filesystem::path _path;
 
  public:
@@ -145,10 +143,15 @@ class tmpfd : public unique_fd {
       : tmpfd(prefix + "XXXXXX" + suffix, static_cast<int>(suffix.length())) {}
 
   ~tmpfd() {
-    _fd = release_unlinked();
+    std::move(*this).unlink();
   }
 
-  [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
+  [[nodiscard]] const std::filesystem::path &path() const noexcept {
+    return _path;
+  }
+
+  [[nodiscard]] unique_fd *operator->() noexcept { return &_fd; }
+  [[nodiscard]] const unique_fd *operator->() const noexcept { return &_fd; }
 
   tmpfd(const tmpfd &) = delete;
   tmpfd &operator=(const tmpfd &) = delete;
@@ -157,20 +160,14 @@ class tmpfd : public unique_fd {
 
   /// Explicitly convert this into an unlinked but still open unique_fd
   unique_fd unlink() && {
-    return unique_fd(release_unlinked());
+    if (!_path.empty()) std::filesystem::remove(_path);
+    _path.clear();
+    return std::move(_fd);
   }
 
  private:
   tmpfd(std::string path, int suffixlen)
-      : unique_fd(mkstemps(path.data(), suffixlen)), _path(path) {}
-
-  int release_unlinked() {
-    if (_fd >= 0) std::filesystem::remove(_path);
-
-    int fd = _fd;
-    _fd = -1;
-    return fd;
-  }
+      : _fd(mkstemps(path.data(), suffixlen)), _path(path) {}
 };
 
 [[nodiscard]] inline std::string uri_host(const std::string &host) {
@@ -605,9 +602,9 @@ class CircularBuffer {
  public:
   explicit CircularBuffer(const std::string &mmap_name = "CircularBuffer")
       : _data(unique_mmap<T>::anon(Capacity * 2, PROT_NONE, mmap_name)) {
-    jl::tmpfd fd;
+    jl::unique_fd fd = jl::tmpfd().unlink();
     off_t len = Capacity * sizeof(T);
-    ftruncate(*fd, len);
+    fd.truncate(len);
 
     // _data is a continues virtual memory span twice as big as the Capacity
     // where the first and second half is mapped to the same shared buffer.

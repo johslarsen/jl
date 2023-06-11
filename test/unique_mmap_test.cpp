@@ -9,7 +9,7 @@ TEST(UniqueMMAP, MoveAndAssignmentDoesNotDoubleClose) {
 }
 
 TEST(UniqueMMAP, MappedFile) {
-  jl::tmpfd tmp;
+  jl::unique_fd tmp = jl::tmpfd().unlink();
   char n = 42;
   ASSERT_EQ(1, pwrite(*tmp, &n, 1, 4095));
 

@@ -26,7 +26,7 @@ TEST(TmpFD, MoveAndAssignmentDoesNotDoubleClose) {
 }
 
 TEST(TmpFD, ReadAndWriteWorksWithVariousInputs) {
-  jl::tmpfd fd;
+  jl::unique_fd fd = jl::tmpfd().unlink();
   std::vector<char> char_vector = {'f', 'o', 'o'};
   std::string string = "bar";
   std::vector<int> int_vector = {1, 2, 3};
