@@ -21,7 +21,7 @@ TEST(FdMMAP, ReadWrite) {
 
   jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
   std::string_view ba = "ba";
-  std::copy(ba.begin(), ba.end(), (*map).begin());
+  std::copy(ba.begin(), ba.end(), map->begin());
   map[2] = 'r';
 
   EXPECT_EQ("bar", as_view(*map));
@@ -29,11 +29,46 @@ TEST(FdMMAP, ReadWrite) {
 
 TEST(FdMMAP, AutomaticSizeTakesOffsetIntoAccount) {
   jl::tmpfd fd;
-  ASSERT_EQ(0, ftruncate(fd.fd(), 4096));
+  fd.truncate(4096);
   ASSERT_EQ(4096, lseek(fd.fd(), 4096, SEEK_SET));
   fd.write("foo");
 
-  jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_PRIVATE, 4096);
+  jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
 
   EXPECT_EQ("foo", as_view(*map));
+}
+
+std::string sread(int fd, size_t length, off_t offset) {
+  std::string str(length, '\0');
+  if (auto read = pread(fd, str.data(), length, offset); read >= 0) {
+    str.resize(read);
+    return str;
+  }
+  throw jl::errno_as_error("pread failed");
+}
+
+TEST(FdMMAP, TruncateTakesOffsetIntoAccount) {
+  jl::fd_mmap<char> map(std::move(jl::tmpfd()), PROT_READ | PROT_WRITE, MAP_SHARED, 4096);
+
+  map.truncate(4096);
+  EXPECT_EQ(0, map->size());
+  map.truncate(4097);
+  EXPECT_EQ(1, map->size());
+
+  EXPECT_EQ(std::string_view("\0", 1), as_view(*map));
+  map[0] = 'a';
+  EXPECT_EQ("a", sread(map.fd(), 1, 4096));
+
+  map.truncate(0);
+  EXPECT_EQ(0, map->size());
+}
+
+TEST(FdMMAP, RemapDoesNotAffectFile) {
+  jl::fd_mmap<char> map(std::move(jl::tmpfd()));
+  map.remap(10);
+  EXPECT_EQ(10, map->size());
+
+  struct stat buf{};
+  EXPECT_EQ(0, fstat(map.fd(), &buf));
+  EXPECT_EQ(0, buf.st_size);
 }

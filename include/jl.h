@@ -463,7 +463,7 @@ class unique_mmap {
 
   static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap failed") {
     unique_mmap<T> map(count, prot, flags, -1, 0, errmsg);
-    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());
+    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());  // best effort, so okay if it fails silently
     return map;
   }
 
@@ -501,26 +501,69 @@ class unique_mmap {
   }
 };
 
+/// An owned and managed file descriptor and mapping to its contents
 template <typename T>
   requires std::is_trivially_copyable<T>::value
 class fd_mmap {
-  // ordered matters, so during destruction unmap before closing fd.
+  off_t _offset;  // need to keep track of this to properly map size after truncation
   unique_fd _fd;
-  unique_mmap<T> _map;
+  unique_mmap<T> _mmap;  // destroy before _fd, so fd is unmapped before being closed
+
+  /// Nominally this reflects the _mmap span. However, files can be empty, and
+  /// memory maps cannot. If that is the case (e.g. a newly created file) we
+  /// prefer not to fail, so internally we still map a non-empty portion of the
+  /// file into _mmap, and instead put a empty span here to return to the user.
+  std::span<T> _map;
 
  public:
-  explicit fd_mmap(unique_fd fd, int prot = PROT_READ, int flags = MAP_SHARED, off_t offset = 0, std::optional<size_t> size = std::nullopt, const std::string &errmsg = "fd_mmap failed") : _fd(std::move(fd)),
-                                                                                                                                                                                            _map(size ? *size : _fd.stat().st_size / sizeof(T) - offset, prot, flags, _fd.fd(), offset, errmsg) {}
+  /// A mmap over fd. The count/offset parameters are in counts of T, not bytes.
+  /// @throws std::system_error with errno and errmsg if it fails.
+  explicit fd_mmap(unique_fd fd, int prot = PROT_READ, int flags = MAP_SHARED, off_t offset = 0, std::optional<size_t> count = std::nullopt, const std::string &errmsg = "fd_mmap failed")  // NOLINT(*-member-init) false positive: https://github.com/llvm/llvm-project/issues/37250
+      : fd_mmap(with_count(std::move(fd), count), prot, flags, offset, count, errmsg) {}
 
   [[nodiscard]] int fd() const noexcept { return _fd.fd(); }
 
   [[nodiscard]] T &operator[](size_t idx) noexcept { return _map[idx]; }
   [[nodiscard]] const T &operator[](size_t idx) const noexcept { return _map[idx]; }
 
-  [[nodiscard]] std::span<T> &operator*() noexcept { return *_map; }
-  [[nodiscard]] const std::span<T> &operator*() const noexcept { return *_map; }
+  [[nodiscard]] std::span<T> &operator*() noexcept { return _map; }
+  [[nodiscard]] const std::span<T> &operator*() const noexcept { _map; }
   [[nodiscard]] std::span<T> *operator->() noexcept { return &_map; }
   [[nodiscard]] const std::span<T> *operator->() const noexcept { return &_map; }
+
+  /// The count parameter is in counts of T not bytes. New mapping is relative
+  /// to offset from construction.
+  /// @throws std::system_error with errno and errmsg if it fails.
+  void remap(size_t count, int mremap_flags = 0) {
+    _mmap.remap(count, mremap_flags);
+    _map = *_mmap;
+  }
+
+  /// Truncate the file to this length. Length is in counts of T not bytes.
+  /// Length is relative to start of file, but remapping is relative to offset
+  /// from construction.
+  /// @throws std::system_error with errno and errmsg if it fails.
+  void truncate(size_t length, int mremap_flags = 0) {
+    _fd.truncate(length * sizeof(T));
+    _mmap.remap(beyond_offset(length), mremap_flags);
+    _map = _offset < static_cast<off_t>(length) ? *_mmap : _mmap->subspan(0, 0);
+  }
+
+ private:
+  static std::pair<unique_fd, size_t> with_count(unique_fd fd, std::optional<size_t> specified_count) {
+    auto count = specified_count.value_or(fd.stat().st_size / sizeof(T));
+    return {std::move(fd), count};
+  }
+  fd_mmap(std::pair<unique_fd, size_t> fd_count, int prot, int flags, off_t offset, std::optional<size_t> specified_count, const std::string &errmsg)
+      : _offset(offset),
+        _fd(std::move(fd_count.first)),
+        _mmap(specified_count.value_or(beyond_offset(fd_count.second)), prot, flags, _fd.fd(), offset, errmsg),
+        _map(specified_count || offset < static_cast<off_t>(fd_count.second) ? *_mmap : _mmap->subspan(0, 0)) {}
+
+  [[nodiscard]] size_t beyond_offset(size_t count) {
+    if (static_cast<off_t>(count) <= _offset) return 1;  // 0-sized mmaps are not allowed, so always map something
+    return count - _offset;
+  }
 };
 
 /// A circular (aka. ring) buffer with support for copy-free read/write of
