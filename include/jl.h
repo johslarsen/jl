@@ -5,6 +5,7 @@
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -118,6 +119,12 @@ class unique_fd {
       if (count == 0) return buffer.subspan(0, offset);
     }
     return buffer;
+  }
+
+  [[nodiscard]] struct stat stat() const {
+    struct stat buf {};
+    if (fstat(_fd, &buf) != 0) throw errno_as_error("fstat failed");
+    return buf;
   }
 };
 
