@@ -126,6 +126,10 @@ class unique_fd {
     if (fstat(_fd, &buf) != 0) throw errno_as_error("fstat failed");
     return buf;
   }
+
+  void truncate(off_t length) {  // NOLINT(*const)
+    if (ftruncate(_fd, length) != 0) throw errno_as_error("ftruncate failed");
+  }
 };
 
 /// A named file descriptor that is closed and removed upon destruction.
