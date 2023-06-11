@@ -68,8 +68,10 @@ class unique_fd {
     if (_fd < 0) throw errno_as_error(errmsg);
   }
 
-  ~unique_fd() noexcept {
-    if (_fd >= 0) ::close(_fd);
+  ~unique_fd() noexcept { reset(); }
+  void reset(int fd = -1) noexcept {
+    std::swap(fd, _fd);
+    if (fd >= 0) ::close(fd);
   }
 
   [[nodiscard]] int operator*() const noexcept { return _fd; }
@@ -81,10 +83,7 @@ class unique_fd {
     other._fd = -1;
   }
   unique_fd &operator=(unique_fd &&other) noexcept {
-    if (this != &other) {
-      _fd = other._fd;
-      other._fd = -1;
-    }
+    reset(other._fd);
     return *this;
   }
 
@@ -155,8 +154,14 @@ class tmpfd {
 
   tmpfd(const tmpfd &) = delete;
   tmpfd &operator=(const tmpfd &) = delete;
-  tmpfd(tmpfd &&) noexcept = default;
-  tmpfd &operator=(tmpfd &&) noexcept = default;
+  tmpfd(tmpfd &&other) noexcept : _fd(std::move(other._fd)), _path(std::move(other._path)) {
+    other._path.clear();
+  }
+  tmpfd &operator=(tmpfd &&other) noexcept {
+    std::swap(_path, other._path);
+    _fd = std::move(other).unlink();
+    return *this;
+  }
 
   /// Explicitly convert this into an unlinked but still open unique_fd
   unique_fd unlink() && {
@@ -482,7 +487,11 @@ class unique_mmap {
   }
 
   ~unique_mmap() noexcept {
-    if (!_map.empty()) ::munmap(_map.data(), _map.size() * sizeof(T));
+    reset();
+  }
+  void reset(std::span<T> map = {}) noexcept {
+    std::swap(map, _map);
+    if (!map.empty()) ::munmap(map.data(), map.size() * sizeof(T));
   }
 
   [[nodiscard]] T &operator[](size_t idx) noexcept { return _map[idx]; }
@@ -507,10 +516,7 @@ class unique_mmap {
     other._map = std::span<T>{};
   }
   unique_mmap &operator=(unique_mmap &&other) noexcept {
-    if (this != &other) {
-      _map = other._map;
-      other._map = std::span<T>{};
-    }
+    reset(other._map);
     return *this;
   }
 };

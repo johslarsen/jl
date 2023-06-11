@@ -1,9 +1,10 @@
 #include <gtest/gtest.h>
 #include <jl.h>
+#include <sys/fcntl.h>
 
 #include <filesystem>
 
-TEST(UniqueFD, MoveAndAssignmentDoesNotDoubleClose) {
+TEST(UniqueFD, MoveAndAssignmentNeitherDoubleCloseNorLeaks) {
   std::string filename("/tmp/unique_fd_XXXXXX");
   jl::unique_fd org(mkstemp(filename.data()));
   std::filesystem::remove(filename);
@@ -13,16 +14,19 @@ TEST(UniqueFD, MoveAndAssignmentDoesNotDoubleClose) {
   EXPECT_EQ(3, move_constructed.write("bar"));
   jl::unique_fd move_assigned = std::move(move_constructed);
   EXPECT_EQ(3, move_assigned.write("baz"));
+
+  move_assigned = jl::unique_fd(fcntl(1, F_DUPFD_CLOEXEC));
 }
 
 TEST(UniqueFD, ConstructionFromInvalidFDThrows) {
   EXPECT_THROW(jl::unique_fd(-1, "foo"), std::system_error);
 }
 
-TEST(TmpFD, MoveAndAssignmentDoesNotDoubleClose) {
+TEST(TmpFD, MoveAndAssignmentNeitherDoubleCloseNorLeaks) {
   jl::tmpfd org;
   jl::tmpfd move_constructed(std::move(org));
   jl::tmpfd move_assigned = std::move(move_constructed);
+  move_assigned = jl::tmpfd();
 }
 
 TEST(TmpFD, ReadAndWriteWorksWithVariousInputs) {

@@ -2,10 +2,13 @@
 #include <gtest/gtest.h>
 #include <jl.h>
 
-TEST(UniqueMMAP, MoveAndAssignmentDoesNotDoubleClose) {
+TEST(UniqueMMAP, MoveAndAssignmentNeitherDoubleFreeNorLeaks) {
+  // NOTE: Most leak sanitizers does not track mmaps
   jl::unique_mmap<char> org(4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS);
   jl::unique_mmap<char> move_constructed(std::move(org));
   jl::unique_mmap<char> move_assigned = std::move(move_constructed);
+
+  move_assigned = jl::unique_mmap<char>(4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS);
 }
 
 TEST(UniqueMMAP, MappedFile) {
