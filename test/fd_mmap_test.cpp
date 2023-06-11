@@ -9,7 +9,7 @@ TEST(FdMMAP, Reading) {
   jl::tmpfd fd;
   fd.write("foo");
 
-  jl::fd_mmap<char> map(std::move(fd));
+  jl::fd_mmap<char> map(std::move(fd).unlink());
 
   EXPECT_EQ('f', map[0]);
   EXPECT_EQ("foo", as_view(*map));
@@ -19,7 +19,7 @@ TEST(FdMMAP, ReadWrite) {
   jl::tmpfd fd;
   fd.write("foo");
 
-  jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
+  jl::fd_mmap<char> map(std::move(fd).unlink(), PROT_READ | PROT_WRITE);
   std::string_view ba = "ba";
   std::copy(ba.begin(), ba.end(), map->begin());
   map[2] = 'r';
@@ -33,7 +33,7 @@ TEST(FdMMAP, AutomaticSizeTakesOffsetIntoAccount) {
   ASSERT_EQ(4096, lseek(fd.fd(), 4096, SEEK_SET));
   fd.write("foo");
 
-  jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
+  jl::fd_mmap<char> map(std::move(fd).unlink(), PROT_READ, MAP_SHARED, 4096);
 
   EXPECT_EQ("foo", as_view(*map));
 }
@@ -48,7 +48,7 @@ std::string sread(int fd, size_t length, off_t offset) {
 }
 
 TEST(FdMMAP, TruncateTakesOffsetIntoAccount) {
-  jl::fd_mmap<char> map(std::move(jl::tmpfd()), PROT_READ | PROT_WRITE, MAP_SHARED, 4096);
+  jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ | PROT_WRITE, MAP_SHARED, 4096);
 
   map.truncate(4096);
   EXPECT_EQ(0, map->size());
@@ -64,11 +64,11 @@ TEST(FdMMAP, TruncateTakesOffsetIntoAccount) {
 }
 
 TEST(FdMMAP, RemapDoesNotAffectFile) {
-  jl::fd_mmap<char> map(std::move(jl::tmpfd()));
+  jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ);
   map.remap(10);
   EXPECT_EQ(10, map->size());
 
-  struct stat buf{};
+  struct stat buf {};
   EXPECT_EQ(0, fstat(map.fd(), &buf));
   EXPECT_EQ(0, buf.st_size);
 }

@@ -57,8 +57,11 @@ template <typename T>
   return slices;
 }
 
+class tmpfd;
+
 /// An owned and managed file descriptor.
 class unique_fd {
+ protected:
   int _fd;
 
  public:
@@ -76,6 +79,7 @@ class unique_fd {
 
   unique_fd(const unique_fd &) = delete;
   unique_fd &operator=(const unique_fd &) = delete;
+  unique_fd(tmpfd &&) = delete;  // block implicit slicing from this subclass
   unique_fd(unique_fd &&other) noexcept : _fd(other._fd) {
     other._fd = -1;
   }
@@ -141,7 +145,7 @@ class tmpfd : public unique_fd {
       : tmpfd(prefix + "XXXXXX" + suffix, static_cast<int>(suffix.length())) {}
 
   ~tmpfd() {
-    if (fd() >= 0) std::filesystem::remove(_path);
+    _fd = release_unlinked();
   }
 
   [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
@@ -151,9 +155,22 @@ class tmpfd : public unique_fd {
   tmpfd(tmpfd &&) noexcept = default;
   tmpfd &operator=(tmpfd &&) noexcept = default;
 
+  /// Explicitly convert this into an unlinked but still open unique_fd
+  unique_fd unlink() && {
+    return unique_fd(release_unlinked());
+  }
+
  private:
   tmpfd(std::string path, int suffixlen)
       : unique_fd(mkstemps(path.data(), suffixlen)), _path(path) {}
+
+  int release_unlinked() {
+    if (_fd >= 0) std::filesystem::remove(_path);
+
+    int fd = _fd;
+    _fd = -1;
+    return fd;
+  }
 };
 
 [[nodiscard]] inline std::string uri_host(const std::string &host) {
