@@ -73,17 +73,20 @@ class unique_fd {
     std::swap(fd, _fd);
     if (fd >= 0) ::close(fd);
   }
+  int release() noexcept {
+    int fd = _fd;
+    _fd = -1;
+    return fd;
+  }
 
   [[nodiscard]] int operator*() const noexcept { return _fd; }
   [[nodiscard]] int fd() const noexcept { return _fd; }
 
   unique_fd(const unique_fd &) = delete;
   unique_fd &operator=(const unique_fd &) = delete;
-  unique_fd(unique_fd &&other) noexcept : _fd(other._fd) {
-    other._fd = -1;
-  }
+  unique_fd(unique_fd &&other) noexcept : _fd(other.release()) {}
   unique_fd &operator=(unique_fd &&other) noexcept {
-    reset(other._fd);
+    reset(other.release());
     return *this;
   }
 
@@ -145,9 +148,7 @@ class tmpfd {
     std::move(*this).unlink();
   }
 
-  [[nodiscard]] const std::filesystem::path &path() const noexcept {
-    return _path;
-  }
+  [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
 
   [[nodiscard]] unique_fd *operator->() noexcept { return &_fd; }
   [[nodiscard]] const unique_fd *operator->() const noexcept { return &_fd; }
@@ -158,8 +159,8 @@ class tmpfd {
     other._path.clear();
   }
   tmpfd &operator=(tmpfd &&other) noexcept {
-    std::swap(_path, other._path);
-    _fd = std::move(other).unlink();
+    _fd = std::move(other._fd);
+    std::swap(_path, other._path);  // delegate destruction of our old _path to the other
     return *this;
   }
 
@@ -486,12 +487,15 @@ class unique_mmap {
     return map;
   }
 
-  ~unique_mmap() noexcept {
-    reset();
-  }
+  ~unique_mmap() noexcept { reset(); }
   void reset(std::span<T> map = {}) noexcept {
     std::swap(map, _map);
     if (!map.empty()) ::munmap(map.data(), map.size() * sizeof(T));
+  }
+  std::span<T> release() noexcept {
+    auto map = _map;
+    _map = {};
+    return map;
   }
 
   [[nodiscard]] T &operator[](size_t idx) noexcept { return _map[idx]; }
@@ -512,11 +516,9 @@ class unique_mmap {
 
   unique_mmap(const unique_mmap &) = delete;
   unique_mmap &operator=(const unique_mmap &) = delete;
-  unique_mmap(unique_mmap &&other) noexcept : _map(other._map) {
-    other._map = std::span<T>{};
-  }
+  unique_mmap(unique_mmap &&other) noexcept : _map(other.release()) {}
   unique_mmap &operator=(unique_mmap &&other) noexcept {
-    reset(other._map);
+    reset(other.release());
     return *this;
   }
 };
