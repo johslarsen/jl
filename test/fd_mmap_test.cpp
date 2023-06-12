@@ -72,3 +72,17 @@ TEST(FdMMAP, RemapDoesNotAffectFile) {
   EXPECT_EQ(0, fstat(map.fd(), &buf));
   EXPECT_EQ(0, buf.st_size);
 }
+
+TEST(FdMMAP, FileDescriptorIsUsableAfterUnmap) {
+  jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_WRITE);
+  map.truncate(3);
+
+  map[0] = 'f';
+  map[1] = 'o';
+  map[2] = 'o';
+
+  auto fd = std::move(map).unmap();
+  std::string buf(3, '\0');
+
+  EXPECT_EQ("foo", fd.read(buf));
+}

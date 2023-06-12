@@ -559,6 +559,12 @@ class fd_mmap {
     _map = *_mmap;
   }
 
+  /// Remove the mmap and release the fd from construction.
+  unique_fd unmap() && {
+    _mmap.reset();
+    return std::move(_fd);
+  }
+
   /// Truncate the file to this length. Length is in counts of T not bytes.
   /// Length is relative to start of file, but remapping is relative to offset
   /// from construction.
