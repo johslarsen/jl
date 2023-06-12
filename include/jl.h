@@ -68,27 +68,8 @@ class unique_fd {
     if (_fd < 0) throw errno_as_error(errmsg);
   }
 
-  ~unique_fd() noexcept { reset(); }
-  void reset(int fd = -1) noexcept {
-    std::swap(fd, _fd);
-    if (fd >= 0) ::close(fd);
-  }
-  int release() noexcept {
-    int fd = _fd;
-    _fd = -1;
-    return fd;
-  }
-
   [[nodiscard]] int operator*() const noexcept { return _fd; }
   [[nodiscard]] int fd() const noexcept { return _fd; }
-
-  unique_fd(const unique_fd &) = delete;
-  unique_fd &operator=(const unique_fd &) = delete;
-  unique_fd(unique_fd &&other) noexcept : _fd(other.release()) {}
-  unique_fd &operator=(unique_fd &&other) noexcept {
-    reset(other.release());
-    return *this;
-  }
 
   template <typename C>
     requires std::constructible_from<std::span<const typename C::value_type>, C>
@@ -133,6 +114,24 @@ class unique_fd {
   void truncate(off_t length) {  // NOLINT(*const)
     if (ftruncate(_fd, length) != 0) throw errno_as_error("ftruncate failed");
   }
+
+  void reset(int fd = -1) noexcept {
+    std::swap(fd, _fd);
+    if (fd >= 0) ::close(fd);
+  }
+  int release() noexcept {
+    int fd = _fd;
+    _fd = -1;
+    return fd;
+  }
+  ~unique_fd() noexcept { reset(); }
+  unique_fd(const unique_fd &) = delete;
+  unique_fd &operator=(const unique_fd &) = delete;
+  unique_fd(unique_fd &&other) noexcept : _fd(other.release()) {}
+  unique_fd &operator=(unique_fd &&other) noexcept {
+    reset(other.release());
+    return *this;
+  }
 };
 
 /// A named file descriptor that is closed and removed upon destruction.
@@ -144,15 +143,21 @@ class tmpfd {
   explicit tmpfd(const std::string &prefix = "/tmp/jl_tmpfile_", const std::string &suffix = "")
       : tmpfd(prefix + "XXXXXX" + suffix, static_cast<int>(suffix.length())) {}
 
-  ~tmpfd() {
-    std::move(*this).unlink();
-  }
-
-  [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
-
   [[nodiscard]] unique_fd *operator->() noexcept { return &_fd; }
   [[nodiscard]] const unique_fd *operator->() const noexcept { return &_fd; }
 
+  [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
+
+  /// Explicitly convert this into an unlinked but still open unique_fd
+  unique_fd unlink() && {
+    if (!_path.empty()) std::filesystem::remove(_path);
+    _path.clear();
+    return std::move(_fd);
+  }
+
+  ~tmpfd() {
+    std::move(*this).unlink();
+  }
   tmpfd(const tmpfd &) = delete;
   tmpfd &operator=(const tmpfd &) = delete;
   tmpfd(tmpfd &&other) noexcept : _fd(std::move(other._fd)), _path(std::move(other._path)) {
@@ -162,13 +167,6 @@ class tmpfd {
     _fd = std::move(other._fd);
     std::swap(_path, other._path);  // delegate destruction of our old _path to the other
     return *this;
-  }
-
-  /// Explicitly convert this into an unlinked but still open unique_fd
-  unique_fd unlink() && {
-    if (!_path.empty()) std::filesystem::remove(_path);
-    _path.clear();
-    return std::move(_fd);
   }
 
  private:
@@ -207,11 +205,11 @@ class unique_addr {
   [[nodiscard]] const addrinfo *get() const { return _addr.get(); }
   [[nodiscard]] std::string string() const { return uri_host(_host) + ":" + _port; }
 
+  ~unique_addr() = default;
   unique_addr(const unique_addr &) = delete;
   unique_addr &operator=(const unique_addr &) = delete;
   unique_addr(unique_addr &&) noexcept = default;
   unique_addr &operator=(unique_addr &&) noexcept = default;
-  ~unique_addr() = default;
 };
 
 /// A converter from the IPv4/6 type-erased sockaddr stuctures
@@ -371,17 +369,6 @@ class mmsg_socket {
     reset(buffers);
   }
 
-  void reset(std::span<std::span<T>> buffers) {
-    _msgs.resize(buffers.size());
-    _iovecs.resize(buffers.size());
-    for (size_t i = 0; i < buffers.size(); ++i) {
-      _iovecs[i].iov_base = buffers[i].data();
-      _iovecs[i].iov_len = sizeof(T) * buffers[i].size();
-      _msgs[i].msg_hdr.msg_iov = &_iovecs[i];
-      _msgs[i].msg_hdr.msg_iovlen = 1;
-    }
-  }
-
   /// WARN: new_count only updates the length field in the message header, so
   /// it assumes that the original message buffer is large enough for this.
   ///
@@ -425,14 +412,24 @@ class mmsg_socket {
 
   [[nodiscard]] unique_socket &fd() noexcept { return _fd; }
 
+  void reset(std::span<std::span<T>> buffers) {
+    _msgs.resize(buffers.size());
+    _iovecs.resize(buffers.size());
+    for (size_t i = 0; i < buffers.size(); ++i) {
+      _iovecs[i].iov_base = buffers[i].data();
+      _iovecs[i].iov_len = sizeof(T) * buffers[i].size();
+      _msgs[i].msg_hdr.msg_iov = &_iovecs[i];
+      _msgs[i].msg_hdr.msg_iovlen = 1;
+    }
+  }
+  ~mmsg_socket() = default;
   mmsg_socket(const mmsg_socket &) = delete;
   mmsg_socket &operator=(const mmsg_socket &) = delete;
   mmsg_socket(mmsg_socket &&) noexcept = default;
   mmsg_socket &operator=(mmsg_socket &&) noexcept = default;
-  ~mmsg_socket() = default;
 };
 
-/// An abstraction for doing
+/// Same as mmsg_socket, but with a self-managed buffer
 template <typename T = char>
   requires std::is_trivially_copyable<T>::value
 class mmsg_buffer : public mmsg_socket<T> {
@@ -451,11 +448,11 @@ class mmsg_buffer : public mmsg_socket<T> {
 
   void reset(std::span<std::span<T>> buffers) = delete;
 
+  ~mmsg_buffer() = default;
   mmsg_buffer(const mmsg_buffer &) = delete;
   mmsg_buffer &operator=(const mmsg_buffer &) = delete;
   mmsg_buffer(mmsg_buffer &&) noexcept = default;
   mmsg_buffer &operator=(mmsg_buffer &&) noexcept = default;
-  ~mmsg_buffer() = default;
 };
 
 /// An owned and managed memory mapped span.
@@ -487,17 +484,6 @@ class unique_mmap {
     return map;
   }
 
-  ~unique_mmap() noexcept { reset(); }
-  void reset(std::span<T> map = {}) noexcept {
-    std::swap(map, _map);
-    if (!map.empty()) ::munmap(map.data(), map.size() * sizeof(T));
-  }
-  std::span<T> release() noexcept {
-    auto map = _map;
-    _map = {};
-    return map;
-  }
-
   [[nodiscard]] T &operator[](size_t idx) noexcept { return _map[idx]; }
   [[nodiscard]] const T &operator[](size_t idx) const noexcept { return _map[idx]; }
 
@@ -514,6 +500,16 @@ class unique_mmap {
     _map = std::span<T>(reinterpret_cast<T *>(pa), count);  // NOLINT(*reinterpret-cast), mremap returns page-aligned address
   }
 
+  void reset(std::span<T> map = {}) noexcept {
+    std::swap(map, _map);
+    if (!map.empty()) ::munmap(map.data(), map.size() * sizeof(T));
+  }
+  std::span<T> release() noexcept {
+    auto map = _map;
+    _map = {};
+    return map;
+  }
+  ~unique_mmap() noexcept { reset(); }
   unique_mmap(const unique_mmap &) = delete;
   unique_mmap &operator=(const unique_mmap &) = delete;
   unique_mmap(unique_mmap &&other) noexcept : _map(other.release()) {}
