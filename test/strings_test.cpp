@@ -10,3 +10,21 @@ TEST(Strings, MaybeQuoted) {
 
   EXPECT_EQ("\"no extra set of quotes\"", (std::ostringstream() << jl::MaybeQuoted("\"no extra set of quotes\"")).str());
 }
+
+TEST(String, MaybeQuotedJSON) {
+  std::string_view compact_json(R"({"compact":"json with space and \""}")");
+  EXPECT_EQ(compact_json, (std::ostringstream() << jl::MaybeQuoted(compact_json)).str());
+  EXPECT_EQ(R"("{
+  \"formatted\": \"json with space and \\\"\"
+}")",
+            (std::stringstream() << jl::MaybeQuoted(R"({
+  "formatted": "json with space and \""
+})"))
+                .str());
+}
+
+TEST(String, MaybeQuotedWithCheckLimit) {
+  std::string_view str = "string with space";
+  EXPECT_EQ(str, (std::ostringstream() << jl::MaybeQuoted(str).check_first(6)).str());
+  EXPECT_EQ("\"string with space\"", (std::ostringstream() << jl::MaybeQuoted(str).check_first(7)).str());
+}
