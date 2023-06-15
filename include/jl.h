@@ -28,6 +28,24 @@ namespace jl {
   return {str == nullptr ? "" : str};
 }
 
+/// An I/O manipulator that inserts str std::quoted if it needs to be or as is
+/// if is already quoted or does not need quoting.
+struct MaybeQuoted {
+  std::string_view _str;
+  char _delim, _escape;
+
+  explicit MaybeQuoted(std::string_view str, char delim = '"', char escape = '\\')
+      : _str(str), _delim(delim), _escape(escape) {}
+};
+inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted &mq) {
+  if (mq._str.empty() || mq._str[0] == '"') return os << mq._str;  // presume it is already quoted, not idiot-proof, but fast
+
+  const auto *first_whitespace = std::find_if(mq._str.begin(), mq._str.end(),
+                                              [](char c) { return std::isspace(c) != 0; });
+  if (first_whitespace == mq._str.end()) return os << mq._str;  // no space to quote
+  return os << std::quoted(mq._str, mq._delim, mq._escape);
+}
+
 [[nodiscard]] inline std::system_error make_system_error(std::errc err, const std::string &message) noexcept {
   return {std::make_error_code(err), message};
 }

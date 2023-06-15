@@ -4,6 +4,7 @@ add_executable(
   errno_as_error_test.cpp
   fd_mmap_test.cpp
   circular_buffer_test.cpp
+  strings_test.cpp
   unique_fd_test.cpp
   unique_mmap_test.cpp
   unique_addr_test.cpp
