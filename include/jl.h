@@ -52,6 +52,17 @@ inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted &mq) {
   return os << mq._str;
 }
 
+/// Container that can be used to pass string literal as template parameter.
+/// NOTE: Like std::string/_view initializer, the stored string is not null-terminated!
+template <size_t N>
+struct fixed_string {
+  std::array<char, N - sizeof('\0')> chars;
+  constexpr fixed_string(const char (&str)[N]) {  // NOLINT(*-member-init, *-explicit-*, *-c-arrays)
+    std::copy(str, str + N - sizeof('\0'), chars.data());
+  }
+  auto operator<=>(const fixed_string &) const = default;
+};
+
 [[nodiscard]] inline std::system_error make_system_error(std::errc err, const std::string &message) noexcept {
   return {std::make_error_code(err), message};
 }

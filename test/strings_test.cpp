@@ -28,3 +28,12 @@ TEST(String, MaybeQuotedWithCheckLimit) {
   EXPECT_EQ(str, (std::ostringstream() << jl::MaybeQuoted(str).check_first(6)).str());
   EXPECT_EQ("\"string with space\"", (std::ostringstream() << jl::MaybeQuoted(str).check_first(7)).str());
 }
+
+template <jl::fixed_string Str>
+constexpr std::string_view view_of() {
+  return std::string_view(Str.chars.data(), Str.chars.size());
+}
+TEST(String, FixedString) {
+  EXPECT_EQ("foo", view_of<"foo">());
+  EXPECT_EQ("bar", view_of<"bar">());
+}
