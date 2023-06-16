@@ -14,7 +14,7 @@ option(JL_ENABLE_TESTING "Enable testing of the jl library." ON)
 add_library(jl INTERFACE)
 target_include_directories(jl INTERFACE include/)
 
-add_definitions(-Wall -Wextra)
+add_definitions(-Wall -Wextra -march=native)
 
 set(BENCHMARK_ENABLE_TESTING OFF)
 if(JL_ENABLE_TESTING AND EXISTS
