@@ -123,4 +123,4 @@ BENCHMARK_TEMPLATE(BM_ContainerFillThenEmptyWith1KiBursts, std::vector<uint8_t>)
     ->ArgNames({"BurstSize", "Capacity"})
     ->ArgsProduct({burst_sizes, {4 << 10, 32 << 10, 256 << 10, 2 << 20, /* rest is too slow */}});
 
-BENCHMARK_MAIN();
+BENCHMARK_MAIN();  // NOLINT

@@ -7,9 +7,9 @@ constexpr std::string_view rev_32 = "21987654321098765432109876543210";
 template <jl::fixed_string Key>
 struct charwise {
   static size_t sum_after_xor(std::string_view plaintext) {
-    size_t sum = 0;
-    for (size_t i = 0; i < Key.chars.size(); ++i) {
-      sum += plaintext[i] ^ Key.chars[i];
+    size_t sum = 0, i = 0;
+    for (auto c : Key.chars) {
+      sum += plaintext[i++] ^ c;
     }
     return sum;
   }
@@ -41,4 +41,4 @@ void BM_StringViewXorSum(benchmark::State& state, std::string_view str, std::str
 }
 BENCHMARK_CAPTURE(BM_StringViewXorSum, c32, rev_32, digits_32);
 
-BENCHMARK_MAIN();
+BENCHMARK_MAIN();  // NOLINT

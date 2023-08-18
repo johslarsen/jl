@@ -245,7 +245,7 @@ BENCHMARK_CAPTURE(BM_PollThenNonBlockRecvIntoSameBuffer, DatagramPipe, jl::uniqu
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
 
-void BM_NonBlockingRecvOnEmptySocket(benchmark::State& state, int socket_type, int recv_flags) {
+void BM_NonBlockingRecvOnEmptySocket(benchmark::State& state, int socket_type, int recv_flags) {  // NOLINT(*swappable*)
   auto [in, _] = jl::unique_socket::pipes(AF_UNIX, socket_type);
   std::vector<char> buffer(1024);
   for (auto _ : state) {
@@ -258,7 +258,7 @@ BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, DatagramOnRecvCalls, SOCK_DGR
 BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, StreamOnSocketCreation, SOCK_STREAM | SOCK_NONBLOCK, 0);
 BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, StreamOnRecvCalls, SOCK_STREAM, MSG_DONTWAIT);
 
-void BM_NonBlockingSendOnFullSocket(benchmark::State& state, int socket_type, int recv_flags) {
+void BM_NonBlockingSendOnFullSocket(benchmark::State& state, int socket_type, int recv_flags) {  // NOLINT(*swappable*)
   auto [_, out] = jl::unique_socket::pipes(AF_UNIX, socket_type);
   std::vector<char> buffer(1024);
   while (send(out.fd(), buffer.data(), buffer.size(), recv_flags) >= 0)
@@ -273,4 +273,4 @@ BENCHMARK_CAPTURE(BM_NonBlockingSendOnFullSocket, DatagramOnRecvCalls, SOCK_DGRA
 BENCHMARK_CAPTURE(BM_NonBlockingSendOnFullSocket, StreamOnSocketCreation, SOCK_STREAM | SOCK_NONBLOCK, 0);
 BENCHMARK_CAPTURE(BM_NonBlockingSendOnFullSocket, StreamOnRecvCalls, SOCK_STREAM, MSG_DONTWAIT);
 
-BENCHMARK_MAIN();
+BENCHMARK_MAIN();  // NOLINT

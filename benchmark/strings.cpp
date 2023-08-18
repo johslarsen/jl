@@ -124,4 +124,4 @@ BENCHMARK_CAPTURE(BM_FindOneOfDepthFirst_LastNeedle, First, first);
 BENCHMARK_CAPTURE(BM_FindOneOfDepthFirst_LastNeedle, Mid, mid);
 BENCHMARK_CAPTURE(BM_FindOneOfDepthFirst_LastNeedle, Last, last);
 
-BENCHMARK_MAIN();
+BENCHMARK_MAIN();  // NOLINT

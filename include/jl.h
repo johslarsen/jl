@@ -35,7 +35,7 @@ struct MaybeQuoted {
   std::string::size_type _upto = std::string::npos;
   char _delim, _escape;
 
-  explicit MaybeQuoted(std::string_view str, char delim = '"', char escape = '\\')
+  explicit MaybeQuoted(std::string_view str, char delim = '"', char escape = '\\')  // NOLINT(*-swappable-parameters) to mimic std::quoted
       : _str(str), _delim(delim), _escape(escape) {}
 
   /// Limit the number of characters to check to see if it needs quoting

@@ -5,8 +5,8 @@
 #include <stdexcept>
 
 TEST(Environment, optenv) {
-  setenv("JL_TEST_OPTENV", "foo", 1);  // NOLINT(*mt-unsafe)
-  EXPECT_EQ("foo", jl::optenv("JL_TEST_OPTENV").value());
+  setenv("JL_TEST_OPTENV", "foo", 1);                      // NOLINT(*mt-unsafe)
+  EXPECT_EQ("foo", jl::optenv("JL_TEST_OPTENV").value());  // NOLINT(*unchecked*)
 
   EXPECT_EQ(std::nullopt, jl::optenv("DONT_SET_THIS"));
   EXPECT_EQ("foo", jl::optenv("DONT_SET_THIS").value_or("foo"));
