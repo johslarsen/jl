@@ -12,8 +12,7 @@ TEST(CircularBuffer, StaticAsserts) {
   // jl::CircularBuffer<1U<<15, uint16_t> index_type_is_too_small>;
 }
 
-template <typename T>
-static inline size_t advance(T& buf, size_t max) {
+static inline size_t advance(auto& buf, size_t max) {
   size_t written = 0;
   while (written < max) {
     auto writeable = buf.peek_back(max - written);
@@ -27,8 +26,7 @@ static inline size_t advance(T& buf, size_t max) {
   return written;
 }
 
-template <typename T>
-static inline size_t write_string(T& buf, const std::string& str) {
+static inline size_t write_string(auto& buf, const std::string& str) {
   auto writeable = buf.peek_back(str.size());
   ssize_t written = writeable.size();
   std::copy(str.begin(), str.begin() + written, writeable.begin());

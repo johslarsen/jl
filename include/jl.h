@@ -24,6 +24,9 @@
 /// Johs's <mail@johslarsen.net> Library. Use however you see fit.
 namespace jl {
 
+template <typename T>
+concept numeric = std::integral<T> || std::floating_point<T>;
+
 [[nodiscard]] inline std::string str_or_empty(const char *str) {
   return {str == nullptr ? "" : str};
 }
@@ -73,7 +76,7 @@ struct fixed_string {
 
 /// @returns n usually or 0 for EAGAIN
 /// @throws std::system_error on other errors
-template <typename T>
+template <std::integral T>
 T check_rw_error(T n, const std::string &message) {
   if (n < 0) {
     if (errno == EAGAIN) return 0;
@@ -389,7 +392,7 @@ class unique_socket : public unique_fd {
 /// An abstraction for managing the POSIX "span" structures required by
 /// multi-message system calls like recvmmsg/sendmmsg.
 template <typename T = char>
-  requires std::is_trivially_copyable<T>::value
+  requires std::is_trivially_copyable_v<T>
 class mmsg_socket {
   unique_socket _fd;
   std::vector<mmsghdr> _msgs;
@@ -466,7 +469,7 @@ class mmsg_socket {
 
 /// Same as mmsg_socket, but with a self-managed buffer
 template <typename T = char>
-  requires std::is_trivially_copyable<T>::value
+  requires std::is_trivially_copyable_v<T>
 class mmsg_buffer : public mmsg_socket<T> {
   std::vector<T> _buffer;
 
@@ -492,7 +495,7 @@ class mmsg_buffer : public mmsg_socket<T> {
 
 /// An owned and managed memory mapped span.
 template <typename T>
-  requires std::is_trivially_copyable<T>::value
+  requires std::is_trivially_copyable_v<T>
 class unique_mmap {
   std::span<T> _map;
 
@@ -556,7 +559,7 @@ class unique_mmap {
 
 /// An owned and managed file descriptor and mapping to its contents
 template <typename T>
-  requires std::is_trivially_copyable<T>::value
+  requires std::is_trivially_copyable_v<T>
 class fd_mmap {
   off_t _offset;  // need to keep track of this to properly map size after truncation
   unique_fd _fd;
@@ -740,8 +743,7 @@ class CircularBuffer {
   return value;
 }
 
-template <typename T>
-  requires std::integral<T> || std::floating_point<T>
+template <numeric T>
 [[nodiscard]] inline std::optional<T> env_as(const char *name) {
   auto value = optenv(name);
   if (!value) return std::nullopt;
@@ -754,8 +756,7 @@ template <typename T>
   return parsed;
 }
 
-template <typename T>
-  requires std::integral<T> || std::floating_point<T>
+template <numeric T>
 [[nodiscard]] inline T env_or(const char *name, T fallback) {
   return env_as<T>(name).value_or(fallback);
 }
