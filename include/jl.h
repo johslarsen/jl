@@ -19,6 +19,7 @@
 #include <span>
 #include <stdexcept>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 /// Johs's <mail@johslarsen.net> Library. Use however you see fit.
@@ -158,9 +159,7 @@ class unique_fd {
     if (fd >= 0) ::close(fd);
   }
   int release() noexcept {
-    int fd = _fd;
-    _fd = -1;
-    return fd;
+    return std::exchange(_fd, -1);
   }
   ~unique_fd() noexcept { reset(); }
   unique_fd(const unique_fd &) = delete;
@@ -543,9 +542,7 @@ class unique_mmap {
     if (!map.empty()) ::munmap(map.data(), map.size() * sizeof(T));
   }
   std::span<T> release() noexcept {
-    auto map = _map;
-    _map = {};
-    return map;
+    return std::exchange(_map, {});
   }
   ~unique_mmap() noexcept { reset(); }
   unique_mmap(const unique_mmap &) = delete;
