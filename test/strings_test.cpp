@@ -1,6 +1,46 @@
 #include <gtest/gtest.h>
 #include <jl.h>
 
+TEST(Strings, FindUnescaped) {
+  auto isspace = [](char ch) { return ch == ' '; };
+  EXPECT_EQ(3, jl::find_unescaped("foo bar baz", ' '));
+  EXPECT_EQ(3, jl::find_unescaped("foo bar baz", isspace));
+  EXPECT_EQ(8, jl::find_unescaped("foo\\ bar baz", ' '));
+  EXPECT_EQ(8, jl::find_unescaped("foo\\ bar baz", isspace));
+  EXPECT_EQ(std::string::npos, jl::find_unescaped("foo\\ bar\\ baz", ' '));
+  EXPECT_EQ(std::string::npos, jl::find_unescaped("foo\\ bar\\ baz", isspace));
+
+  EXPECT_EQ(std::string::npos, jl::find_unescaped("neither escape nor matching", '?'));
+  EXPECT_EQ(std::string::npos, jl::find_unescaped("neither escape nor matching", [](char ch) { return ch == '?'; }));
+  EXPECT_EQ(std::string::npos, jl::find_unescaped("", ' '));
+  EXPECT_EQ(std::string::npos, jl::find_unescaped("", isspace));
+  EXPECT_EQ(std::string::npos, jl::find_unescaped("\\\\", ' '));
+  EXPECT_EQ(std::string::npos, jl::find_unescaped("\\\\", isspace));
+
+  // If it ends with an incomplete sequence return the position of this. Safer than the alternative, right?
+  EXPECT_EQ(0, jl::find_unescaped("\\", ' '));
+  EXPECT_EQ(0, jl::find_unescaped("\\", isspace));
+  EXPECT_EQ(5, jl::find_unescaped("foo\\\\\\", ' '));
+  EXPECT_EQ(5, jl::find_unescaped("foo\\\\\\", isspace));
+}
+
+TEST(Strings, NeedsQuotes) {
+  EXPECT_FALSE(jl::needs_quotes("foo")) << "Only safe characters";
+  EXPECT_TRUE(jl::needs_quotes("foo bar")) << "With unsafe characters";
+
+  EXPECT_FALSE(jl::needs_quotes("")) << "Empty string";
+  EXPECT_FALSE(jl::needs_quotes(R"("foo bar")")) << "Fully quoted";
+  EXPECT_FALSE(jl::needs_quotes(R"(foo\ bar)")) << "Escaped";
+  EXPECT_FALSE(jl::needs_quotes(R"(foo\"bar)")) << "Unquoted with escaped quote";
+  EXPECT_FALSE(jl::needs_quotes(R"("foo\" bar")")) << "Quoted with escaped quote";
+  EXPECT_FALSE(jl::needs_quotes(R"(foo" "b"ar """"b"az)")) << "Multiple quoted sections";
+
+  EXPECT_TRUE(jl::needs_quotes(R"(foo\ bar baz)")) << "Partially escaped";
+  EXPECT_TRUE(jl::needs_quotes(R"("foo bar" baz)")) << "Partially quoted";
+  EXPECT_TRUE(jl::needs_quotes(R"("foo bar)")) << "Unmatched quotes";
+  EXPECT_TRUE(jl::needs_quotes(R"(foo\)")) << "Ends with incomplete escape sequence";
+}
+
 TEST(Strings, MaybeQuoted) {
   EXPECT_EQ("", (std::ostringstream() << jl::MaybeQuoted("")).str());
 
@@ -12,21 +52,16 @@ TEST(Strings, MaybeQuoted) {
 }
 
 TEST(String, MaybeQuotedJSON) {
-  std::string_view compact_json(R"({"compact":"json with space and \""}")");
-  EXPECT_EQ(compact_json, (std::ostringstream() << jl::MaybeQuoted(compact_json)).str());
+  auto isspace = [](unsigned char ch) { return std::isspace(ch) != 0; };
+  std::string_view compact_json(R"({"compact":"json with space and \""})");
+  EXPECT_EQ(compact_json, (std::ostringstream() << jl::MaybeQuoted<decltype(isspace)>(compact_json)).str());
   EXPECT_EQ(R"("{
   \"formatted\": \"json with space and \\\"\"
 }")",
-            (std::stringstream() << jl::MaybeQuoted(R"({
+            (std::stringstream() << jl::MaybeQuoted<decltype(isspace)>(R"({
   "formatted": "json with space and \""
 })"))
                 .str());
-}
-
-TEST(String, MaybeQuotedWithCheckLimit) {
-  std::string_view str = "string with space";
-  EXPECT_EQ(str, (std::ostringstream() << jl::MaybeQuoted(str).check_first(6)).str());
-  EXPECT_EQ("\"string with space\"", (std::ostringstream() << jl::MaybeQuoted(str).check_first(7)).str());
 }
 
 template <jl::fixed_string Str>

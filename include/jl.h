@@ -32,26 +32,73 @@ concept numeric = std::integral<T> || std::floating_point<T>;
   return {str == nullptr ? "" : str};
 }
 
+/// @returns index of the first unescaped ch or std::string::npos.
+/// @returns size-1 if that happens to be an incomplete escape sequence
+inline size_t find_unescaped(std::string_view haystack, char ch, size_t pos = 0, char escape = '\\') {  // NOLINT(*-swappable-parameters)
+  std::string pattern = {escape, ch};
+  while (pos < haystack.size()) {
+    pos = haystack.find_first_of(pattern, pos);
+    if (pos == std::string::npos) break;
+    if (haystack[pos] != escape) return pos;
+    if (pos + 1 == haystack.size()) return pos;  // ends with an incomplete escape sequence
+
+    pos += 2;  // character after the escaped one;
+  }
+  return std::string::npos;
+}
+/// @returns index of the first unescaped character matching pattern or std::string::npos.
+/// @returns size-1 if that happens to be an incomplete escape sequence
+template <typename F>
+  requires std::predicate<F, char>
+inline size_t find_unescaped(std::string_view haystack, F needles, size_t pos = 0, char escape = '\\') {
+  for (; pos < haystack.size(); ++pos) {
+    if (haystack[pos] == escape) {
+      if (pos + 1 == haystack.size()) return pos;
+      ++pos;  // skip next char
+    } else if (needles(haystack[pos])) {
+      return pos;  // ends with an incomplete escape sequence
+    }
+  }
+  return std::string::npos;
+}
+
+/// @returns true if the Blacklist characters in str needs to be quoted
+template <typename Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
+  requires std::predicate<Blacklist, char>
+inline bool needs_quotes(
+    std::string_view str,
+    char delim = '"',
+    char escape = '\\') {
+  auto quote_or_blacklisted = [delim](char ch) {
+    return ch == delim || Blacklist()(ch);
+  };
+  for (size_t pos = 0; pos < str.size(); ++pos) {
+    pos = find_unescaped(str, quote_or_blacklisted, pos, escape);
+    if (pos == std::string::npos) return false;  // end of string without any need for quotes
+    if (str[pos] != delim) return true;          // found a blacklisted character (or ends with and incomplete escape sequence)
+
+    pos = find_unescaped(str, delim, pos + 1, escape);               // end of quoted section
+    if (pos == std::string::npos || str[pos] != delim) return true;  // mismatched quotes or incomplete escape sequence
+  }
+  return false;  // end of string without any need for quotes
+}
+
 /// An I/O manipulator that inserts str std::quoted if it needs to be or as is
-/// if is already quoted or does not need quoting.
+/// if it is already properly quoted or if there are no Blacklist characters in it.
+template <typename Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
+  requires std::predicate<Blacklist, char>
 struct MaybeQuoted {
   std::string_view _str;
-  std::string::size_type _upto = std::string::npos;
   char _delim, _escape;
 
   explicit MaybeQuoted(std::string_view str, char delim = '"', char escape = '\\')  // NOLINT(*-swappable-parameters) to mimic std::quoted
       : _str(str), _delim(delim), _escape(escape) {}
-
-  /// Limit the number of characters to check to see if it needs quoting
-  MaybeQuoted &check_first(std::string::size_type count) {
-    _upto = count;
-    return *this;
-  }
 };
-inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted &mq) {
-  for (auto c : mq._str.substr(0, mq._upto)) {
-    if (std::isspace(c) != 0) return os << std::quoted(mq._str, mq._delim, mq._escape);
-    if (c == mq._delim) break;  // quote before any space, so presume string is properly quoted.
+template <typename Blacklist>
+  requires std::predicate<Blacklist, char>
+inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted<Blacklist> &mq) {
+  if (needs_quotes<Blacklist>(mq._str, mq._delim, mq._escape)) {
+    return os << std::quoted(mq._str, mq._delim, mq._escape);
   }
   return os << mq._str;
 }
