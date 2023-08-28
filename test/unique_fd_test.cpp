@@ -15,7 +15,7 @@ TEST(UniqueFD, MoveAndAssignmentNeitherDoubleCloseNorLeaks) {
   jl::unique_fd move_assigned = std::move(move_constructed);
   EXPECT_EQ(3, move_assigned.write("baz"));
 
-  move_assigned = jl::unique_fd(fcntl(1, F_DUPFD_CLOEXEC));
+  move_assigned = jl::unique_fd(fcntl(1, F_DUPFD_CLOEXEC, 0));
 }
 
 TEST(UniqueFD, ConstructionFromInvalidFDThrows) {
