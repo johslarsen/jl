@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cassert>
 #include <charconv>
 #include <concepts>
 #include <cstring>
@@ -475,7 +476,7 @@ class mmsg_socket {
   /// Sends message buffers off through off + count.
   /// @returns the number of messages sent.
   size_t sendmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
-    // assert(off + count <= _msgs.size());
+    assert(off + count <= _msgs.size());
     return check_rw_error(::sendmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags), "sendmmsg failed");
   }
 
