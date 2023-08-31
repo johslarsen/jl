@@ -687,14 +687,14 @@ class CircularBuffer {
   static_assert(std::bit_width(Capacity) < CHAR_BIT * sizeof(Index) - 1,
                 "CircularBuffer capacity is too large for the Index type");
 
-  jl::unique_mmap<T> _data;
+  unique_mmap<T> _data;
   Index _read = 0;
   Index _write = 0;
 
  public:
   explicit CircularBuffer(const std::string &mmap_name = "CircularBuffer")
       : _data(unique_mmap<T>::anon(Capacity * 2, PROT_NONE, mmap_name)) {
-    jl::unique_fd fd = jl::tmpfd().unlink();
+    unique_fd fd = tmpfd().unlink();
     off_t len = Capacity * sizeof(T);
     fd.truncate(len);
 
