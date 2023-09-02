@@ -203,8 +203,7 @@ class unique_fd {
   }
 
   void reset(int fd = -1) noexcept {
-    std::swap(fd, _fd);
-    if (fd >= 0) ::close(fd);
+    if (auto old = std::exchange(_fd, fd); old >= 0) ::close(old);
   }
   int release() noexcept {
     return std::exchange(_fd, -1);
@@ -264,7 +263,7 @@ class tmpfd {
 
  private:
   tmpfd(std::string path, int suffixlen)
-      : _fd(mkstemps(path.data(), suffixlen)), _path(path) {}
+      : _fd(mkstemps(path.data(), suffixlen)), _path(std::move(path)) {}
 };
 
 [[nodiscard]] inline std::string uri_host(const std::string &host) {
@@ -536,7 +535,7 @@ class mmsg_buffer : public mmsg_socket<T> {
   /// to fit in the buffers (see `man recvmsg` for details).
   mmsg_buffer(unique_socket fd, size_t msgs, size_t mtu = 1500)
       : mmsg_socket<T>(std::move(fd), {}), _buffer(msgs * mtu) {
-    auto slices = sliced<T>(_buffer, mtu);
+    std::vector<std::span<T>> slices = sliced<T>(_buffer, mtu);
     mmsg_socket<T>::reset(slices);
   }
 
@@ -574,7 +573,7 @@ class unique_mmap {
 
   static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap failed") {
     unique_mmap<T> map(count, prot, flags, -1, 0, errmsg);
-    prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());  // best effort, so okay if it fails silently
+    std::ignore = prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());  // best effort, so okay if it fails silently
     return map;
   }
 
@@ -595,8 +594,7 @@ class unique_mmap {
   }
 
   void reset(std::span<T> map = {}) noexcept {
-    std::swap(map, _map);
-    if (!map.empty()) ::munmap(map.data(), map.size() * sizeof(T));
+    if (auto old = std::exchange(_map, map); !old.empty()) ::munmap(old.data(), old.size() * sizeof(T));
   }
   std::span<T> release() noexcept {
     return std::exchange(_map, {});
@@ -705,7 +703,7 @@ class CircularBuffer {
   explicit CircularBuffer(const std::string &mmap_name = "CircularBuffer")
       : _data(unique_mmap<T>::anon(Capacity * 2, PROT_NONE, mmap_name)) {
     unique_fd fd = tmpfd().unlink();
-    off_t len = Capacity * sizeof(T);
+    constexpr off_t len = Capacity * sizeof(T);
     fd.truncate(len);
 
     // _data is a continues virtual memory span twice as big as the Capacity
