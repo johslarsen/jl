@@ -233,17 +233,20 @@ class tmpfd {
 
   [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
 
-  /// Explicitly convert this into an unlinked but still open unique_fd
-  unique_fd unlink(std::error_code &error) && noexcept {
-    if (!_path.empty()) std::filesystem::remove(_path, error);
+  /// Tries to unlink the file, and clears path if this is successful to be idempotent.
+  [[nodiscard]] std::error_code try_unlink() noexcept {
+    if (!_path.empty()) {
+      std::error_code error{};
+      if (!std::filesystem::remove(_path, error)) return error;
+    }
     _path.clear();
-    return std::move(_fd);
+    return {};
   }
   /// Explicitly convert this into an unlinked but still open unique_fd,
   /// but silently ignores unlink failures that occurs.
   unique_fd unlink() && noexcept {
-    std::error_code ignore{};
-    return std::move(*this).unlink(ignore);
+    if (try_unlink().value() > 0) _path.clear();
+    return std::move(_fd);
   }
 
   ~tmpfd() noexcept {
