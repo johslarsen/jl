@@ -19,19 +19,16 @@ static inline size_t advance(auto& buf, size_t max) {
     if (writeable.empty()) return written;
 
     auto available = writeable.size();
-    buf.commit_written(std::move(writeable));
-    buf.commit_read(buf.peek_front(available));
-    written += available;
+    written += buf.commit_written(std::move(writeable));
+    EXPECT_EQ(available, buf.commit_read(buf.peek_front(available)));
   }
   return written;
 }
 
 static inline size_t write_string(auto& buf, const std::string& str) {
   auto writeable = buf.peek_back(str.size());
-  ssize_t written = writeable.size();
-  std::copy(str.begin(), str.begin() + written, writeable.begin());
-  buf.commit_written(std::move(writeable));
-  return written;
+  std::copy(str.begin(), str.begin() + writeable.size(), writeable.begin());
+  return buf.commit_written(std::move(writeable));
 }
 
 TEST(CircularBuffer, ReadWriteSpansAcrossWrapAround) {
@@ -71,11 +68,11 @@ TEST(CircularBuffer, PeekBackClampedToFreeSpaceLeft) {
   EXPECT_EQ(4 << 10, buf.peek_back(std::numeric_limits<size_t>::max()).size())
       << "Empty buffer have the full capacity available";
 
-  buf.commit_written(buf.peek_back(4 << 10));
+  ASSERT_EQ(4 << 10, buf.commit_written(buf.peek_back(4 << 10)));
   EXPECT_EQ(0, buf.peek_back(std::numeric_limits<size_t>::max()).size())
       << "Full buffer have no capacity available";
 
-  buf.commit_read(buf.peek_front(1));
+  ASSERT_EQ(1, buf.commit_read(buf.peek_front(1)));
   EXPECT_EQ(1, buf.peek_back(std::numeric_limits<size_t>::max()).size())
       << "When bytes have been read new space is available";
 }
@@ -85,15 +82,15 @@ TEST(CircularBuffer, PeekFrontClampedToUsedSpace) {
   EXPECT_EQ(0, buf.peek_front(std::numeric_limits<size_t>::max()).size())
       << "Empty buffer have no bytes to read";
 
-  buf.commit_written(buf.peek_back(16));
+  ASSERT_EQ(16, buf.commit_written(buf.peek_back(16)));
   EXPECT_EQ(16, buf.peek_front(std::numeric_limits<size_t>::max()).size())
       << "When bytes have been written those bytes can be read";
 
-  buf.commit_read(buf.peek_front(8));
+  ASSERT_EQ(8, buf.commit_read(buf.peek_front(8)));
   EXPECT_EQ(8, buf.peek_front(std::numeric_limits<size_t>::max()).size())
       << "When some bytes have been read some are left";
 
-  buf.commit_written(buf.peek_back((4 << 10) - 8));
+  ASSERT_EQ((4 << 10) - 8, buf.commit_written(buf.peek_back((4 << 10) - 8)));
   EXPECT_EQ(4 << 10, buf.peek_front(std::numeric_limits<size_t>::max()).size())
       << "When the buffer is full the whole capacity is readable";
 }

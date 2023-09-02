@@ -10,8 +10,7 @@ void BM_CircularBufferBytewiseAdvance(benchmark::State& state) {
   double bytes_read = 0;
   for (auto _ : state) {
     buf.commit_written(buf.peek_back(1));
-    buf.commit_read(buf.peek_front(1));
-    bytes_read += 1;
+    bytes_read += buf.commit_read(buf.peek_front(1));
   }
   state.counters["Throughput"] = benchmark::Counter(bytes_read, benchmark::Counter::kIsRate);
 }
@@ -55,8 +54,7 @@ void BM_ParallelCircularBufferRWDataEndpoints(benchmark::State& state) {
   for (auto _ : state) {
     const auto readable = buf.peek_front(chunk_size);
     if (!readable.empty()) benchmark::DoNotOptimize(readable.front() += readable.back());
-    bytes_read += readable.size();
-    buf.commit_read(std::move(readable));
+    bytes_read += buf.commit_read(std::move(readable));
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
   writer.request_stop();

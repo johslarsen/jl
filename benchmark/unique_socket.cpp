@@ -85,10 +85,9 @@ void BM_RecvIntoCircularBuffer(benchmark::State& state, std::pair<jl::unique_soc
   for (auto _ : state) {
     auto received = in.recv(buffer.peek_back(message_size));
     packets += 1;
-    bytes += received.size();
 
     buffer.commit_written(std::span<char>(received));
-    buffer.commit_read(std::move(received));
+    bytes += buffer.commit_read(std::move(received));
   }
   sender.request_stop();
   drain(sender_finished, in, buffer.peek_back(message_size));

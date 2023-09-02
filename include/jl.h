@@ -254,12 +254,11 @@ class tmpfd {
   }
   tmpfd(const tmpfd &) = delete;
   tmpfd &operator=(const tmpfd &) = delete;
-  tmpfd(tmpfd &&other) noexcept : _fd(std::move(other._fd)), _path(std::move(other._path)) {
-    other._path.clear();
-  }
+  tmpfd(tmpfd &&other) noexcept : _fd(std::move(other._fd)),
+                                  _path(std::exchange(other._path, {})) {}
   tmpfd &operator=(tmpfd &&other) noexcept {
     _fd = std::move(other._fd);
-    std::swap(_path, other._path);  // delegate destruction of our old _path to the other
+    std::swap(_path, other._path);  // delegate unlink of our old _path to the other
     return *this;
   }
 
@@ -735,10 +734,11 @@ class CircularBuffer {
 
   /// "Give back" the part at the beginning of the span from peek_back() where
   /// you wrote data.
-  void commit_written(std::span<T> &&written) noexcept {
+  size_t commit_written(std::span<T> &&written) noexcept {
     assert(written.data() == &_data[_write % Capacity]);
     assert(size() + written.size() <= Capacity);
     _write += written.size();
+    return written.size();
   }
 
   /// @returns a span where you can read available data from the buffer. Its
@@ -752,10 +752,11 @@ class CircularBuffer {
 
   /// "Give back" the part at the beginning of the span from peek_front() that
   /// you read.
-  void commit_read(std::span<const T> &&read) noexcept {
+  size_t commit_read(std::span<const T> &&read) noexcept {
     assert(read.data() == &_data[_read % Capacity]);
     assert(read.size() <= size());
     _read += read.size();
+    return read.size();
   }
 
   /// @returns the amount of data available to be read. In a threaded
@@ -770,8 +771,7 @@ class CircularBuffer {
   [[nodiscard]] size_t push_back(const std::span<T> data) noexcept {
     auto writeable = peek_back(data.size());
     std::copy(data.begin(), data.begin() + writeable.size(), writeable.begin());
-    commit_written(std::move(writeable));
-    return writeable.size();
+    return commit_written(std::move(writeable));
   }
 
   /// Read elements from the buffer into data.
@@ -779,8 +779,7 @@ class CircularBuffer {
   [[nodiscard]] size_t fill_from_front(std::span<T> data) noexcept {
     auto readable = peek_front(data.size());
     std::copy(readable.begin(), readable.end(), data.begin());
-    commit_read(std::move(readable));
-    return readable.size();
+    return commit_read(std::move(readable));
   }
 
   /// @returns elements read and copied from the buffer.
