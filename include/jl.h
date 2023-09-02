@@ -35,7 +35,7 @@ concept numeric = std::integral<T> || std::floating_point<T>;
 
 /// @returns index of the first unescaped ch or std::string::npos.
 /// @returns size-1 if that happens to be an incomplete escape sequence
-inline size_t find_unescaped(std::string_view haystack, char ch, size_t pos = 0, char escape = '\\') {  // NOLINT(*-swappable-parameters)
+[[nodiscard]] inline size_t find_unescaped(std::string_view haystack, char ch, size_t pos = 0, char escape = '\\') {  // NOLINT(*-swappable-parameters)
   std::string pattern = {escape, ch};
   while (pos < haystack.size()) {
     pos = haystack.find_first_of(pattern, pos);
@@ -51,7 +51,7 @@ inline size_t find_unescaped(std::string_view haystack, char ch, size_t pos = 0,
 /// @returns size-1 if that happens to be an incomplete escape sequence
 template <typename F>
   requires std::predicate<F, char>
-inline size_t find_unescaped(std::string_view haystack, F needles, size_t pos = 0, char escape = '\\') {
+[[nodiscard]] inline size_t find_unescaped(std::string_view haystack, F needles, size_t pos = 0, char escape = '\\') {
   for (; pos < haystack.size(); ++pos) {
     if (haystack[pos] == escape) {
       if (pos + 1 == haystack.size()) return pos;
@@ -66,7 +66,7 @@ inline size_t find_unescaped(std::string_view haystack, F needles, size_t pos = 
 /// @returns true if the Blacklist characters in str needs to be quoted
 template <typename Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
   requires std::predicate<Blacklist, char>
-inline bool needs_quotes(
+[[nodiscard]] inline bool needs_quotes(
     std::string_view str,
     char delim = '"',
     char escape = '\\') {
@@ -160,31 +160,31 @@ class unique_fd {
 
   template <typename C>
     requires std::constructible_from<std::span<const typename C::value_type>, C>
-  size_t write(const C &data) {  // NOLINT(*const)
+  [[nodiscard]] size_t write(const C &data) {  // NOLINT(*const)
     constexpr size_t size = sizeof(typename C::value_type);
     return check_rw_error(::write(_fd, data.data(), size * data.size()), "write failed") / size;
   }
-  size_t write(std::string_view data) {  // NOLINT(*const)
+  [[nodiscard]] size_t write(std::string_view data) {  // NOLINT(*const)
     return check_rw_error(::write(_fd, data.data(), data.size()), "write failed");
   }
 
   template <typename T>
-  std::span<T> read(std::span<T> buffer) {  // NOLINT(*const)
+  [[nodiscard]] std::span<T> read(std::span<T> buffer) {  // NOLINT(*const)
     auto n = check_rw_error(::read(_fd, buffer.data(), sizeof(T) * buffer.size()), "read failed");
     return buffer.subspan(0, n / sizeof(T));
   }
   template <typename C>
     requires std::constructible_from<std::span<const typename C::value_type>, C>
-  std::span<typename C::value_type> read(C &data) {  // NOLINT(*const)
+  [[nodiscard]] std::span<typename C::value_type> read(C &data) {  // NOLINT(*const)
     return read(std::span<typename C::value_type>(data));
   }
-  std::string_view read(std::string &buffer) {  // NOLINT(*const)
+  [[nodiscard]] std::string_view read(std::string &buffer) {  // NOLINT(*const)
     auto n = check_rw_error(::read(_fd, buffer.data(), buffer.size()), "read failed");
     return {buffer.begin(), buffer.begin() + n};
   }
 
   template <typename T>
-  std::span<T> readall(std::span<T> buffer) {
+  [[nodiscard]] std::span<T> readall(std::span<T> buffer) {
     for (size_t count = 0, offset = 0; offset < buffer.size(); offset += count) {
       count = read(buffer.subspan(offset)).size();
       if (count == 0) return buffer.subspan(0, offset);
@@ -234,13 +234,19 @@ class tmpfd {
   [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
 
   /// Explicitly convert this into an unlinked but still open unique_fd
-  unique_fd unlink() && {
-    if (!_path.empty()) std::filesystem::remove(_path);
+  unique_fd unlink(std::error_code &error) && noexcept {
+    if (!_path.empty()) std::filesystem::remove(_path, error);
     _path.clear();
     return std::move(_fd);
   }
+  /// Explicitly convert this into an unlinked but still open unique_fd,
+  /// but silently ignores unlink failures that occurs.
+  unique_fd unlink() && noexcept {
+    std::error_code ignore{};
+    return std::move(*this).unlink(ignore);
+  }
 
-  ~tmpfd() {
+  ~tmpfd() noexcept {
     std::move(*this).unlink();
   }
   tmpfd(const tmpfd &) = delete;
@@ -302,7 +308,7 @@ struct host_port {
   std::string host;
   uint16_t port = 0;
 
-  static host_port from(const sockaddr *addr) {
+  [[nodiscard]] static host_port from(const sockaddr *addr) {
     std::array<char, INET6_ADDRSTRLEN> buf{};
     switch (addr->sa_family) {
       case AF_INET: {
@@ -319,8 +325,8 @@ struct host_port {
         return {};
     }
   }
-  static host_port from(const addrinfo *ai) { return from(ai->ai_addr); }
-  static host_port from(const unique_addr &addr) { return from(addr.get()); }
+  [[nodiscard]] static host_port from(const addrinfo *ai) { return from(ai->ai_addr); }
+  [[nodiscard]] static host_port from(const unique_addr &addr) { return from(addr.get()); }
 
   [[nodiscard]] std::string string() const { return uri_host(host) + ":" + std::to_string(port); }
   bool operator==(const host_port &) const = default;
@@ -331,7 +337,7 @@ class unique_socket : public unique_fd {
  public:
   explicit unique_socket(int fd) : unique_fd(fd, "unique_socket(-1)") {}
 
-  static std::pair<unique_socket, unique_socket> pipes(int domain = AF_UNIX, int type = SOCK_STREAM) {
+  [[nodiscard]] static std::pair<unique_socket, unique_socket> pipes(int domain = AF_UNIX, int type = SOCK_STREAM) {
     std::array<int, 2> sv{-1, -1};
     if (socketpair(domain, type, 0, sv.data()) < 0) {
       throw errno_as_error("socketpair failed");
@@ -339,7 +345,7 @@ class unique_socket : public unique_fd {
     return {unique_socket(sv[0]), unique_socket(sv[1])};
   }
 
-  static unique_socket bound(
+  [[nodiscard]] static unique_socket bound(
       const unique_addr &source = {"::", "0"},
       std::optional<int> domain = {},
       std::optional<int> type = {},
@@ -354,14 +360,14 @@ class unique_socket : public unique_fd {
     }
     throw errno_as_error("socket/bind(" + source.string() + ") failed");
   }
-  static unique_socket udp(
+  [[nodiscard]] static unique_socket udp(
       const unique_addr &source = {"::", "0"},
       std::optional<int> domain = {},
       std::optional<int> protocol = IPPROTO_UDP,
       const std::function<void(unique_socket &)> &before_bind = [](auto &) {}) {
     return bound(source, domain, SOCK_DGRAM, protocol, before_bind);
   }
-  static unique_socket tcp(
+  [[nodiscard]] static unique_socket tcp(
       const unique_addr &source = {"::", "0"},
       std::optional<int> domain = {},
       std::optional<int> protocol = IPPROTO_TCP,
@@ -389,7 +395,7 @@ class unique_socket : public unique_fd {
   void listen(int backlog) {
     check_rw_error(::listen(fd(), backlog), "listen failed");
   }
-  std::optional<std::pair<unique_socket, host_port>> accept(int flags = 0) {
+  [[nodiscard]] std::optional<std::pair<unique_socket, host_port>> accept(int flags = 0) {
     sockaddr_in6 addr_buf{};
     auto *addr = reinterpret_cast<sockaddr *>(&addr_buf);  // NOLINT(*reinterpret-cast) to type-erased C-struct
     socklen_t addr_len = sizeof(addr_buf);
@@ -400,7 +406,7 @@ class unique_socket : public unique_fd {
   }
 
   template <typename T>
-  int try_setsockopt(int level, int option_name, const T &value) {
+  [[nodiscard]] int try_setsockopt(int level, int option_name, const T &value) {
     return ::setsockopt(fd(), level, option_name, &value, sizeof(value));
   }
   template <typename T>
@@ -412,25 +418,25 @@ class unique_socket : public unique_fd {
 
   template <typename C>
     requires std::constructible_from<std::span<const typename C::value_type>, C>
-  size_t send(const C &data, int flags = 0) {  // NOLINT(*-function-const)
+  [[nodiscard]] size_t send(const C &data, int flags = 0) {  // NOLINT(*-function-const)
     constexpr size_t size = sizeof(typename C::value_type);
     return check_rw_error(::send(fd(), data.data(), size * data.size(), flags), "send failed") / size;
   }
-  size_t send(std::string_view data, int flags = 0) {  // NOLINT(*-function-const)
+  [[nodiscard]] size_t send(std::string_view data, int flags = 0) {  // NOLINT(*-function-const)
     return check_rw_error(::send(fd(), data.data(), data.size(), flags), "send failed");
   }
 
   template <typename T>
-  std::span<T> recv(std::span<T> buffer, int flags = 0) {  // NOLINT(*-function-const)
+  [[nodiscard]] std::span<T> recv(std::span<T> buffer, int flags = 0) {  // NOLINT(*-function-const)
     auto n = check_rw_error(::recv(fd(), buffer.data(), sizeof(T) * buffer.size(), flags), "recv failed");
     return buffer.subspan(0, n / sizeof(T));
   }
   template <typename C>
     requires std::constructible_from<std::span<const typename C::value_type>, C>
-  std::span<typename C::value_type> recv(C &data, int flags = 0) {  // NOLINT(*-function-const)
+  [[nodiscard]] std::span<typename C::value_type> recv(C &data, int flags = 0) {  // NOLINT(*-function-const)
     return recv(std::span<typename C::value_type>(data), flags);
   }
-  std::string_view recv(std::string &buffer, int flags = 0) {  // NOLINT(*-function-const)
+  [[nodiscard]] std::string_view recv(std::string &buffer, int flags = 0) {  // NOLINT(*-function-const)
     auto n = check_rw_error(::recv(fd(), buffer.data(), buffer.size(), flags), "recv failed");
     return {buffer.begin(), buffer.begin() + n};
   }
@@ -475,14 +481,14 @@ class mmsg_socket {
 
   /// Sends message buffers off through off + count.
   /// @returns the number of messages sent.
-  size_t sendmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
+  [[nodiscard]] size_t sendmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
     assert(off + count <= _msgs.size());
     return check_rw_error(::sendmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags), "sendmmsg failed");
   }
 
   /// Receives message into buffers off through off + count. Returned spans are
   /// valid until further operations on those same message slots.
-  std::span<std::span<T>> recvmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
+  [[nodiscard]] std::span<std::span<T>> recvmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
     int msgs = check_rw_error(::recvmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags, nullptr), "recvmmsg failed");
     if (static_cast<int>(_received.size()) < msgs) {
       _received.resize(_msgs.size());
@@ -507,6 +513,7 @@ class mmsg_socket {
       _msgs[i].msg_hdr.msg_iovlen = 1;
     }
   }
+
   ~mmsg_socket() = default;
   mmsg_socket(const mmsg_socket &) = delete;
   mmsg_socket &operator=(const mmsg_socket &) = delete;
@@ -757,7 +764,7 @@ class CircularBuffer {
 
   /// Writes elements from data into the buffer.
   /// @returns the number of elements copied, and appended to the buffer.
-  size_t push_back(const std::span<T> data) noexcept {
+  [[nodiscard]] size_t push_back(const std::span<T> data) noexcept {
     auto writeable = peek_back(data.size());
     std::copy(data.begin(), data.begin() + writeable.size(), writeable.begin());
     commit_written(std::move(writeable));
@@ -766,7 +773,7 @@ class CircularBuffer {
 
   /// Read elements from the buffer into data.
   /// @returns the number of elements copied and erased from the buffer.
-  size_t fill_from_front(std::span<T> data) noexcept {
+  [[nodiscard]] size_t fill_from_front(std::span<T> data) noexcept {
     auto readable = peek_front(data.size());
     std::copy(readable.begin(), readable.end(), data.begin());
     commit_read(std::move(readable));
@@ -777,7 +784,7 @@ class CircularBuffer {
   [[nodiscard]] std::vector<T> pop_front(size_t max) {
     auto readable = peek_front(max);
     std::vector<T> output(readable.size());
-    fill_from_front(output);
+    output.resize(fill_from_front(output));
     return output;
   }
 };

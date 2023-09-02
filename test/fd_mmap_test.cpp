@@ -7,7 +7,7 @@ static inline std::string_view as_view(std::span<char> data) {
 
 TEST(FdMMAP, Reading) {
   jl::unique_fd fd = jl::tmpfd().unlink();
-  fd.write("foo");
+  EXPECT_EQ(3, fd.write("foo"));
 
   jl::fd_mmap<char> map(std::move(fd));
 
@@ -17,7 +17,7 @@ TEST(FdMMAP, Reading) {
 
 TEST(FdMMAP, ReadWrite) {
   jl::unique_fd fd = jl::tmpfd().unlink();
-  fd.write("foo");
+  EXPECT_EQ(3, fd.write("foo"));
 
   jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
   std::string_view ba = "ba";
@@ -31,7 +31,7 @@ TEST(FdMMAP, AutomaticSizeTakesOffsetIntoAccount) {
   jl::unique_fd fd = jl::tmpfd().unlink();
   fd.truncate(4096);
   ASSERT_EQ(4096, lseek(fd.fd(), 4096, SEEK_SET));
-  fd.write("foo");
+  EXPECT_EQ(3, fd.write("foo"));
 
   jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
 

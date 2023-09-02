@@ -13,7 +13,7 @@ static void send_loop(const std::stop_token& token, std::atomic<bool>& finished,
   std::vector<char> buffer(message_size);
   while (!token.stop_requested()) {
     try {
-      fd.send(buffer);
+      std::ignore = fd.send(buffer);
     } catch (const std::system_error&) {
       // ignore intermittent ECONNREFUSED errors
     }
@@ -187,7 +187,7 @@ static void sendmmsg_loop(const std::stop_token& token, std::atomic<bool>& finis
   jl::mmsg_socket<char> mmsg(std::move(fd), messages);
   while (!token.stop_requested()) {
     try {
-      mmsg.sendmmsg();
+      std::ignore = mmsg.sendmmsg();
     } catch (const std::system_error&) {
       // ignore intermittent ECONNREFUSED errors
     }
