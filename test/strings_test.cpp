@@ -75,4 +75,9 @@ TEST_SUITE("strings") {
     CHECK("foo" == view_of<"foo">());
     CHECK("bar" == view_of<"bar">());
   }
+
+  TEST_CASE("join") {
+    CHECK("" == jl::join(std::vector<std::string>{}));
+    CHECK("foo,bar,baz" == jl::join(std::vector{"foo", "bar", "baz"}));
+  }
 }

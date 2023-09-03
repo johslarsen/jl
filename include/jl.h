@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <bit>
 #include <cassert>
@@ -22,6 +23,7 @@
 #include <functional>
 #include <limits>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <system_error>
@@ -183,6 +185,17 @@ inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted<Blacklist> &
     return os << std::quoted(mq._str, mq._delim, mq._escape);
   }
   return os << mq._str;
+}
+
+template <typename R>
+  requires std::ranges::input_range<R> && std::constructible_from<std::string, std::ranges::range_value_t<R>>
+inline std::string join(const R &&words, const std::string &delimiter = ",") {
+  if (std::ranges::empty(words)) return "";
+
+  std::string first(*std::ranges::begin(words));
+  return std::ranges::fold_left(words | std::views::drop(1), std::move(first), [delimiter](std::string s, const auto &w) {
+    return s += delimiter + w;
+  });
 }
 
 /// Container that can be used to pass string literal as template parameter.
