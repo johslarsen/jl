@@ -30,6 +30,41 @@ namespace jl {
 template <typename T>
 concept numeric = std::integral<T> || std::floating_point<T>;
 
+[[nodiscard]] inline std::system_error make_system_error(std::errc err, const std::string &message) noexcept {
+  return {std::make_error_code(err), message};
+}
+
+[[nodiscard]] inline std::system_error errno_as_error(const std::string &message) noexcept {
+  return make_system_error(static_cast<std::errc>(errno), message);
+}
+
+/// Utility to run a method at the end of the scope like a defer statement in Go
+template <std::invocable F>
+  requires std::is_void_v<std::invoke_result_t<F>>
+class defer {
+  F _f;
+
+ public:
+  [[nodiscard]] explicit defer(F f) : _f(f) {}
+  ~defer() noexcept { _f(); }
+
+  defer(const defer &) = delete;
+  defer &operator=(const defer &) = delete;
+  defer(defer &&) = delete;
+  defer &operator=(defer &&) = delete;
+};
+
+/// @returns n usually or 0 for EAGAIN
+/// @throws std::system_error on other errors
+template <std::integral T>
+T check_rw_error(T n, const std::string &message) {
+  if (n < 0) {
+    if (errno == EAGAIN) return 0;
+    throw errno_as_error(message);
+  }
+  return n;
+}
+
 [[nodiscard]] inline std::string str_or_empty(const char *str) {
   return {str == nullptr ? "" : str};
 }
@@ -115,25 +150,6 @@ struct fixed_string {
   }
   auto operator<=>(const fixed_string &) const = default;
 };
-
-[[nodiscard]] inline std::system_error make_system_error(std::errc err, const std::string &message) noexcept {
-  return {std::make_error_code(err), message};
-}
-
-[[nodiscard]] inline std::system_error errno_as_error(const std::string &message) noexcept {
-  return make_system_error(static_cast<std::errc>(errno), message);
-}
-
-/// @returns n usually or 0 for EAGAIN
-/// @throws std::system_error on other errors
-template <std::integral T>
-T check_rw_error(T n, const std::string &message) {
-  if (n < 0) {
-    if (errno == EAGAIN) return 0;
-    throw errno_as_error(message);
-  }
-  return n;
-}
 
 // clang-format off
 /// Type trait to select a same sized integer based on the size of a type

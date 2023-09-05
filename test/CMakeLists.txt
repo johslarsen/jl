@@ -2,7 +2,7 @@ add_executable(
   run_test
   bit_test.cpp
   environment_test.cpp
-  errno_as_error_test.cpp
+  error_handling_test.cpp
   fd_mmap_test.cpp
   circular_buffer_test.cpp
   strings_test.cpp
