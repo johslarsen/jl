@@ -1,5 +1,6 @@
 #pragma once
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/mman.h>
@@ -220,6 +221,14 @@ class unique_fd {
   /// @throws std::system_error with errno and errmsg if it fails.
   explicit unique_fd(int fd, const std::string &errmsg = "unique_fd(-1)") : _fd(fd) {
     if (_fd < 0) throw errno_as_error(errmsg);
+  }
+
+  [[nodiscard]] static std::pair<unique_fd, unique_fd> pipes(int flags = O_CLOEXEC) {
+    std::array<int, 2> sv{-1, -1};
+    if (pipe2(sv.data(), flags) < 0) {
+      throw errno_as_error("socketpair failed");
+    }
+    return {unique_fd(sv[0]), unique_fd(sv[1])};
   }
 
   [[nodiscard]] int operator*() const noexcept { return _fd; }

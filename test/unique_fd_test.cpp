@@ -22,6 +22,15 @@ TEST(UniqueFD, ConstructionFromInvalidFDThrows) {
   EXPECT_THROW(jl::unique_fd(-1, "foo"), std::system_error);
 }
 
+TEST(UniqueFD, Pipes) {
+  auto [in, out] = jl::unique_fd::pipes();
+
+  EXPECT_EQ(3, out.write(std::string_view("foo")));
+
+  std::string buffer = "xxxx";
+  EXPECT_EQ("foo", in.read(buffer));
+}
+
 TEST(TmpFD, MoveAndAssignmentNeitherDoubleCloseNorLeaks) {
   jl::tmpfd org;
   jl::tmpfd move_constructed(std::move(org));
