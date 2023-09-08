@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
+#include <sys/sendfile.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -64,6 +65,12 @@ T check_rw_error(T n, const std::string &message) {
     throw errno_as_error(message);
   }
   return n;
+}
+
+template <typename T>
+[[nodiscard]] inline T *nullable(std::optional<T> &opt) {
+  if (opt.has_value()) return &(*opt);
+  return nullptr;
 }
 
 [[nodiscard]] inline std::string str_or_empty(const char *str) {
@@ -210,6 +217,39 @@ template <typename T>
     slices[i] = {&buffer[i * size], size};
   }
   return slices;
+}
+
+/// A file descriptor associated with an explicit offset
+struct ofd {
+  int fd = -1;
+  std::optional<off_t> offset = std::nullopt;
+};
+
+/// Copy up to len bytes from in to out (see `man 2 sendfile` for details).
+/// NOTE: The system call requires that at most one of the file descriptors is a pipe.
+size_t inline sendfileall(ofd in, int fd_out, size_t len) {
+  off_t *off = nullable(in.offset);
+  size_t offset = 0;
+  while (offset < len) {
+    size_t bytes_written = check_rw_error(::sendfile(fd_out, in.fd, off, len - offset), "sendfile failed");
+    if (bytes_written == 0) break;
+    offset += bytes_written;
+  }
+  return offset;
+}
+
+/// Copy up to len bytes from in to out (see `man 2 splice` for details).
+/// NOTE: The system call requires that at least one of the file descriptors is a pipe.
+size_t inline spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {
+  off_t *in_off = nullable(in.offset);
+  off_t *out_off = nullable(out.offset);
+  size_t offset = 0;
+  while (offset < len) {
+    size_t bytes_written = check_rw_error(::splice(in.fd, in_off, out.fd, out_off, len - offset, flags), "splice failed");
+    if (bytes_written == 0) break;
+    offset += bytes_written;
+  }
+  return offset;
 }
 
 /// An owned and managed file descriptor.

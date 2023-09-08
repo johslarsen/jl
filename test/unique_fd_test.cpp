@@ -55,3 +55,53 @@ TEST(TmpFD, ReadAndWriteWorksWithVariousInputs) {
   auto int123 = fd.read(std::span<int>(int_vector));
   EXPECT_EQ((std::vector<int>{1, 2, 3}), std::vector<int>(int123.begin(), int123.end()));
 }
+
+TEST(FD, SpliceallWithPipes) {
+  auto [from, out] = jl::unique_fd::pipes();
+  auto [in, to] = jl::unique_fd::pipes();
+
+  ASSERT_EQ(3, out.write("foo"));
+  EXPECT_EQ(3, jl::spliceall({*from}, {*to}, 3));
+
+  std::string buffer("???");
+  EXPECT_EQ("foo", in.read(buffer));
+}
+
+TEST(FD, SpliceallWithFile) {
+  auto [in, out] = jl::unique_fd::pipes();
+  auto fd = jl::tmpfd().unlink();
+
+  EXPECT_EQ(0, jl::spliceall({*fd, 0}, {*out}, 3));
+
+  ASSERT_EQ(3, out.write("foo"));
+  EXPECT_EQ(3, jl::spliceall({*in}, {*fd, 0}, 3));
+  EXPECT_EQ(0, jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"))
+      << "splice at a specific offset was not supposed to change the fd position";
+
+  EXPECT_EQ(3, jl::spliceall({*fd}, {*out}, 3));
+  EXPECT_EQ(3, jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"))
+      << "splice from/to the fd current position was supposed to change fd position";
+
+  std::string buffer = "???";
+  EXPECT_EQ("foo", in.read(buffer));
+}
+
+TEST(FD, Sendfile) {
+  auto [in, out] = jl::unique_fd::pipes();
+  auto fd = jl::tmpfd().unlink();
+
+  EXPECT_EQ(0, jl::sendfileall({*fd, 0}, *out, 3));
+
+  ASSERT_EQ(3, fd.write("foo"));
+  jl::check_rw_error(lseek(*fd, 0, SEEK_SET), "lseek failed");
+  EXPECT_EQ(3, jl::sendfileall({*fd, 0}, *out, 3));
+  EXPECT_EQ(0, jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"))
+      << "sendfile at a specific offset was not supposed to change the fd position";
+
+  EXPECT_EQ(3, jl::sendfileall({*fd}, *out, 3));
+  EXPECT_EQ(3, jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"))
+      << "sendfile from/to the fd current position was supposed to change fd position";
+
+  std::string buffer = "??????";
+  EXPECT_EQ("foofoo", in.read(buffer));
+}
