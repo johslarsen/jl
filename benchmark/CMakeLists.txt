@@ -9,3 +9,6 @@ target_link_libraries(strings jl benchmark)
 
 add_executable(unique_socket unique_socket.cpp)
 target_link_libraries(unique_socket jl benchmark)
+
+add_executable(copy copy.cpp)
+target_link_libraries(copy jl benchmark)
