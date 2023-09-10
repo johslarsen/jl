@@ -274,50 +274,6 @@ class unique_fd {
   [[nodiscard]] int operator*() const noexcept { return _fd; }
   [[nodiscard]] int fd() const noexcept { return _fd; }
 
-  template <typename C>
-    requires std::constructible_from<std::span<const typename C::value_type>, C>
-  [[nodiscard]] size_t write(const C &data) {  // NOLINT(*const)
-    constexpr size_t size = sizeof(typename C::value_type);
-    return check_rw_error(::write(_fd, data.data(), size * data.size()), "write failed") / size;
-  }
-  [[nodiscard]] size_t write(std::string_view data) {  // NOLINT(*const)
-    return check_rw_error(::write(_fd, data.data(), data.size()), "write failed");
-  }
-
-  template <typename T>
-  [[nodiscard]] std::span<T> read(std::span<T> buffer) {  // NOLINT(*const)
-    auto n = check_rw_error(::read(_fd, buffer.data(), sizeof(T) * buffer.size()), "read failed");
-    return buffer.subspan(0, n / sizeof(T));
-  }
-  template <typename C>
-    requires std::constructible_from<std::span<const typename C::value_type>, C>
-  [[nodiscard]] std::span<typename C::value_type> read(C &data) {  // NOLINT(*const)
-    return read(std::span<typename C::value_type>(data));
-  }
-  [[nodiscard]] std::string_view read(std::string &buffer) {  // NOLINT(*const)
-    auto n = check_rw_error(::read(_fd, buffer.data(), buffer.size()), "read failed");
-    return {buffer.begin(), buffer.begin() + n};
-  }
-
-  template <typename T>
-  [[nodiscard]] std::span<T> readall(std::span<T> buffer) {
-    for (size_t count = 0, offset = 0; offset < buffer.size(); offset += count) {
-      count = read(buffer.subspan(offset)).size();
-      if (count == 0) return buffer.subspan(0, offset);
-    }
-    return buffer;
-  }
-
-  [[nodiscard]] struct stat stat() const {
-    struct stat buf {};
-    if (fstat(_fd, &buf) != 0) throw errno_as_error("fstat failed");
-    return buf;
-  }
-
-  void truncate(off_t length) {  // NOLINT(*const)
-    if (ftruncate(_fd, length) != 0) throw errno_as_error("ftruncate failed");
-  }
-
   void reset(int fd = -1) noexcept {
     if (auto old = std::exchange(_fd, fd); old >= 0) ::close(old);
   }
@@ -333,6 +289,50 @@ class unique_fd {
     return *this;
   }
 };
+
+template <typename C>
+  requires std::constructible_from<std::span<const typename C::value_type>, C>
+[[nodiscard]] size_t write(int fd, const C &data) {
+  constexpr size_t size = sizeof(typename C::value_type);
+  return check_rw_error(::write(fd, data.data(), size * data.size()), "write failed") / size;
+}
+[[nodiscard]] size_t inline write(int fd, std::string_view data) {
+  return write(fd, std::span<const char>{data.data(), data.size()});
+}
+
+template <typename T>
+[[nodiscard]] std::span<T> read(int fd, std::span<T> buffer) {
+  auto n = check_rw_error(::read(fd, buffer.data(), sizeof(T) * buffer.size()), "read failed");
+  return buffer.subspan(0, n / sizeof(T));
+}
+template <typename C>
+  requires std::constructible_from<std::span<const typename C::value_type>, C>
+[[nodiscard]] std::span<typename C::value_type> read(int fd, C &buffer) {
+  return read(fd, std::span<typename C::value_type>(buffer));
+}
+[[nodiscard]] std::string_view inline read(int fd, std::string &buffer) {
+  auto result = read(fd, std::span<char>{buffer.begin(), buffer.size()});
+  return {result.data(), result.size()};
+}
+
+template <typename T>
+[[nodiscard]] std::span<T> readall(int fd, std::span<T> buffer) {
+  for (size_t count = 0, offset = 0; offset < buffer.size(); offset += count) {
+    count = read(fd, buffer.subspan(offset)).size();
+    if (count == 0) return buffer.subspan(0, offset);
+  }
+  return buffer;
+}
+
+[[nodiscard]] struct stat inline stat(int fd) {
+  struct stat buf {};
+  if (fstat(fd, &buf) != 0) throw errno_as_error("fstat failed");
+  return buf;
+}
+
+void inline truncate(int fd, off_t length) {
+  if (ftruncate(fd, length) != 0) throw errno_as_error("ftruncate failed");
+}
 
 /// A named file descriptor that is closed and removed upon destruction.
 class tmpfd {
@@ -449,6 +449,17 @@ struct host_port {
   bool operator==(const host_port &) const = default;
 };
 
+template <typename T>
+[[nodiscard]] int try_setsockopt(int fd, int level, int option_name, const T &value) {
+  return ::setsockopt(fd, level, option_name, &value, sizeof(value));
+}
+template <typename T>
+void setsockopt(int fd, int level, int option_name, const T &value) {
+  if (try_setsockopt(fd, level, option_name, value) < 0) {
+    throw errno_as_error("setsockopt(" + std::to_string(level) + ", " + std::to_string(option_name) + ") failed");
+  }
+}
+
 /// An owned socket descriptor that simplifies common network usage.
 class unique_socket : public unique_fd {
  public:
@@ -490,74 +501,62 @@ class unique_socket : public unique_fd {
       std::optional<int> protocol = IPPROTO_TCP,
       const std::function<void(unique_socket &)> &before_bind = [](auto &) {}) {
     return bound(source, domain, SOCK_STREAM, protocol, [&](auto &fd) {
-      fd.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1);
+      setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, 1);
       before_bind(fd);
     });
   }
-
-  void bind(const unique_addr &source = unique_addr("", "0")) {
-    for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
-      if (::bind(fd(), p->ai_addr, p->ai_addrlen) == 0) return;
-    }
-    throw errno_as_error("bind(" + source.string() + ") failed");
-  }
-
-  void connect(const unique_addr &source) {
-    for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
-      if (::connect(fd(), p->ai_addr, p->ai_addrlen) == 0) return;
-    }
-    throw errno_as_error("connect(" + source.string() + ") failed");
-  }
-
-  void listen(int backlog) {
-    check_rw_error(::listen(fd(), backlog), "listen failed");
-  }
-  [[nodiscard]] std::optional<std::pair<unique_socket, host_port>> accept(int flags = 0) {
-    sockaddr_in6 addr_buf{};
-    auto *addr = reinterpret_cast<sockaddr *>(&addr_buf);  // NOLINT(*reinterpret-cast) to type-erased C-struct
-    socklen_t addr_len = sizeof(addr_buf);
-
-    auto client = check_rw_error(::accept4(fd(), addr, &addr_len, flags), "accept failed");
-    if (client < 0) return std::nullopt;
-    return {{unique_socket(client), host_port::from(addr)}};
-  }
-
-  template <typename T>
-  [[nodiscard]] int try_setsockopt(int level, int option_name, const T &value) {
-    return ::setsockopt(fd(), level, option_name, &value, sizeof(value));
-  }
-  template <typename T>
-  void setsockopt(int level, int option_name, const T &value) {
-    if (try_setsockopt(level, option_name, value) < 0) {
-      throw errno_as_error("setsockopt(" + std::to_string(level) + ", " + std::to_string(option_name) + ") failed");
-    }
-  }
-
-  template <typename C>
-    requires std::constructible_from<std::span<const typename C::value_type>, C>
-  [[nodiscard]] size_t send(const C &data, int flags = 0) {  // NOLINT(*-function-const)
-    constexpr size_t size = sizeof(typename C::value_type);
-    return check_rw_error(::send(fd(), data.data(), size * data.size(), flags), "send failed") / size;
-  }
-  [[nodiscard]] size_t send(std::string_view data, int flags = 0) {  // NOLINT(*-function-const)
-    return check_rw_error(::send(fd(), data.data(), data.size(), flags), "send failed");
-  }
-
-  template <typename T>
-  [[nodiscard]] std::span<T> recv(std::span<T> buffer, int flags = 0) {  // NOLINT(*-function-const)
-    auto n = check_rw_error(::recv(fd(), buffer.data(), sizeof(T) * buffer.size(), flags), "recv failed");
-    return buffer.subspan(0, n / sizeof(T));
-  }
-  template <typename C>
-    requires std::constructible_from<std::span<const typename C::value_type>, C>
-  [[nodiscard]] std::span<typename C::value_type> recv(C &data, int flags = 0) {  // NOLINT(*-function-const)
-    return recv(std::span<typename C::value_type>(data), flags);
-  }
-  [[nodiscard]] std::string_view recv(std::string &buffer, int flags = 0) {  // NOLINT(*-function-const)
-    auto n = check_rw_error(::recv(fd(), buffer.data(), buffer.size(), flags), "recv failed");
-    return {buffer.begin(), buffer.begin() + n};
-  }
 };
+
+template <typename C>
+  requires std::constructible_from<std::span<const typename C::value_type>, C>
+[[nodiscard]] size_t send(int fd, const C &data, int flags = 0) {
+  constexpr size_t size = sizeof(typename C::value_type);
+  return check_rw_error(::send(fd, data.data(), size * data.size(), flags), "send failed") / size;
+}
+[[nodiscard]] size_t inline send(int fd, std::string_view data, int flags = 0) {
+  return send(fd, std::span<const char>{data.data(), data.size()}, flags);
+}
+
+template <typename T>
+[[nodiscard]] std::span<T> recv(int fd, std::span<T> buffer, int flags = 0) {
+  auto n = check_rw_error(::recv(fd, buffer.data(), sizeof(T) * buffer.size(), flags), "recv failed");
+  return buffer.subspan(0, n / sizeof(T));
+}
+template <typename C>
+  requires std::constructible_from<std::span<const typename C::value_type>, C>
+[[nodiscard]] std::span<typename C::value_type> recv(int fd, C &data, int flags = 0) {
+  return recv(fd, std::span<typename C::value_type>(data), flags);
+}
+[[nodiscard]] std::string_view inline recv(int fd, std::string &buffer, int flags = 0) {
+  auto result = recv(fd, std::span<char>{buffer.data(), buffer.size()}, flags);
+  return {result.data(), result.size()};
+}
+void inline bind(int fd, const unique_addr &source = unique_addr("", "0")) {
+  for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
+    if (::bind(fd, p->ai_addr, p->ai_addrlen) == 0) return;
+  }
+  throw errno_as_error("bind(" + source.string() + ") failed");
+}
+
+void inline connect(int fd, const unique_addr &source) {
+  for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
+    if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0) return;
+  }
+  throw errno_as_error("connect(" + source.string() + ") failed");
+}
+
+void inline listen(int fd, int backlog) {
+  check_rw_error(::listen(fd, backlog), "listen failed");
+}
+[[nodiscard]] inline std::optional<std::pair<unique_socket, host_port>> accept(int fd, int flags = 0) {
+  sockaddr_in6 addr_buf{};
+  auto *addr = reinterpret_cast<sockaddr *>(&addr_buf);  // NOLINT(*reinterpret-cast) to type-erased C-struct
+  socklen_t addr_len = sizeof(addr_buf);
+
+  auto client = check_rw_error(::accept4(fd, addr, &addr_len, flags), "accept failed");
+  if (client < 0) return std::nullopt;
+  return {{unique_socket(client), host_port::from(addr)}};
+}
 
 /// An abstraction for managing the POSIX "span" structures required by
 /// multi-message system calls like recvmmsg/sendmmsg.
@@ -774,14 +773,14 @@ class fd_mmap {
   /// from construction.
   /// @throws std::system_error with errno and errmsg if it fails.
   void truncate(size_t length, int mremap_flags = 0) {
-    _fd.truncate(length * sizeof(T));
+    jl::truncate(*_fd, length * sizeof(T));
     _mmap.remap(beyond_offset(length), mremap_flags);
     _map = _offset < static_cast<off_t>(length) ? *_mmap : _mmap->subspan(0, 0);
   }
 
  private:
   static std::pair<unique_fd, size_t> with_count(unique_fd fd, std::optional<size_t> specified_count) {
-    auto count = specified_count.value_or(fd.stat().st_size / sizeof(T));
+    auto count = specified_count.value_or(stat(*fd).st_size / sizeof(T));
     return {std::move(fd), count};
   }
   fd_mmap(std::pair<unique_fd, size_t> fd_count, int prot, int flags, off_t offset, std::optional<size_t> specified_count, const std::string &errmsg)
@@ -820,7 +819,7 @@ class CircularBuffer {
       : _data(unique_mmap<T>::anon(Capacity * 2, PROT_NONE, mmap_name)) {
     unique_fd fd = tmpfd().unlink();
     constexpr off_t len = Capacity * sizeof(T);
-    fd.truncate(len);
+    truncate(*fd, len);
 
     // _data is a continues virtual memory span twice as big as the Capacity
     // where the first and second half is mapped to the same shared buffer.

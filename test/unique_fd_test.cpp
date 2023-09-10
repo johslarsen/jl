@@ -9,11 +9,11 @@ TEST(UniqueFD, MoveAndAssignmentNeitherDoubleCloseNorLeaks) {
   jl::unique_fd org(mkstemp(filename.data()));
   std::filesystem::remove(filename);
 
-  EXPECT_EQ(3, org.write("foo"));
+  EXPECT_EQ(3, jl::write(*org, "foo"));
   jl::unique_fd move_constructed(std::move(org));
-  EXPECT_EQ(3, move_constructed.write("bar"));
+  EXPECT_EQ(3, jl::write(*move_constructed, "bar"));
   jl::unique_fd move_assigned = std::move(move_constructed);
-  EXPECT_EQ(3, move_assigned.write("baz"));
+  EXPECT_EQ(3, jl::write(*move_assigned, "baz"));
 
   move_assigned = jl::unique_fd(fcntl(1, F_DUPFD_CLOEXEC, 0));
 }
@@ -25,10 +25,10 @@ TEST(UniqueFD, ConstructionFromInvalidFDThrows) {
 TEST(UniqueFD, Pipes) {
   auto [in, out] = jl::unique_fd::pipes();
 
-  EXPECT_EQ(3, out.write(std::string_view("foo")));
+  EXPECT_EQ(3, jl::write(*out, std::string_view("foo")));
 
   std::string buffer = "xxxx";
-  EXPECT_EQ("foo", in.read(buffer));
+  EXPECT_EQ("foo", jl::read(*in, buffer));
 }
 
 TEST(TmpFD, MoveAndAssignmentNeitherDoubleCloseNorLeaks) {
@@ -44,15 +44,15 @@ TEST(TmpFD, ReadAndWriteWorksWithVariousInputs) {
   std::string string = "bar";
   std::vector<int> int_vector = {1, 2, 3};
 
-  EXPECT_EQ(3, fd.write(std::span<char>(char_vector)));
-  EXPECT_EQ(3, fd.write(string));
-  EXPECT_EQ(3, fd.write(int_vector));
+  EXPECT_EQ(3, jl::write(*fd, std::span<char>(char_vector)));
+  EXPECT_EQ(3, jl::write(*fd, string));
+  EXPECT_EQ(3, jl::write(*fd, int_vector));
 
   EXPECT_EQ(0, jl::check_rw_error(lseek(*fd, 0, SEEK_SET), "lseek failed"));
-  auto foo = fd.read(char_vector);
+  auto foo = jl::read(*fd, char_vector);
   EXPECT_EQ("foo", std::string_view(foo.begin(), foo.end()));
-  EXPECT_EQ("bar", fd.read(string));
-  auto int123 = fd.read(std::span<int>(int_vector));
+  EXPECT_EQ("bar", jl::read(*fd, string));
+  auto int123 = jl::read(*fd, std::span<int>(int_vector));
   EXPECT_EQ((std::vector<int>{1, 2, 3}), std::vector<int>(int123.begin(), int123.end()));
 }
 
@@ -60,11 +60,11 @@ TEST(FD, SpliceallWithPipes) {
   auto [from, out] = jl::unique_fd::pipes();
   auto [in, to] = jl::unique_fd::pipes();
 
-  ASSERT_EQ(3, out.write("foo"));
+  ASSERT_EQ(3, jl::write(*out, "foo"));
   EXPECT_EQ(3, jl::spliceall({*from}, {*to}, 3));
 
   std::string buffer("???");
-  EXPECT_EQ("foo", in.read(buffer));
+  EXPECT_EQ("foo", jl::read(*in, buffer));
 }
 
 TEST(FD, SpliceallWithFile) {
@@ -73,7 +73,7 @@ TEST(FD, SpliceallWithFile) {
 
   EXPECT_EQ(0, jl::spliceall({*fd, 0}, {*out}, 3));
 
-  ASSERT_EQ(3, out.write("foo"));
+  ASSERT_EQ(3, jl::write(*out, "foo"));
   EXPECT_EQ(3, jl::spliceall({*in}, {*fd, 0}, 3));
   EXPECT_EQ(0, jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"))
       << "splice at a specific offset was not supposed to change the fd position";
@@ -83,7 +83,7 @@ TEST(FD, SpliceallWithFile) {
       << "splice from/to the fd current position was supposed to change fd position";
 
   std::string buffer = "???";
-  EXPECT_EQ("foo", in.read(buffer));
+  EXPECT_EQ("foo", jl::read(*in, buffer));
 }
 
 TEST(FD, Sendfile) {
@@ -92,7 +92,7 @@ TEST(FD, Sendfile) {
 
   EXPECT_EQ(0, jl::sendfileall({*fd, 0}, *out, 3));
 
-  ASSERT_EQ(3, fd.write("foo"));
+  ASSERT_EQ(3, jl::write(*fd, "foo"));
   jl::check_rw_error(lseek(*fd, 0, SEEK_SET), "lseek failed");
   EXPECT_EQ(3, jl::sendfileall({*fd, 0}, *out, 3));
   EXPECT_EQ(0, jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"))
@@ -103,5 +103,5 @@ TEST(FD, Sendfile) {
       << "sendfile from/to the fd current position was supposed to change fd position";
 
   std::string buffer = "??????";
-  EXPECT_EQ("foofoo", in.read(buffer));
+  EXPECT_EQ("foofoo", jl::read(*in, buffer));
 }

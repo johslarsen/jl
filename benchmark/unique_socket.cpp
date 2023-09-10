@@ -13,7 +13,7 @@ static void send_loop(const std::stop_token& token, std::atomic<bool>& finished,
   std::vector<char> buffer(message_size);
   while (!token.stop_requested()) {
     try {
-      std::ignore = fd.send(buffer);
+      std::ignore = jl::send(*fd, buffer);
     } catch (const std::system_error&) {
       // ignore intermittent ECONNREFUSED errors
     }
@@ -23,23 +23,23 @@ static void send_loop(const std::stop_token& token, std::atomic<bool>& finished,
 
 void drain(std::atomic<bool>& sender_finished, jl::unique_socket& fd, std::span<char> buffer) {
   while (!sender_finished) {
-    (void)fd.recv(buffer, MSG_DONTWAIT).empty();
+    (void)jl::recv(*fd, buffer, MSG_DONTWAIT).empty();
   }
 }
 
 static inline std::pair<jl::unique_socket, jl::unique_socket> connected_udp() {
   auto in = jl::unique_socket::udp({"::", "1234"});
   auto out = jl::unique_socket::udp();
-  out.connect({"::", "1234"});
+  jl::connect(*out, {"::", "1234"});
   return {std::move(in), std::move(out)};
 }
 
 static inline std::pair<jl::unique_socket, jl::unique_socket> connected_tcp() {
   auto server = jl::unique_socket::tcp({"::", "1234"});
-  server.listen(1);
+  jl::listen(*server, 1);
   auto client = jl::unique_socket::tcp();
-  client.connect({"::", "1234"});
-  auto [conn, _] = server.accept().value();  // NOLINT(*unchecked-optional*), crashing is fine
+  jl::connect(*client, {"::", "1234"});
+  auto [conn, _] = jl::accept(*server).value();  // NOLINT(*unchecked-optional*), crashing is fine
   return {std::move(conn), std::move(client)};
 }
 
@@ -52,7 +52,7 @@ void BM_RecvIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket,
   std::vector<char> buffer(message_size);
   size_t packets = 0, bytes = 0;
   for (auto _ : state) {
-    bytes += in.recv(buffer).size();
+    bytes += jl::recv(*in, buffer).size();
     packets += 1;
   }
   sender.request_stop();
@@ -83,7 +83,7 @@ void BM_RecvIntoCircularBuffer(benchmark::State& state, std::pair<jl::unique_soc
   jl::CircularBuffer<char, 1 << 20> buffer;
   size_t packets = 0, bytes = 0;
   for (auto _ : state) {
-    auto received = in.recv(buffer.peek_back(message_size));
+    auto received = jl::recv(*in, buffer.peek_back(message_size));
     packets += 1;
 
     buffer.commit_written(std::span<char>(received));
@@ -230,7 +230,7 @@ void BM_PollThenNonBlockRecvIntoSameBuffer(benchmark::State& state, std::pair<jl
   pollfd fds{.fd = in.fd(), .events = POLLIN, .revents = 0};
   for (auto _ : state) {
     if (jl::check_rw_error(poll(&fds, 1, 1 /*ms*/), "poll") > 0) {
-      bytes += in.recv(buffer, MSG_DONTWAIT).size();
+      bytes += jl::recv(*in, buffer, MSG_DONTWAIT).size();
       packets += 1;
     }
   }
@@ -249,7 +249,7 @@ void BM_NonBlockingRecvOnEmptySocket(benchmark::State& state, int socket_type, i
   std::vector<char> buffer(1024);
   for (auto _ : state) {
     size_t n = 0;
-    benchmark::DoNotOptimize(n = in.recv(buffer, recv_flags).size());
+    benchmark::DoNotOptimize(n = jl::recv(*in, buffer, recv_flags).size());
   }
 }
 BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, DatagramOnSocketCreation, SOCK_DGRAM | SOCK_NONBLOCK, 0);
@@ -264,7 +264,7 @@ void BM_NonBlockingSendOnFullSocket(benchmark::State& state, int socket_type, in
     ;  // fill the socket
   for (auto _ : state) {
     size_t n = 0;
-    benchmark::DoNotOptimize(n = out.send(buffer, recv_flags));
+    benchmark::DoNotOptimize(n = jl::send(*out, buffer, recv_flags));
   }
 }
 BENCHMARK_CAPTURE(BM_NonBlockingSendOnFullSocket, DatagramOnSocketCreation, SOCK_DGRAM | SOCK_NONBLOCK, 0);

@@ -7,7 +7,7 @@ static inline std::string_view as_view(std::span<char> data) {
 
 TEST(FdMMAP, Reading) {
   jl::unique_fd fd = jl::tmpfd().unlink();
-  EXPECT_EQ(3, fd.write("foo"));
+  EXPECT_EQ(3, jl::write(*fd, "foo"));
 
   jl::fd_mmap<char> map(std::move(fd));
 
@@ -17,7 +17,7 @@ TEST(FdMMAP, Reading) {
 
 TEST(FdMMAP, ReadWrite) {
   jl::unique_fd fd = jl::tmpfd().unlink();
-  EXPECT_EQ(3, fd.write("foo"));
+  EXPECT_EQ(3, jl::write(*fd, "foo"));
 
   jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
   std::string_view ba = "ba";
@@ -29,9 +29,9 @@ TEST(FdMMAP, ReadWrite) {
 
 TEST(FdMMAP, AutomaticSizeTakesOffsetIntoAccount) {
   jl::unique_fd fd = jl::tmpfd().unlink();
-  fd.truncate(4096);
+  jl::truncate(*fd, 4096);
   ASSERT_EQ(4096, lseek(fd.fd(), 4096, SEEK_SET));
-  EXPECT_EQ(3, fd.write("foo"));
+  EXPECT_EQ(3, jl::write(*fd, "foo"));
 
   jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
 
@@ -84,5 +84,5 @@ TEST(FdMMAP, FileDescriptorIsUsableAfterUnmap) {
   auto fd = std::move(map).unmap();
   std::string buf(3, '\0');
 
-  EXPECT_EQ("foo", fd.read(buf));
+  EXPECT_EQ("foo", jl::read(*fd, buf));
 }
