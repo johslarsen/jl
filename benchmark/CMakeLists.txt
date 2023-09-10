@@ -12,3 +12,6 @@ target_link_libraries(unique_socket jl benchmark)
 
 add_executable(copy copy.cpp)
 target_link_libraries(copy jl benchmark)
+
+add_executable(splice splice.cpp)
+target_link_libraries(splice jl benchmark)
