@@ -25,3 +25,18 @@ TEST(ErrorHandling, Defer) {
   }
   EXPECT_EQ(1, calls);
 }
+
+TEST(ErrorHandling, Retry) {
+  auto two_eagain = [attempts = 3] mutable {
+    errno = EAGAIN;
+    return --attempts > 0 ? -1 : 42;
+  };
+  EXPECT_EQ(42, jl::retry(two_eagain, "test", 3));
+  EXPECT_EQ(std::nullopt, jl::retry(two_eagain, "test"));
+
+  auto serious_error_only_on_first_attempt = [attempts = 2] mutable {
+    errno = ETIMEDOUT;
+    return --attempts > 0 ? -1 : 42;
+  };
+  EXPECT_THROW(jl::retry(serious_error_only_on_first_attempt, "test", 2), std::system_error);
+}

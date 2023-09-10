@@ -54,7 +54,7 @@ void BM_sendfile(benchmark::State& state) {
   size_t bytes_copied = 0;
   for (auto _ : state) {
     // NOTE: this only copies once, so not really a fair comparison to the other alternatives
-    benchmark::DoNotOptimize(bytes_copied += jl::sendfileall({zero->fd(), 0}, *devnull, block_size));
+    benchmark::DoNotOptimize(bytes_copied += jl::sendfileall(*devnull, {zero->fd(), 0}, block_size));
   }
   state.counters["B/s"] = benchmark::Counter(static_cast<double>(bytes_copied), benchmark::Counter::kIsRate);
 }

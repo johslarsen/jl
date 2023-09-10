@@ -90,15 +90,15 @@ TEST(FD, Sendfile) {
   auto [in, out] = jl::unique_fd::pipes();
   auto fd = jl::tmpfd().unlink();
 
-  EXPECT_EQ(0, jl::sendfileall({*fd, 0}, *out, 3));
+  EXPECT_EQ(0, jl::sendfileall(*out, {*fd, 0}, 3));
 
   ASSERT_EQ(3, jl::write(*fd, "foo"));
   jl::check_rw_error(lseek(*fd, 0, SEEK_SET), "lseek failed");
-  EXPECT_EQ(3, jl::sendfileall({*fd, 0}, *out, 3));
+  EXPECT_EQ(3, jl::sendfileall(*out, {*fd, 0}, 3));
   EXPECT_EQ(0, jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"))
       << "sendfile at a specific offset was not supposed to change the fd position";
 
-  EXPECT_EQ(3, jl::sendfileall({*fd}, *out, 3));
+  EXPECT_EQ(3, jl::sendfileall(*out, {*fd}, 3));
   EXPECT_EQ(3, jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"))
       << "sendfile from/to the fd current position was supposed to change fd position";
 
