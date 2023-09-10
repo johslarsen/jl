@@ -230,10 +230,8 @@ struct ofd {
 size_t inline sendfileall(ofd in, int fd_out, size_t len) {
   off_t *off = nullable(in.offset);
   size_t offset = 0;
-  while (offset < len) {
-    size_t bytes_written = check_rw_error(::sendfile(fd_out, in.fd, off, len - offset), "sendfile failed");
-    if (bytes_written == 0) break;
-    offset += bytes_written;
+  for (size_t count = -1; offset < len && count != 0; offset += count) {
+    count = check_rw_error(::sendfile(fd_out, in.fd, off, len - offset), "sendfile failed");
   }
   return offset;
 }
@@ -244,10 +242,8 @@ size_t inline spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {
   off_t *in_off = nullable(in.offset);
   off_t *out_off = nullable(out.offset);
   size_t offset = 0;
-  while (offset < len) {
-    size_t bytes_written = check_rw_error(::splice(in.fd, in_off, out.fd, out_off, len - offset, flags), "splice failed");
-    if (bytes_written == 0) break;
-    offset += bytes_written;
+  for (size_t count = -1; offset < len && count != 0; offset += count) {
+    count = check_rw_error(::splice(in.fd, in_off, out.fd, out_off, len - offset, flags), "splice failed");
   }
   return offset;
 }
@@ -300,6 +296,16 @@ template <typename C>
   return write(fd, std::span<const char>{data.data(), data.size()});
 }
 
+template <typename C>
+  requires std::constructible_from<std::span<const typename C::value_type>, C>
+[[nodiscard]] size_t writeall(int fd, const C &data) {
+  size_t offset = 0;
+  for (size_t count = -1; offset < data.size() && count != 0; offset += count) {
+    count = write(fd, data.subspan(offset)).size();
+  }
+  return offset;
+}
+
 template <typename T>
 [[nodiscard]] std::span<T> read(int fd, std::span<T> buffer) {
   auto n = check_rw_error(::read(fd, buffer.data(), sizeof(T) * buffer.size()), "read failed");
@@ -317,11 +323,11 @@ template <typename C>
 
 template <typename T>
 [[nodiscard]] std::span<T> readall(int fd, std::span<T> buffer) {
-  for (size_t count = 0, offset = 0; offset < buffer.size(); offset += count) {
+  size_t offset = 0;
+  for (size_t count = -1; offset < buffer.size() && count != 0; offset += count) {
     count = read(fd, buffer.subspan(offset)).size();
-    if (count == 0) return buffer.subspan(0, offset);
   }
-  return buffer;
+  return buffer.subspan(0, offset);
 }
 
 [[nodiscard]] struct stat inline stat(int fd) {
