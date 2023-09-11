@@ -9,7 +9,7 @@ auto* configure_arguments(auto* b) {
   return b;
 }
 
-std::vector<ssize_t> block_sizes{1, 1024, 1 << 14, 1 << 16};  // any larger and it blocks!
+std::vector<ssize_t> block_sizes{1, 1024, 4096, 1 << 14, 1 << 16};  // any larger and it blocks!
 
 void BM_readwrite(benchmark::State& state) {
   size_t block_size = state.range(0);

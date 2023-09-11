@@ -9,8 +9,8 @@ auto* configure_arguments(auto* b) {
 }
 #define JL_BENCHMARK_WITH_ARGS(...) BENCHMARK(__VA_ARGS__)                                   \
                                         ->ArgNames({"size", "chunk", "stride"})              \
-                                        ->ArgsProduct({{1 << 20}, {1, 64, 1024}, {1, 1024}}) \
-                                        ->ArgsProduct({{1 << 30}, {32768, 1 << 20}, {1, 1024, 1 << 20}})
+                                        ->ArgsProduct({{1 << 20}, {1, 64, 4096}, {1, 1024}}) \
+                                        ->ArgsProduct({{1 << 30}, {4096, 32768, 1 << 20}, {1, 1024, 1 << 20}})
 
 static inline std::pair<jl::tmpfd, jl::unique_fd> open_read_write(off_t size) {
   auto read = jl::tmpfd();
