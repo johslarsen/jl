@@ -83,7 +83,7 @@ std::optional<std::invoke_result_t<F>> retry(F f, const std::string &error_messa
 /// Repeat f(...) wrapping read/write/... operations until the whole input is processed.
 /// @returns the amount processed. Usually length unless call returns 0 to indicate EOF.
 /// @throw std::system_error if the system call fails (EAGAIN retried attempts first.
-template <typename F>
+template <std::invocable<size_t, off_t> F>
   requires std::integral<std::invoke_result_t<F, size_t, off_t>>
 size_t rw_loop(F f, size_t length, const std::string &error_message, int attempts = 5) {
   size_t offset = 0;
@@ -123,8 +123,7 @@ template <typename T>
 }
 /// @returns index of the first unescaped character matching pattern or std::string::npos.
 /// @returns size-1 if that happens to be an incomplete escape sequence
-template <typename F>
-  requires std::predicate<F, char>
+template <std::predicate<char> F>
 [[nodiscard]] inline size_t find_unescaped(std::string_view haystack, F needles, size_t pos = 0, char escape = '\\') {
   for (; pos < haystack.size(); ++pos) {
     if (haystack[pos] == escape) {
@@ -138,8 +137,7 @@ template <typename F>
 }
 
 /// @returns true if the Blacklist characters in str needs to be quoted
-template <typename Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
-  requires std::predicate<Blacklist, char>
+template <std::predicate<char> Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
 [[nodiscard]] inline bool needs_quotes(
     std::string_view str,
     char delim = '"',
@@ -160,8 +158,7 @@ template <typename Blacklist = decltype([](unsigned char ch) { return std::isaln
 
 /// An I/O manipulator that inserts str std::quoted if it needs to be or as is
 /// if it is already properly quoted or if there are no Blacklist characters in it.
-template <typename Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
-  requires std::predicate<Blacklist, char>
+template <std::predicate<char> Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
 struct MaybeQuoted {
   std::string_view _str;
   char _delim, _escape;
@@ -169,8 +166,7 @@ struct MaybeQuoted {
   explicit MaybeQuoted(std::string_view str, char delim = '"', char escape = '\\')  // NOLINT(*-swappable-parameters) to mimic std::quoted
       : _str(str), _delim(delim), _escape(escape) {}
 };
-template <typename Blacklist>
-  requires std::predicate<Blacklist, char>
+template <std::predicate<char> Blacklist>
 inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted<Blacklist> &mq) {
   if (needs_quotes<Blacklist>(mq._str, mq._delim, mq._escape)) {
     return os << std::quoted(mq._str, mq._delim, mq._escape);
