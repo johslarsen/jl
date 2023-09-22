@@ -625,7 +625,6 @@ class mmsg_socket {
   /// Sends message buffers off through off + count.
   /// @returns the number of messages sent.
   [[nodiscard]] size_t sendmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
-    assert(off + count <= _msgs.size());
     return check_rw_error(::sendmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags), "sendmmsg failed");
   }
 
