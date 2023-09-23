@@ -137,7 +137,8 @@ template <std::predicate<char> F>
 }
 
 /// @returns true if the Blacklist characters in str needs to be quoted
-template <std::predicate<char> Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
+template <typename Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
+  requires std::predicate<Blacklist, char>
 [[nodiscard]] inline bool needs_quotes(
     std::string_view str,
     char delim = '"',
@@ -158,7 +159,8 @@ template <std::predicate<char> Blacklist = decltype([](unsigned char ch) { retur
 
 /// An I/O manipulator that inserts str std::quoted if it needs to be or as is
 /// if it is already properly quoted or if there are no Blacklist characters in it.
-template <std::predicate<char> Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
+template <typename Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
+  requires std::predicate<Blacklist, char>
 struct MaybeQuoted {
   std::string_view _str;
   char _delim, _escape;
