@@ -114,7 +114,7 @@ template <typename T>
   while (pos < haystack.size()) {
     pos = haystack.find_first_of(pattern, pos);
     if (pos == std::string::npos) break;
-    if (haystack[pos] != escape) return pos;
+    if (haystack[pos] != escape) return pos;     // unescaped match
     if (pos + 1 == haystack.size()) return pos;  // ends with an incomplete escape sequence
 
     pos += 2;  // character after the escaped one;
@@ -127,10 +127,10 @@ template <std::predicate<char> F>
 [[nodiscard]] inline size_t find_unescaped(std::string_view haystack, F needles, size_t pos = 0, char escape = '\\') {
   for (; pos < haystack.size(); ++pos) {
     if (haystack[pos] == escape) {
-      if (pos + 1 == haystack.size()) return pos;
-      ++pos;  // skip next char
+      if (pos + 1 == haystack.size()) return pos;  // ends with an incomplete escape sequence
+      ++pos;                                       // skip next char
     } else if (needles(haystack[pos])) {
-      return pos;  // ends with an incomplete escape sequence
+      return pos;  // unescaped match
     }
   }
   return std::string::npos;
