@@ -6,26 +6,23 @@ static inline std::string_view as_view(std::span<char> data) {
 }
 
 TEST_SUITE("fd_mmap") {
-  TEST_CASE("reading") {
+  TEST_CASE("basic") {
     jl::unique_fd fd = jl::tmpfd().unlink();
     CHECK(3 == jl::write(*fd, "foo"));
 
-    jl::fd_mmap<char> map(std::move(fd));
+    SUBCASE("read") {
+      jl::fd_mmap<char> map(std::move(fd));
+      CHECK('f' == map[0]);
+      CHECK("foo" == as_view(*map));
+    }
+    SUBCASE("write") {
+      jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
+      std::string_view ba = "ba";
+      std::copy(ba.begin(), ba.end(), map->begin());
+      map[2] = 'r';
 
-    CHECK('f' == map[0]);
-    CHECK("foo" == as_view(*map));
-  }
-
-  TEST_CASE("read write") {
-    jl::unique_fd fd = jl::tmpfd().unlink();
-    CHECK(3 == jl::write(*fd, "foo"));
-
-    jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
-    std::string_view ba = "ba";
-    std::copy(ba.begin(), ba.end(), map->begin());
-    map[2] = 'r';
-
-    CHECK("bar" == as_view(*map));
+      CHECK("bar" == as_view(*map));
+    }
   }
 
   TEST_CASE("automatic size takes offset into account") {

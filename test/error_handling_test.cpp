@@ -2,16 +2,17 @@
 #include <jl.h>
 
 TEST_SUITE("error handling") {
-  TEST_CASE("errno_as_error success") {
-    errno = 0;
-    CHECK(std::system_error(std::make_error_code(std::errc{}), "foo").what() ==
-          std::string_view(jl::errno_as_error("foo").what()));
-  }
-
   TEST_CASE("errno_as_error") {
-    errno = ETIMEDOUT;
-    CHECK(std::system_error(std::make_error_code(std::errc::timed_out), "foo").what() ==
-          std::string_view(jl::errno_as_error("foo").what()));
+    SUBCASE("success") {
+      errno = 0;
+      CHECK(std::system_error(std::make_error_code(std::errc{}), "foo").what() ==
+            std::string_view(jl::errno_as_error("foo").what()));
+    }
+    SUBCASE("error") {
+      errno = ETIMEDOUT;
+      CHECK(std::system_error(std::make_error_code(std::errc::timed_out), "foo").what() ==
+            std::string_view(jl::errno_as_error("foo").what()));
+    }
   }
 
   TEST_CASE("defer") {

@@ -22,28 +22,30 @@ TEST_SUITE("environment") {
     CHECK_THROWS_AS((void)jl::reqenv("DONT_SET_THIS"), std::runtime_error);
   }
 
-  TEST_CASE("env_or numeric") {
-    setenv("JL_TEST_ENV_OR_INT", "42", 1);      // NOLINT(*mt-unsafe)
-    setenv("JL_TEST_ENV_OR_FLOAT", "3.14", 1);  // NOLINT(*mt-unsafe)
-    CHECK(42 == jl::env_or("JL_TEST_ENV_OR_INT", 13));
-    CHECK(3.14 == jl::env_or("JL_TEST_ENV_OR_FLOAT", 42.0));
-    CHECK(3 == jl::env_or("JL_TEST_ENV_OR_FLOAT", 42));
+  TEST_CASE("env_or") {
+    SUBCASE("numeric") {
+      setenv("JL_TEST_ENV_OR_INT", "42", 1);      // NOLINT(*mt-unsafe)
+      setenv("JL_TEST_ENV_OR_FLOAT", "3.14", 1);  // NOLINT(*mt-unsafe)
+      CHECK(42 == jl::env_or("JL_TEST_ENV_OR_INT", 13));
+      CHECK(3.14 == jl::env_or("JL_TEST_ENV_OR_FLOAT", 42.0));
+      CHECK(3 == jl::env_or("JL_TEST_ENV_OR_FLOAT", 42));
 
-    CHECK(42 == jl::env_or("DONT_SET_THIS", 42));
-    CHECK(3.14 == jl::env_or("DONT_SET_THIS", 3.14));
-  }
+      CHECK(42 == jl::env_or("DONT_SET_THIS", 42));
+      CHECK(3.14 == jl::env_or("DONT_SET_THIS", 3.14));
+    }
 
-  TEST_CASE("env_or invalid number throws") {
-    setenv("JL_TEST_ENV_OR_NAN", "NaN", 1);  // NOLINT(*mt-unsafe)
-    CHECK_THROWS_AS((void)jl::env_or("JL_TEST_ENV_OR_NAN", 42), std::system_error);
-    CHECK(std::isnan(jl::env_or("JL_TEST_ENV_OR_NAN", 3.14)));
-  }
+    SUBCASE("string") {
+      setenv("JL_TEST_ENV_OR_STRING", "foo", 1);  // NOLINT(*mt-unsafe)
+      CHECK("foo" == jl::env_or("JL_TEST_ENV_OR_STRING", "fallback"));
 
-  TEST_CASE("env_or string") {
-    setenv("JL_TEST_ENV_OR_STRING", "foo", 1);  // NOLINT(*mt-unsafe)
-    CHECK("foo" == jl::env_or("JL_TEST_ENV_OR_STRING", "fallback"));
+      CHECK("chars" == jl::env_or("DONT_SET_THIS", "chars"));
+      CHECK("string" == jl::env_or("DONT_SET_THIS", std::string("string")));
+    }
 
-    CHECK("chars" == jl::env_or("DONT_SET_THIS", "chars"));
-    CHECK("string" == jl::env_or("DONT_SET_THIS", std::string("string")));
+    SUBCASE("invalid number throws") {
+      setenv("JL_TEST_ENV_OR_NAN", "NaN", 1);  // NOLINT(*mt-unsafe)
+      CHECK_THROWS_AS((void)jl::env_or("JL_TEST_ENV_OR_NAN", 42), std::system_error);
+      CHECK(std::isnan(jl::env_or("JL_TEST_ENV_OR_NAN", 3.14)));
+    }
   }
 }

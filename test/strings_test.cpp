@@ -42,27 +42,29 @@ TEST_SUITE("strings") {
     CHECK_MESSAGE(jl::needs_quotes(R"(foo\)"), "Ends with incomplete escape sequence");
   }
 
-  TEST_CASE("maybe quoted") {
-    CHECK("" == (std::ostringstream() << jl::MaybeQuoted("")).str());
+  TEST_CASE("MaybeQuoted") {
+    SUBCASE("basic") {
+      CHECK("" == (std::ostringstream() << jl::MaybeQuoted("")).str());
 
-    CHECK("word" == (std::ostringstream() << jl::MaybeQuoted("word")).str());
-    CHECK("\"one space\"" == (std::ostringstream() << jl::MaybeQuoted("one space")).str());
-    CHECK("\"other\ntype\rof\twhitespace\"" == (std::ostringstream() << jl::MaybeQuoted("other\ntype\rof\twhitespace")).str());
+      CHECK("word" == (std::ostringstream() << jl::MaybeQuoted("word")).str());
+      CHECK("\"one space\"" == (std::ostringstream() << jl::MaybeQuoted("one space")).str());
+      CHECK("\"other\ntype\rof\twhitespace\"" == (std::ostringstream() << jl::MaybeQuoted("other\ntype\rof\twhitespace")).str());
 
-    CHECK("\"no extra set of quotes\"" == (std::ostringstream() << jl::MaybeQuoted("\"no extra set of quotes\"")).str());
-  }
+      CHECK("\"no extra set of quotes\"" == (std::ostringstream() << jl::MaybeQuoted("\"no extra set of quotes\"")).str());
+    }
+    SUBCASE("JSON") {
+      auto isspace = [](unsigned char ch) { return std::isspace(ch) != 0; };
+      std::string_view compact_json(R"({"compact":"json with space and \""})");
+      CHECK(compact_json == (std::ostringstream() << jl::MaybeQuoted<decltype(isspace)>(compact_json)).str());
 
-  TEST_CASE("maybe quoted JSON") {
-    auto isspace = [](unsigned char ch) { return std::isspace(ch) != 0; };
-    std::string_view compact_json(R"({"compact":"json with space and \""})");
-    CHECK(compact_json == (std::ostringstream() << jl::MaybeQuoted<decltype(isspace)>(compact_json)).str());
-    CHECK(R"("{
+      CHECK(R"("{
   \"formatted\": \"json with space and \\\"\"
 }")" ==
-          (std::stringstream() << jl::MaybeQuoted<decltype(isspace)>(R"({
+            (std::stringstream() << jl::MaybeQuoted<decltype(isspace)>(R"({
   "formatted": "json with space and \""
 })"))
-              .str());
+                .str());
+    }
   }
 
   template <jl::fixed_string Str>
