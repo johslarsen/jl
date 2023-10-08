@@ -29,7 +29,7 @@ if(JL_ENABLE_TESTING AND EXISTS
   add_compile_options(${SANITIZE_FLAGS})
   add_link_options(${SANITIZE_FLAGS})
   add_definitions(-fno-omit-frame-pointer -g3 -fstack-protector)
-  add_subdirectory(external/googletest)
+  add_subdirectory(external/doctest)
   enable_testing()
   add_subdirectory(test)
 endif()

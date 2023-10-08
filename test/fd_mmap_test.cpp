@@ -1,88 +1,90 @@
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <jl.h>
 
 static inline std::string_view as_view(std::span<char> data) {
   return {data.begin(), data.end()};
 }
 
-TEST(FdMMAP, Reading) {
-  jl::unique_fd fd = jl::tmpfd().unlink();
-  EXPECT_EQ(3, jl::write(*fd, "foo"));
+TEST_SUITE("fd_mmap") {
+  TEST_CASE("Reading") {
+    jl::unique_fd fd = jl::tmpfd().unlink();
+    CHECK(3 == jl::write(*fd, "foo"));
 
-  jl::fd_mmap<char> map(std::move(fd));
+    jl::fd_mmap<char> map(std::move(fd));
 
-  EXPECT_EQ('f', map[0]);
-  EXPECT_EQ("foo", as_view(*map));
-}
-
-TEST(FdMMAP, ReadWrite) {
-  jl::unique_fd fd = jl::tmpfd().unlink();
-  EXPECT_EQ(3, jl::write(*fd, "foo"));
-
-  jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
-  std::string_view ba = "ba";
-  std::copy(ba.begin(), ba.end(), map->begin());
-  map[2] = 'r';
-
-  EXPECT_EQ("bar", as_view(*map));
-}
-
-TEST(FdMMAP, AutomaticSizeTakesOffsetIntoAccount) {
-  jl::unique_fd fd = jl::tmpfd().unlink();
-  jl::truncate(*fd, 4096);
-  ASSERT_EQ(4096, lseek(fd.fd(), 4096, SEEK_SET));
-  EXPECT_EQ(3, jl::write(*fd, "foo"));
-
-  jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
-
-  EXPECT_EQ("foo", as_view(*map));
-}
-
-std::string sread(int fd, size_t length, off_t offset) {
-  std::string str(length, '\0');
-  if (auto read = pread(fd, str.data(), length, offset); read >= 0) {
-    str.resize(read);
-    return str;
+    CHECK('f' == map[0]);
+    CHECK("foo" == as_view(*map));
   }
-  throw jl::errno_as_error("pread failed");
-}
 
-TEST(FdMMAP, TruncateTakesOffsetIntoAccount) {
-  jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ | PROT_WRITE, MAP_SHARED, 4096);
+  TEST_CASE("ReadWrite") {
+    jl::unique_fd fd = jl::tmpfd().unlink();
+    CHECK(3 == jl::write(*fd, "foo"));
 
-  map.truncate(4096);
-  EXPECT_EQ(0, map->size());
-  map.truncate(4097);
-  EXPECT_EQ(1, map->size());
+    jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
+    std::string_view ba = "ba";
+    std::copy(ba.begin(), ba.end(), map->begin());
+    map[2] = 'r';
 
-  EXPECT_EQ(std::string_view("\0", 1), as_view(*map));
-  map[0] = 'a';
-  EXPECT_EQ("a", sread(map.fd(), 1, 4096));
+    CHECK("bar" == as_view(*map));
+  }
 
-  map.truncate(0);
-  EXPECT_EQ(0, map->size());
-}
+  TEST_CASE("AutomaticSizeTakesOffsetIntoAccount") {
+    jl::unique_fd fd = jl::tmpfd().unlink();
+    jl::truncate(*fd, 4096);
+    REQUIRE(4096 == lseek(fd.fd(), 4096, SEEK_SET));
+    CHECK(3 == jl::write(*fd, "foo"));
 
-TEST(FdMMAP, RemapDoesNotAffectFile) {
-  jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ);
-  map.remap(10);
-  EXPECT_EQ(10, map->size());
+    jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
 
-  struct stat buf {};
-  EXPECT_EQ(0, fstat(map.fd(), &buf));
-  EXPECT_EQ(0, buf.st_size);
-}
+    CHECK("foo" == as_view(*map));
+  }
 
-TEST(FdMMAP, FileDescriptorIsUsableAfterUnmap) {
-  jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_WRITE);
-  map.truncate(3);
+  std::string sread(int fd, size_t length, off_t offset) {
+    std::string str(length, '\0');
+    if (auto read = pread(fd, str.data(), length, offset); read >= 0) {
+      str.resize(read);
+      return str;
+    }
+    throw jl::errno_as_error("pread failed");
+  }
 
-  map[0] = 'f';
-  map[1] = 'o';
-  map[2] = 'o';
+  TEST_CASE("TruncateTakesOffsetIntoAccount") {
+    jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ | PROT_WRITE, MAP_SHARED, 4096);
 
-  auto fd = std::move(map).unmap();
-  std::string buf(3, '\0');
+    map.truncate(4096);
+    CHECK(0 == map->size());
+    map.truncate(4097);
+    CHECK(1 == map->size());
 
-  EXPECT_EQ("foo", jl::read(*fd, buf));
+    CHECK(std::string_view("\0", 1) == as_view(*map));
+    map[0] = 'a';
+    CHECK("a" == sread(map.fd(), 1, 4096));
+
+    map.truncate(0);
+    CHECK(0 == map->size());
+  }
+
+  TEST_CASE("RemapDoesNotAffectFile") {
+    jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ);
+    map.remap(10);
+    CHECK(10 == map->size());
+
+    struct stat buf {};
+    CHECK(0 == fstat(map.fd(), &buf));
+    CHECK(0 == buf.st_size);
+  }
+
+  TEST_CASE("FileDescriptorIsUsableAfterUnmap") {
+    jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_WRITE);
+    map.truncate(3);
+
+    map[0] = 'f';
+    map[1] = 'o';
+    map[2] = 'o';
+
+    auto fd = std::move(map).unmap();
+    std::string buf(3, '\0');
+
+    CHECK("foo" == jl::read(*fd, buf));
+  }
 }

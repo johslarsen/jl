@@ -12,5 +12,5 @@ add_executable(
   unique_addr_test.cpp
   unique_socket_test.cpp
   test.cpp)
-target_link_libraries(run_test jl gtest)
+target_link_libraries(run_test jl doctest)
 add_test(all_tests run_test)

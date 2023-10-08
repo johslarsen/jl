@@ -1,4 +1,4 @@
-#include <gtest/gtest.h>
+#include <doctest/doctest.h>
 #include <jl.h>
 
 #include <future>
@@ -6,148 +6,140 @@
 #include <random>
 #include <thread>
 
-TEST(CircularBuffer, StaticAsserts) {
-  // jl::CircularBuffer<4 << 10, int> integer_overflow_would_be_ub;
-  // jl::CircularBuffer<(4 << 10) + 1> not_power_of_2_capacity;
-  // jl::CircularBuffer<1U<<15, uint16_t> index_type_is_too_small>;
-}
-
-static inline size_t advance(auto& buf, size_t max) {
-  size_t written = 0;
-  while (written < max) {
-    auto writeable = buf.peek_back(max - written);
-    if (writeable.empty()) return written;
-
-    auto available = writeable.size();
-    written += buf.commit_written(std::move(writeable));
-    EXPECT_EQ(available, buf.commit_read(buf.peek_front(available)));
+TEST_SUITE("CircularBuffer") {
+  TEST_CASE("StaticAsserts") {
+    // jl::CircularBuffer<4 << 10, int> integer_overflow_would_be_ub;
+    // jl::CircularBuffer<(4 << 10) + 1> not_power_of_2_capacity;
+    // jl::CircularBuffer<1U<<15, uint16_t> index_type_is_too_small>;
   }
-  return written;
-}
 
-static inline size_t write_string(auto& buf, const std::string& str) {
-  auto writeable = buf.peek_back(str.size());
-  std::copy(str.begin(), str.begin() + writeable.size(), writeable.begin());
-  return buf.commit_written(std::move(writeable));
-}
+  static inline size_t advance(auto& buf, size_t max) {
+    size_t written = 0;
+    while (written < max) {
+      auto writeable = buf.peek_back(max - written);
+      if (writeable.empty()) return written;
 
-TEST(CircularBuffer, ReadWriteSpansAcrossWrapAround) {
-  jl::CircularBuffer<char, 4 << 10> buf;
-  EXPECT_EQ((4 << 10) - 1, advance(buf, (4 << 10) - 1));
+      auto available = writeable.size();
+      written += buf.commit_written(std::move(writeable));
+      CHECK(available == buf.commit_read(buf.peek_front(available)));
+    }
+    return written;
+  }
 
-  EXPECT_EQ(2, write_string(buf, "42"));
-  auto readable = buf.peek_front(2);
+  static inline size_t write_string(auto& buf, const std::string& str) {
+    auto writeable = buf.peek_back(str.size());
+    std::copy(str.begin(), str.begin() + writeable.size(), writeable.begin());
+    return buf.commit_written(std::move(writeable));
+  }
 
-  EXPECT_EQ("42", std::string(readable.data(), readable.size()));
-}
+  TEST_CASE("ReadWriteSpansAcrossWrapAround") {
+    jl::CircularBuffer<char, 4 << 10> buf;
+    CHECK((4 << 10) - 1 == advance(buf, (4 << 10) - 1));
 
-TEST(CircularBuffer, ReadWriteSpansAcrossIndexTypeOverflow) {
-  jl::CircularBuffer<char, 4 << 10, uint16_t> buf;
-  EXPECT_EQ(UINT16_MAX, advance(buf, UINT16_MAX));
+    CHECK(2 == write_string(buf, "42"));
+    auto readable = buf.peek_front(2);
 
-  EXPECT_EQ(2, write_string(buf, "42"));
-  auto readable = buf.peek_front(2);
+    CHECK("42" == std::string(readable.data(), readable.size()));
+  }
 
-  EXPECT_EQ("42", std::string(readable.data(), readable.size()));
-}
+  TEST_CASE("ReadWriteSpansAcrossIndexTypeOverflow") {
+    jl::CircularBuffer<char, 4 << 10, uint16_t> buf;
+    CHECK(UINT16_MAX == advance(buf, UINT16_MAX));
 
-TEST(CircularBuffer, MultiByteValueType) {
-  jl::CircularBuffer<int32_t, 1 << 10> buf;
-  std::vector<int32_t> values{1, 2};
-  EXPECT_EQ(2U, buf.push_back(values));
-  EXPECT_EQ(values, buf.pop_front(2));
+    CHECK(2 == write_string(buf, "42"));
+    auto readable = buf.peek_front(2);
 
-  EXPECT_EQ((1 << 10) - 1, advance(buf, (1 << 10) - 1));
+    CHECK("42" == std::string(readable.data(), readable.size()));
+  }
 
-  EXPECT_EQ(2U, buf.push_back(values));
-  EXPECT_EQ(values, buf.pop_front(2));
-}
+  TEST_CASE("MultiByteValueType") {
+    jl::CircularBuffer<int32_t, 1 << 10> buf;
+    std::vector<int32_t> values{1, 2};
+    CHECK(2U == buf.push_back(values));
+    CHECK(values == buf.pop_front(2));
 
-TEST(CircularBuffer, PeekBackClampedToFreeSpaceLeft) {
-  jl::CircularBuffer<char, 4 << 10> buf;
-  EXPECT_EQ(4 << 10, buf.peek_back(std::numeric_limits<size_t>::max()).size())
-      << "Empty buffer have the full capacity available";
+    CHECK((1 << 10) - 1 == advance(buf, (1 << 10) - 1));
 
-  ASSERT_EQ(4 << 10, buf.commit_written(buf.peek_back(4 << 10)));
-  EXPECT_EQ(0, buf.peek_back(std::numeric_limits<size_t>::max()).size())
-      << "Full buffer have no capacity available";
+    CHECK(2U == buf.push_back(values));
+    CHECK(values == buf.pop_front(2));
+  }
 
-  ASSERT_EQ(1, buf.commit_read(buf.peek_front(1)));
-  EXPECT_EQ(1, buf.peek_back(std::numeric_limits<size_t>::max()).size())
-      << "When bytes have been read new space is available";
-}
+  TEST_CASE("PeekBackClampedToFreeSpaceLeft") {
+    jl::CircularBuffer<char, 4 << 10> buf;
+    CHECK_MESSAGE((4 << 10) == buf.peek_back(std::numeric_limits<size_t>::max()).size(), "Empty buffer have the full capacity available");
 
-TEST(CircularBuffer, PeekFrontClampedToUsedSpace) {
-  jl::CircularBuffer<char, 4 << 10> buf;
-  EXPECT_EQ(0, buf.peek_front(std::numeric_limits<size_t>::max()).size())
-      << "Empty buffer have no bytes to read";
+    REQUIRE((4 << 10) == buf.commit_written(buf.peek_back(4 << 10)));
+    CHECK_MESSAGE(0 == buf.peek_back(std::numeric_limits<size_t>::max()).size(), "Full buffer have no capacity available");
 
-  ASSERT_EQ(16, buf.commit_written(buf.peek_back(16)));
-  EXPECT_EQ(16, buf.peek_front(std::numeric_limits<size_t>::max()).size())
-      << "When bytes have been written those bytes can be read";
+    REQUIRE(1 == buf.commit_read(buf.peek_front(1)));
+    CHECK_MESSAGE(1 == buf.peek_back(std::numeric_limits<size_t>::max()).size(), "When bytes have been read new space is available");
+  }
 
-  ASSERT_EQ(8, buf.commit_read(buf.peek_front(8)));
-  EXPECT_EQ(8, buf.peek_front(std::numeric_limits<size_t>::max()).size())
-      << "When some bytes have been read some are left";
+  TEST_CASE("PeekFrontClampedToUsedSpace") {
+    jl::CircularBuffer<char, 4 << 10> buf;
+    CHECK_MESSAGE(0 == buf.peek_front(std::numeric_limits<size_t>::max()).size(), "Empty buffer have no bytes to read");
 
-  ASSERT_EQ((4 << 10) - 8, buf.commit_written(buf.peek_back((4 << 10) - 8)));
-  EXPECT_EQ(4 << 10, buf.peek_front(std::numeric_limits<size_t>::max()).size())
-      << "When the buffer is full the whole capacity is readable";
-}
+    REQUIRE(16 == buf.commit_written(buf.peek_back(16)));
+    CHECK_MESSAGE(16 == buf.peek_front(std::numeric_limits<size_t>::max()).size(), "When bytes have been written those bytes can be read");
 
-TEST(CircularBuffer, PushBackAndPopFront) {
-  jl::CircularBuffer<char, 4 << 10> buf;
+    REQUIRE(8 == buf.commit_read(buf.peek_front(8)));
+    CHECK_MESSAGE(8 == buf.peek_front(std::numeric_limits<size_t>::max()).size(), "When some bytes have been read some are left");
 
-  EXPECT_EQ(std::vector<char>(), buf.pop_front(1))
-      << "No bytes to read from empty buffer";
+    REQUIRE((4 << 10) - 8 == buf.commit_written(buf.peek_back((4 << 10) - 8)));
+    CHECK_MESSAGE((4 << 10) == buf.peek_front(std::numeric_limits<size_t>::max()).size(), "When the buffer is full the whole capacity is readable");
+  }
 
-  std::vector<char> to_write{1, 2, 3};
-  EXPECT_EQ(3, buf.push_back(to_write));
-  EXPECT_EQ(to_write, buf.pop_front(to_write.size() + 1))
-      << "Written bytes read back";
+  TEST_CASE("PushBackAndPopFront") {
+    jl::CircularBuffer<char, 4 << 10> buf;
 
-  buf.commit_written(buf.peek_back(std::numeric_limits<size_t>::max()));
-  EXPECT_EQ(0, buf.push_back(to_write))
-      << "No space available in full buffer";
-}
+    CHECK_MESSAGE(std::vector<char>() == buf.pop_front(1), "No bytes to read from empty buffer");
 
-TEST(CircularBuffer, BeingWrittenToAndReadFromInSeparateThreads) {
-  jl::CircularBuffer<int, 1 << 10, std::atomic<uint32_t>> buf;
-  uint64_t writer_sum = 0, writer_hash = 0;
+    std::vector<char> to_write{1, 2, 3};
+    CHECK(3 == buf.push_back(to_write));
+    CHECK_MESSAGE(to_write == buf.pop_front(to_write.size() + 1), "Written bytes read back");
 
-  std::latch ready(2);
-  std::atomic<bool> still_writing = true;
-  std::jthread writer([&]() {
-    ready.arrive_and_wait();
-    for (int i = 0; i <= 1'000'000; /* incremented in inner loop */) {
-      std::span<int> writeable = buf.peek_back(1 + i % 100);  // write in random-ish sized chunks;
-      for (size_t off = 0; off < writeable.size(); ++off, ++i) {
-        if (i > 1'000'000) {
-          writeable = writeable.subspan(0, off);
-          break;
+    buf.commit_written(buf.peek_back(std::numeric_limits<size_t>::max()));
+    CHECK_MESSAGE(0 == buf.push_back(to_write), "No space available in full buffer");
+  }
+
+  TEST_CASE("BeingWrittenToAndReadFromInSeparateThreads") {
+    jl::CircularBuffer<int, 1 << 10, std::atomic<uint32_t>> buf;
+    uint64_t writer_sum = 0, writer_hash = 0;
+
+    std::latch ready(2);
+    std::atomic<bool> still_writing = true;
+    std::jthread writer([&]() {
+      ready.arrive_and_wait();
+      for (int i = 0; i <= 1'000'000; /* incremented in inner loop */) {
+        std::span<int> writeable = buf.peek_back(1 + i % 100);  // write in random-ish sized chunks;
+        for (size_t off = 0; off < writeable.size(); ++off, ++i) {
+          if (i > 1'000'000) {
+            writeable = writeable.subspan(0, off);
+            break;
+          }
+
+          writeable[off] = i;
+          writer_sum += i;
+          writer_hash += writer_sum;
         }
-
-        writeable[off] = i;
-        writer_sum += i;
-        writer_hash += writer_sum;
+        buf.commit_written(std::move(writeable));
       }
-      buf.commit_written(std::move(writeable));
-    }
-    still_writing = false;
-  });
-  ready.arrive_and_wait();
+      still_writing = false;
+    });
+    ready.arrive_and_wait();
 
-  uint64_t reader_sum = 0, reader_hash = 0;
-  while (still_writing || !buf.empty()) {
-    std::span<const int> readable = buf.peek_front(100);
-    for (const auto& n : readable) {
-      reader_sum += n;
-      reader_hash += reader_sum;
+    uint64_t reader_sum = 0, reader_hash = 0;
+    while (still_writing || !buf.empty()) {
+      std::span<const int> readable = buf.peek_front(100);
+      for (const auto& n : readable) {
+        reader_sum += n;
+        reader_hash += reader_sum;
+      }
+      buf.commit_read(std::move(readable));
     }
-    buf.commit_read(std::move(readable));
+
+    CHECK(500'000'500'000 == writer_sum);
+    CHECK(500'000'500'000 == reader_sum);
+    CHECK_MESSAGE(writer_hash == reader_hash, "Elements are read in the order they were written");
   }
-
-  EXPECT_EQ(500'000'500'000, writer_sum);
-  EXPECT_EQ(500'000'500'000, reader_sum);
-  EXPECT_EQ(writer_hash, reader_hash) << "Elements are read in the order they were written";
 }
