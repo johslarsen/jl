@@ -5,7 +5,7 @@
 #include <filesystem>
 
 TEST_SUITE("unique_fd") {
-  TEST_CASE("MoveAndAssignmentNeitherDoubleCloseNorLeaks") {
+  TEST_CASE("move and assignment neither double close nor leaks") {
     std::string filename("/tmp/unique_fd_XXXXXX");
     jl::unique_fd org(mkstemp(filename.data()));
     std::filesystem::remove(filename);
@@ -19,11 +19,11 @@ TEST_SUITE("unique_fd") {
     move_assigned = jl::unique_fd(fcntl(1, F_DUPFD_CLOEXEC, 0));
   }
 
-  TEST_CASE("ConstructionFromInvalidFDThrows") {
+  TEST_CASE("construction from invalid fdthrows") {
     CHECK_THROWS_AS(jl::unique_fd(-1, "foo"), std::system_error);
   }
 
-  TEST_CASE("Pipes") {
+  TEST_CASE("pipes") {
     auto [in, out] = jl::unique_fd::pipes();
 
     CHECK(3 == jl::write(*out, std::string_view("foo")));
@@ -32,7 +32,7 @@ TEST_SUITE("unique_fd") {
     CHECK("foo" == jl::read(*in, buffer));
   }
 
-  TEST_CASE("SpliceallWithPipes") {
+  TEST_CASE("spliceall with pipes") {
     auto [from, out] = jl::unique_fd::pipes();
     auto [in, to] = jl::unique_fd::pipes();
 
@@ -43,7 +43,7 @@ TEST_SUITE("unique_fd") {
     CHECK("foo" == jl::read(*in, buffer));
   }
 
-  TEST_CASE("SpliceallWithFile") {
+  TEST_CASE("spliceall with file") {
     auto [in, out] = jl::unique_fd::pipes();
     auto fd = jl::tmpfd().unlink();
 
@@ -62,7 +62,7 @@ TEST_SUITE("unique_fd") {
     CHECK("foo" == jl::read(*in, buffer));
   }
 
-  TEST_CASE("Sendfile") {
+  TEST_CASE("sendfile") {
     auto [in, out] = jl::unique_fd::pipes();
     auto fd = jl::tmpfd().unlink();
 
@@ -84,7 +84,7 @@ TEST_SUITE("unique_fd") {
 }
 
 TEST_SUITE("tmp_fd") {
-  TEST_CASE("ReadAndWriteWorksWithVariousInputs") {
+  TEST_CASE("read and write works with various inputs") {
     jl::unique_fd fd = jl::tmpfd().unlink();
     std::vector<char> char_vector = {'f', 'o', 'o'};
     std::string string = "bar";
@@ -102,7 +102,7 @@ TEST_SUITE("tmp_fd") {
     CHECK((std::vector<int>{1, 2, 3}) == std::vector<int>(int123.begin(), int123.end()));
   }
 
-  TEST_CASE("MoveAndAssignmentNeitherDoubleCloseNorLeaks") {
+  TEST_CASE("move and assignment neither double close nor leaks") {
     jl::tmpfd org;
     jl::tmpfd move_constructed(std::move(org));
     jl::tmpfd move_assigned = std::move(move_constructed);

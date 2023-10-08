@@ -3,7 +3,7 @@
 #include <jl.h>
 
 TEST_SUITE("unique_mmap") {
-  TEST_CASE("MoveAndAssignmentNeitherDoubleFreeNorLeaks") {
+  TEST_CASE("move and assignment neither double free nor leaks") {
     // NOTE: Most leak sanitizers does not track mmaps
     jl::unique_mmap<char> org(4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS);
     jl::unique_mmap<char> move_constructed(std::move(org));
@@ -12,7 +12,7 @@ TEST_SUITE("unique_mmap") {
     move_assigned = jl::unique_mmap<char>(4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS);
   }
 
-  TEST_CASE("MappedFile") {
+  TEST_CASE("mapped file") {
     jl::unique_fd tmp = jl::tmpfd().unlink();
     char n = 42;
     REQUIRE(1 == pwrite(*tmp, &n, 1, 4095));
@@ -21,18 +21,18 @@ TEST_SUITE("unique_mmap") {
     CHECK(42 == map[4095]);
   }
 
-  TEST_CASE("Remap") {
+  TEST_CASE("remap") {
     jl::unique_mmap<char> map(4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS);
     map.remap(8192, MREMAP_MAYMOVE);
   }
 
-  TEST_CASE("Integer") {
+  TEST_CASE("integer") {
     // NOTE: mmap would have returned EINVAL if  offset were not 4KiB page aligned
     jl::unique_mmap<int32_t> map(1024, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 1024);
     CHECK(4096 == map->size_bytes());
   }
 
-  TEST_CASE("NamedAnonymousPages") {
+  TEST_CASE("named anonymous pages") {
     auto map = jl::unique_mmap<char>::anon(1 << 20, PROT_READ | PROT_WRITE, "NamedAnonymousPages");
 
     std::string smaps_path = "/proc/" + std::to_string(getpid()) + "/smaps";

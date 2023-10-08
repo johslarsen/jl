@@ -1,20 +1,20 @@
 #include <doctest/doctest.h>
 #include <jl.h>
 
-TEST_SUITE("ErrorHandling") {
-  TEST_CASE("SuccessAsError") {
+TEST_SUITE("error handling") {
+  TEST_CASE("errno_as_error success") {
     errno = 0;
     CHECK(std::system_error(std::make_error_code(std::errc{}), "foo").what() ==
           std::string_view(jl::errno_as_error("foo").what()));
   }
 
-  TEST_CASE("ErrnoAsError") {
+  TEST_CASE("errno_as_error") {
     errno = ETIMEDOUT;
     CHECK(std::system_error(std::make_error_code(std::errc::timed_out), "foo").what() ==
           std::string_view(jl::errno_as_error("foo").what()));
   }
 
-  TEST_CASE("Defer") {
+  TEST_CASE("defer") {
     size_t calls = 0;
     {
       bool called_at_end_of_scope = false;
@@ -27,7 +27,7 @@ TEST_SUITE("ErrorHandling") {
     CHECK(1 == calls);
   }
 
-  TEST_CASE("Retry") {
+  TEST_CASE("retry") {
     auto two_eagain = [attempts = 3] mutable {
       errno = EAGAIN;
       return --attempts > 0 ? -1 : 42;

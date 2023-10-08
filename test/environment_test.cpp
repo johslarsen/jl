@@ -5,7 +5,7 @@
 #include <cmath>
 #include <stdexcept>
 
-TEST_SUITE("Environment") {
+TEST_SUITE("environment") {
   TEST_CASE("optenv") {
     setenv("JL_TEST_OPTENV", "foo", 1);                    // NOLINT(*mt-unsafe)
     CHECK("foo" == jl::optenv("JL_TEST_OPTENV").value());  // NOLINT(*unchecked*)
@@ -22,7 +22,7 @@ TEST_SUITE("Environment") {
     CHECK_THROWS_AS((void)jl::reqenv("DONT_SET_THIS"), std::runtime_error);
   }
 
-  TEST_CASE("EnvOrNumeric") {
+  TEST_CASE("env_or numeric") {
     setenv("JL_TEST_ENV_OR_INT", "42", 1);      // NOLINT(*mt-unsafe)
     setenv("JL_TEST_ENV_OR_FLOAT", "3.14", 1);  // NOLINT(*mt-unsafe)
     CHECK(42 == jl::env_or("JL_TEST_ENV_OR_INT", 13));
@@ -33,13 +33,13 @@ TEST_SUITE("Environment") {
     CHECK(3.14 == jl::env_or("DONT_SET_THIS", 3.14));
   }
 
-  TEST_CASE("EnvOrInvalidNumberThrows") {
+  TEST_CASE("env_or invalid number throws") {
     setenv("JL_TEST_ENV_OR_NAN", "NaN", 1);  // NOLINT(*mt-unsafe)
     CHECK_THROWS_AS((void)jl::env_or("JL_TEST_ENV_OR_NAN", 42), std::system_error);
     CHECK(std::isnan(jl::env_or("JL_TEST_ENV_OR_NAN", 3.14)));
   }
 
-  TEST_CASE("EnvOrString") {
+  TEST_CASE("env_or string") {
     setenv("JL_TEST_ENV_OR_STRING", "foo", 1);  // NOLINT(*mt-unsafe)
     CHECK("foo" == jl::env_or("JL_TEST_ENV_OR_STRING", "fallback"));
 

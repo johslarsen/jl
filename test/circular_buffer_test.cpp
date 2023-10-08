@@ -7,7 +7,7 @@
 #include <thread>
 
 TEST_SUITE("CircularBuffer") {
-  TEST_CASE("StaticAsserts") {
+  TEST_CASE("static asserts") {
     // jl::CircularBuffer<4 << 10, int> integer_overflow_would_be_ub;
     // jl::CircularBuffer<(4 << 10) + 1> not_power_of_2_capacity;
     // jl::CircularBuffer<1U<<15, uint16_t> index_type_is_too_small>;
@@ -32,7 +32,7 @@ TEST_SUITE("CircularBuffer") {
     return buf.commit_written(std::move(writeable));
   }
 
-  TEST_CASE("ReadWriteSpansAcrossWrapAround") {
+  TEST_CASE("read write spans across wrap around") {
     jl::CircularBuffer<char, 4 << 10> buf;
     CHECK((4 << 10) - 1 == advance(buf, (4 << 10) - 1));
 
@@ -42,7 +42,7 @@ TEST_SUITE("CircularBuffer") {
     CHECK("42" == std::string(readable.data(), readable.size()));
   }
 
-  TEST_CASE("ReadWriteSpansAcrossIndexTypeOverflow") {
+  TEST_CASE("read write spans across index type overflow") {
     jl::CircularBuffer<char, 4 << 10, uint16_t> buf;
     CHECK(UINT16_MAX == advance(buf, UINT16_MAX));
 
@@ -52,7 +52,7 @@ TEST_SUITE("CircularBuffer") {
     CHECK("42" == std::string(readable.data(), readable.size()));
   }
 
-  TEST_CASE("MultiByteValueType") {
+  TEST_CASE("multi byte value type") {
     jl::CircularBuffer<int32_t, 1 << 10> buf;
     std::vector<int32_t> values{1, 2};
     CHECK(2U == buf.push_back(values));
@@ -64,7 +64,7 @@ TEST_SUITE("CircularBuffer") {
     CHECK(values == buf.pop_front(2));
   }
 
-  TEST_CASE("PeekBackClampedToFreeSpaceLeft") {
+  TEST_CASE("peek back clamped to free space left") {
     jl::CircularBuffer<char, 4 << 10> buf;
     CHECK_MESSAGE((4 << 10) == buf.peek_back(std::numeric_limits<size_t>::max()).size(), "Empty buffer have the full capacity available");
 
@@ -75,7 +75,7 @@ TEST_SUITE("CircularBuffer") {
     CHECK_MESSAGE(1 == buf.peek_back(std::numeric_limits<size_t>::max()).size(), "When bytes have been read new space is available");
   }
 
-  TEST_CASE("PeekFrontClampedToUsedSpace") {
+  TEST_CASE("peek front clamped to used space") {
     jl::CircularBuffer<char, 4 << 10> buf;
     CHECK_MESSAGE(0 == buf.peek_front(std::numeric_limits<size_t>::max()).size(), "Empty buffer have no bytes to read");
 
@@ -89,7 +89,7 @@ TEST_SUITE("CircularBuffer") {
     CHECK_MESSAGE((4 << 10) == buf.peek_front(std::numeric_limits<size_t>::max()).size(), "When the buffer is full the whole capacity is readable");
   }
 
-  TEST_CASE("PushBackAndPopFront") {
+  TEST_CASE("push back and pop front") {
     jl::CircularBuffer<char, 4 << 10> buf;
 
     CHECK_MESSAGE(std::vector<char>() == buf.pop_front(1), "No bytes to read from empty buffer");
@@ -102,7 +102,7 @@ TEST_SUITE("CircularBuffer") {
     CHECK_MESSAGE(0 == buf.push_back(to_write), "No space available in full buffer");
   }
 
-  TEST_CASE("BeingWrittenToAndReadFromInSeparateThreads") {
+  TEST_CASE("being written to and read from in separate threads") {
     jl::CircularBuffer<int, 1 << 10, std::atomic<uint32_t>> buf;
     uint64_t writer_sum = 0, writer_hash = 0;
 

@@ -6,7 +6,7 @@ static inline std::string_view as_view(std::span<char> data) {
 }
 
 TEST_SUITE("fd_mmap") {
-  TEST_CASE("Reading") {
+  TEST_CASE("reading") {
     jl::unique_fd fd = jl::tmpfd().unlink();
     CHECK(3 == jl::write(*fd, "foo"));
 
@@ -16,7 +16,7 @@ TEST_SUITE("fd_mmap") {
     CHECK("foo" == as_view(*map));
   }
 
-  TEST_CASE("ReadWrite") {
+  TEST_CASE("read write") {
     jl::unique_fd fd = jl::tmpfd().unlink();
     CHECK(3 == jl::write(*fd, "foo"));
 
@@ -28,7 +28,7 @@ TEST_SUITE("fd_mmap") {
     CHECK("bar" == as_view(*map));
   }
 
-  TEST_CASE("AutomaticSizeTakesOffsetIntoAccount") {
+  TEST_CASE("automatic size takes offset into account") {
     jl::unique_fd fd = jl::tmpfd().unlink();
     jl::truncate(*fd, 4096);
     REQUIRE(4096 == lseek(fd.fd(), 4096, SEEK_SET));
@@ -48,7 +48,7 @@ TEST_SUITE("fd_mmap") {
     throw jl::errno_as_error("pread failed");
   }
 
-  TEST_CASE("TruncateTakesOffsetIntoAccount") {
+  TEST_CASE("truncate takes offset into account") {
     jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ | PROT_WRITE, MAP_SHARED, 4096);
 
     map.truncate(4096);
@@ -64,7 +64,7 @@ TEST_SUITE("fd_mmap") {
     CHECK(0 == map->size());
   }
 
-  TEST_CASE("RemapDoesNotAffectFile") {
+  TEST_CASE("remap does not affect file") {
     jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ);
     map.remap(10);
     CHECK(10 == map->size());
@@ -74,7 +74,7 @@ TEST_SUITE("fd_mmap") {
     CHECK(0 == buf.st_size);
   }
 
-  TEST_CASE("FileDescriptorIsUsableAfterUnmap") {
+  TEST_CASE("file descriptor is usable after unmap") {
     jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_WRITE);
     map.truncate(3);
 

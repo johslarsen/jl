@@ -1,18 +1,18 @@
 #include <doctest/doctest.h>
 #include <jl.h>
 
+static inline std::string_view as_view(std::span<char> data) {
+  return {data.begin(), data.end()};
+}
+
 TEST_SUITE("unique_socket") {
-  TEST_CASE("Pipes") {
+  TEST_CASE("pipes") {
     auto [in, out] = jl::unique_socket::pipes();
 
     CHECK(3 == jl::send(*out, std::string_view("foo")));
 
     std::string buffer = "xxxx";
     CHECK("foo" == jl::recv(*in, buffer));
-  }
-
-  static inline std::string_view as_view(std::span<char> data) {
-    return {data.begin(), data.end()};
   }
 
   TEST_CASE("UDP") {
@@ -45,14 +45,14 @@ TEST_SUITE("unique_socket") {
     CHECK("foobar" == jl::recv(*receiver, buffer, MSG_DONTWAIT));
   }
 
-  TEST_CASE("BothIPv4Andv6SocketsCanBeDefaultBound") {
+  TEST_CASE("both IPv4 and IPv6 sockets can be default bound") {
     jl::bind(*jl::unique_socket(socket(AF_INET, SOCK_DGRAM, 0)));
     jl::bind(*jl::unique_socket(socket(AF_INET, SOCK_STREAM, 0)));
     jl::bind(*jl::unique_socket(socket(AF_INET6, SOCK_DGRAM, 0)));
     jl::bind(*jl::unique_socket(socket(AF_INET6, SOCK_STREAM, 0)));
   }
 
-  TEST_CASE("RecvAndSendWorksWithVariousInputs") {
+  TEST_CASE("recv and send works with various inputs") {
     auto [in, out] = jl::unique_socket::pipes();
     std::vector<char> char_vector = {'f', 'o', 'o'};
     std::string string = "bar";
@@ -68,8 +68,10 @@ TEST_SUITE("unique_socket") {
     auto int123 = jl::recv(*in, std::span<int>(int_vector));
     CHECK((std::vector<int>{1, 2, 3}) == std::vector<int>(int123.begin(), int123.end()));
   }
+}
 
-  TEST_CASE("MMSGBufferDatagrams") {
+TEST_SUITE("mmsg_buffer") {
+  TEST_CASE("datagrams") {
     auto [a, b] = jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM);
     jl::mmsg_buffer<char> sender(std::move(a), 3);
     jl::mmsg_buffer<char> receiver(std::move(b), 3);
@@ -84,7 +86,7 @@ TEST_SUITE("unique_socket") {
     CHECK("bar" == as_view(msgs[1]));
   }
 
-  TEST_CASE("MMSGBufferStream") {
+  TEST_CASE("stream") {
     auto [sender, b] = jl::unique_socket::pipes();
     jl::mmsg_buffer<char> receiver(std::move(b), 3);
 

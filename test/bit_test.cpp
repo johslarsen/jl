@@ -11,13 +11,13 @@ static_assert(std::is_same_v<jl::uint_from_size<sizeof(int64_t)>::type, uint64_t
 constexpr bool is_mixed_endian = std::endian::native != std::endian::little &&
                                  std::endian::native != std::endian::big;
 
-TEST_SUITE("Bit" * doctest::skip(is_mixed_endian)) {
-  TEST_CASE("EndianConversionHasNoEffectOn1ByteIntegers") {
+TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
+  TEST_CASE("endian conversion has no effect on 1byte integers") {
     CHECK(jl::be('0') == jl::le('0'));
     CHECK(jl::be(static_cast<uint8_t>(0xac)) == jl::le(static_cast<uint8_t>(0xac)));
   }
 
-  TEST_CASE("IntegerBigAndLittleEndianSwapsOnTheWrongArchitecture") {
+  TEST_CASE("integer big and little endian swaps on the wrong architecture") {
     if constexpr (std::endian::native == std::endian::big) {
       CHECK(0x12345678 == jl::be(0x12345678));
       CHECK(0x78563412 == jl::le(0x12345678));
@@ -39,7 +39,7 @@ TEST_SUITE("Bit" * doctest::skip(is_mixed_endian)) {
     CHECK(std::byteswap(jl::be(0x1122334455667788UZ)) == jl::le(0x1122334455667788UZ));
   }
 
-  TEST_CASE("FloatingPointBigAndLittleEndianSwapsOnTheWrongArchitecture") {
+  TEST_CASE("floating point big and little endian swaps on the wrong architecture") {
     if constexpr (std::endian::native == std::endian::big) {
       CHECK(std::numbers::pi == jl::be(std::numbers::pi));
       CHECK(std::numbers::pi != jl::le(std::numbers::pi));

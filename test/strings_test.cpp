@@ -1,8 +1,8 @@
 #include <doctest/doctest.h>
 #include <jl.h>
 
-TEST_SUITE("Strings") {
-  TEST_CASE("FindUnescaped") {
+TEST_SUITE("strings") {
+  TEST_CASE("find unescaped") {
     auto isspace = [](char ch) { return ch == ' '; };
     CHECK(3 == jl::find_unescaped("foo bar baz", ' '));
     CHECK(3 == jl::find_unescaped("foo bar baz", isspace));
@@ -25,7 +25,7 @@ TEST_SUITE("Strings") {
     CHECK(5 == jl::find_unescaped("foo\\\\\\", isspace));
   }
 
-  TEST_CASE("NeedsQuotes") {
+  TEST_CASE("needs quotes") {
     CHECK_MESSAGE(!jl::needs_quotes("foo"), "Only safe characters");
     CHECK_MESSAGE(jl::needs_quotes("foo bar"), "With unsafe characters");
 
@@ -42,7 +42,7 @@ TEST_SUITE("Strings") {
     CHECK_MESSAGE(jl::needs_quotes(R"(foo\)"), "Ends with incomplete escape sequence");
   }
 
-  TEST_CASE("MaybeQuoted") {
+  TEST_CASE("maybe quoted") {
     CHECK("" == (std::ostringstream() << jl::MaybeQuoted("")).str());
 
     CHECK("word" == (std::ostringstream() << jl::MaybeQuoted("word")).str());
@@ -52,7 +52,7 @@ TEST_SUITE("Strings") {
     CHECK("\"no extra set of quotes\"" == (std::ostringstream() << jl::MaybeQuoted("\"no extra set of quotes\"")).str());
   }
 
-  TEST_CASE("MaybeQuotedJSON") {
+  TEST_CASE("maybe quoted JSON") {
     auto isspace = [](unsigned char ch) { return std::isspace(ch) != 0; };
     std::string_view compact_json(R"({"compact":"json with space and \""})");
     CHECK(compact_json == (std::ostringstream() << jl::MaybeQuoted<decltype(isspace)>(compact_json)).str());
@@ -69,7 +69,7 @@ TEST_SUITE("Strings") {
   constexpr std::string_view view_of() {
     return std::string_view(Str.chars.data(), Str.chars.size());
   }
-  TEST_CASE("FixedString") {
+  TEST_CASE("fixed string") {
     CHECK("foo" == view_of<"foo">());
     CHECK("bar" == view_of<"bar">());
   }
