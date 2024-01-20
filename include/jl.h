@@ -237,15 +237,72 @@ constexpr T le(T n) noexcept {
   }
 }
 
-template <typename T>
-[[nodiscard]] std::vector<std::span<T>> sliced(std::span<T> buffer, size_t size) {
-  assert(buffer.size() % size == 0);
-  std::vector<std::span<T>> slices(buffer.size() / size);
-  for (size_t i = 0; i < slices.size(); ++i) {
-    slices[i] = {&buffer[i * size], size};
-  }
-  return slices;
+/// @returns ceil(x/y)
+auto div_ceil(std::unsigned_integral auto x, std::unsigned_integral auto y) {
+  return x / y + (x % y != 0);
 }
+
+/// @returns same as span.subspan(...), but empty where it would be ill-formed/UB
+template <typename T, std::size_t Extent = std::dynamic_extent>
+inline std::span<T, Extent> subspan(std::span<T, Extent> span, size_t offset, size_t count = std::dynamic_extent) {
+  if (offset > span.size()) return {};
+  if (count == std::dynamic_extent) return span.subspan(offset);
+  return span.subspan(offset, std::min(span.size() - offset, count));
+}
+
+template <typename T, std::size_t Extent = std::dynamic_extent>
+class chunked {
+  std::span<T, Extent> _buffer;
+  size_t _n;
+
+ public:
+  using value_type = std::span<T>;
+
+  chunked(std::span<T, Extent> buffer, size_t n) : _buffer(buffer), _n(n) {}
+
+  class iter {
+    std::span<T, Extent> _buffer{};
+    size_t _n = 0, _i = std::dynamic_extent;
+
+   public:
+    using difference_type = ptrdiff_t;
+    using value_type = std::span<T>;
+
+    iter() = default;
+    iter(std::span<T, Extent> buffer, size_t n, size_t i = 0)  // NOLINT(*-swappable-parameters)
+        : _buffer(buffer), _n(n), _i(i) {}
+
+    std::span<T> operator*() const { return subspan(_buffer, _i * _n, _n); }
+    std::span<T> operator[](difference_type n) const { return subspan(_buffer, (_i + n) * _n, _n); }
+    iter &operator++() { return ++_i, *this; }
+    iter &operator--() { return --_i, *this; }
+    iter operator++(int) { return std::exchange(*this, {_buffer, _n, _i + 1}); }
+    iter operator--(int) { return std::exchange(*this, {_buffer, _n, _i - 1}); }
+
+    difference_type operator-(const iter &other) const { return _i - other._i; }
+    friend iter operator-(difference_type n, const iter &a) { return {a._buffer, a._n, n + a._i}; }
+    friend iter operator-(const iter &a, difference_type n) { return {a._buffer, a._n, a._i + n}; }
+    friend iter operator+(difference_type n, const iter &a) { return {a._buffer, a._n, n + a._i}; }
+    friend iter operator+(const iter &a, difference_type n) { return {a._buffer, a._n, a._i + n}; }
+    iter &operator+=(difference_type n) {
+      _i += n;
+      return *this;
+    }
+    iter &operator-=(difference_type n) {
+      _i -= n;
+      return *this;
+    }
+
+    friend bool operator<(const iter &a, const iter &b) { return a._i < b._i; }
+    friend bool operator<=(const iter &a, const iter &b) { return a._i <= b._i; }
+    friend bool operator>(const iter &a, const iter &b) { return a._i > b._i; }
+    friend bool operator>=(const iter &a, const iter &b) { return a._i >= b._i; }
+    friend bool operator!=(const iter &a, const iter &b) { return a._i != b._i; }
+    friend bool operator==(const iter &a, const iter &b) { return a._i == b._i; }
+  };
+  iter begin() const { return iter(_buffer, _n); }
+  iter end() const { return iter(_buffer, _n, div_ceil(_buffer.size(), _n)); }
+};
 
 /// A file descriptor associated with an explicit offset
 struct ofd {
@@ -647,14 +704,16 @@ class mmsg_socket {
 
   [[nodiscard]] unique_socket &fd() noexcept { return _fd; }
 
-  void reset(std::span<std::span<T>> buffers) {
-    _msgs.resize(buffers.size());
-    _iovecs.resize(buffers.size());
-    for (size_t i = 0; i < buffers.size(); ++i) {
-      _iovecs[i].iov_base = buffers[i].data();
-      _iovecs[i].iov_len = sizeof(T) * buffers[i].size();
+  template <std::ranges::sized_range R>
+    requires std::is_same_v<typename R::value_type, std::span<T>>
+  void reset(const R &buffers) {
+    _msgs.resize(std::ranges::size(buffers));
+    _iovecs.resize(std::ranges::size(buffers));
+    for (size_t i = 0; const auto &buffer : buffers) {
+      _iovecs[i].iov_base = buffer.data();
+      _iovecs[i].iov_len = sizeof(T) * buffer.size();
       _msgs[i].msg_hdr.msg_iov = &_iovecs[i];
-      _msgs[i].msg_hdr.msg_iovlen = 1;
+      _msgs[i++].msg_hdr.msg_iovlen = 1;
     }
   }
 
@@ -678,8 +737,7 @@ class mmsg_buffer : public mmsg_socket<T> {
   /// to fit in the buffers (see `man recvmsg` for details).
   mmsg_buffer(unique_socket fd, size_t msgs, size_t mtu = 1500)
       : mmsg_socket<T>(std::move(fd), {}), _buffer(msgs * mtu) {
-    std::vector<std::span<T>> slices = sliced<T>(_buffer, mtu);
-    mmsg_socket<T>::reset(slices);
+    mmsg_socket<T>::reset(chunked(std::span(_buffer), mtu));
   }
 
   void reset(std::span<std::span<T>> buffers) = delete;

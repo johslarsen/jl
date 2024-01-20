@@ -6,6 +6,7 @@ add_executable(
   fd_mmap_test.cpp
   circular_buffer_test.cpp
   rw_loop_test.cpp
+  span_test.cpp
   strings_test.cpp
   unique_fd_test.cpp
   unique_mmap_test.cpp
