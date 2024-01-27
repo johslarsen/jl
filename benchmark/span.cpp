@@ -1,8 +1,6 @@
 #include <benchmark/benchmark.h>
 #include <jl.h>
 
-#include <ranges>
-
 void BM_chunk_manually(benchmark::State& state) {
   std::vector<char> data(state.range(0));
   size_t n = state.range(1);
@@ -58,6 +56,8 @@ void BM_chunked_span_copy(benchmark::State& state) {
 }
 BENCHMARK(BM_chunked_span_copy)->ArgNames({"Size", "Chunk"})->ArgsProduct({{(1 << 30) - 1}, {1023, 1024, 1 << 20}});
 
+#if __clang__ == 0 || __clang_major__ > 16
+#include <ranges>
 void BM_chunked_view_iterate(benchmark::State& state) {
   std::vector<char> data(state.range(0));
   size_t n = state.range(1);
@@ -83,5 +83,6 @@ void BM_chunked_view_copy(benchmark::State& state) {
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_processed), benchmark::Counter::kIsRate);
 }
 BENCHMARK(BM_chunked_view_copy)->ArgNames({"Size", "Chunk"})->ArgsProduct({{(1 << 30) - 1}, {1023, 1024, 1 << 20}});
+#endif
 
 BENCHMARK_MAIN();
