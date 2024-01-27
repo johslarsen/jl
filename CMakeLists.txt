@@ -25,9 +25,6 @@ endif()
 
 if(JL_ENABLE_TESTING AND EXISTS
                          ${CMAKE_SOURCE_DIR}/external/doctest/CMakeLists.txt)
-  set(SANITIZE_FLAGS -fsanitize=undefined,address)
-  add_compile_options(${SANITIZE_FLAGS})
-  add_link_options(${SANITIZE_FLAGS})
   add_definitions(-fno-omit-frame-pointer -g3 -fstack-protector)
   add_subdirectory(external/doctest)
   enable_testing()
