@@ -37,7 +37,7 @@ concept numeric = std::integral<T> || std::floating_point<T>;
 }
 
 [[nodiscard]] inline std::system_error errno_as_error(const std::string &message) noexcept {
-  return make_system_error(static_cast<std::errc>(errno), message);
+  return make_system_error(std::errc(errno), message);
 }
 
 /// Utility to run a method at the end of the scope like a defer statement in Go
@@ -491,6 +491,7 @@ class unique_addr {
 
     addrinfo *result = nullptr;
     if (int status = ::getaddrinfo(_host.empty() ? nullptr : _host.c_str(), _port.c_str(), &hints, &result); status != 0) {
+      if (status == EAI_SYSTEM) throw errno_as_error("getaddrinfo(" + string() + ")");
       throw std::runtime_error("getaddrinfo(" + string() + ") failed: " + gai_strerror(status));
     }
     _addr.reset(result);
