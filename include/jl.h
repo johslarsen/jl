@@ -17,6 +17,7 @@
 #include <concepts>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -32,12 +33,14 @@ namespace jl {
 template <typename T>
 concept numeric = std::integral<T> || std::floating_point<T>;
 
-[[nodiscard]] inline std::system_error make_system_error(std::errc err, const std::string &message) noexcept {
-  return {std::make_error_code(err), message};
+template <class... Args>
+[[nodiscard]] inline std::system_error make_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
+  return {std::make_error_code(err), std::format(fmt, std::forward<Args>(args)...)};
 }
 
-[[nodiscard]] inline std::system_error errno_as_error(const std::string &message) noexcept {
-  return make_system_error(std::errc(errno), message);
+template <class... Args>
+[[nodiscard]] inline std::system_error errno_as_error(std::format_string<Args...> fmt, Args &&...args) noexcept {
+  return make_system_error(std::errc(errno), fmt, std::forward<Args>(args)...);
 }
 
 /// Utility to run a method at the end of the scope like a defer statement in Go
@@ -58,11 +61,11 @@ class defer {
 
 /// @returns n usually or 0 for EAGAIN
 /// @throws std::system_error on other errors
-template <std::integral T>
-T check_rw_error(T n, const std::string &message) {
+template <std::integral T, class... Args>
+T check_rw_error(T n, std::format_string<Args...> fmt, Args &&...args) {
   if (n < 0) {
     if (errno == EAGAIN) return 0;
-    throw errno_as_error(message);
+    throw errno_as_error(fmt, std::forward<Args>(args)...);
   }
   return n;
 }
@@ -75,7 +78,7 @@ template <std::invocable F>
 std::optional<std::invoke_result_t<F>> retry(F f, const std::string &error_message, int attempts = 2) {
   do {                                                  // NOLINT(*do-while), because we are checking the post-condition of f()
     if (auto result = f(); result >= 0) return result;  // successful, so exit early
-    if (errno != EAGAIN) throw errno_as_error(error_message);
+    if (errno != EAGAIN) throw errno_as_error("{}", error_message);
   } while (--attempts > 0);
   return std::nullopt;  // multiple EAGAINs, so probably a non-blocking operation
 }
@@ -89,7 +92,7 @@ size_t rw_loop(F f, size_t length, const std::string &error_message, int attempt
   size_t offset = 0;
   for (size_t count = -1; offset < length && count != 0; offset += count) {
     auto result = jl::retry([&] { return f(length - offset, offset); }, error_message, attempts);
-    if (!result.has_value()) throw errno_as_error(std::string("retried ") + error_message);
+    if (!result.has_value()) throw errno_as_error("retried {}", error_message);
 
     count = *result;
     if (count == 0) break;  // EOF
@@ -316,7 +319,7 @@ size_t inline sendfileall(int fd_out, ofd in, size_t len) {
   return rw_loop([fd_out, in_fd = in.fd, in_off = nullable(in.offset)](size_t remaining, off_t) {
     return ::sendfile(fd_out, in_fd, in_off, remaining);
   },
-                 len, "sendfile failed");
+                 len, "sendfile()");
 }
 
 /// Copy up to len bytes from in to out (see `man 2 splice` for details).
@@ -325,7 +328,7 @@ size_t inline spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {  // N
   return rw_loop([flags, in = in.fd, in_off = nullable(in.offset), out = out.fd, out_off = nullable(out.offset)](size_t remaining, off_t) {
     return ::splice(in, in_off, out, out_off, remaining, flags);
   },
-                 len, "splice failed");
+                 len, "splice()");
 }
 
 /// An owned and managed file descriptor.
@@ -336,13 +339,13 @@ class unique_fd {
  public:
   /// @throws std::system_error with errno and errmsg if it fails.
   explicit unique_fd(int fd, const std::string &errmsg = "unique_fd(-1)") : _fd(fd) {
-    if (_fd < 0) throw errno_as_error(errmsg);
+    if (_fd < 0) throw errno_as_error("{}", errmsg);
   }
 
   [[nodiscard]] static std::pair<unique_fd, unique_fd> pipes(int flags = O_CLOEXEC) {
     std::array<int, 2> sv{-1, -1};
     if (pipe2(sv.data(), flags) < 0) {
-      throw errno_as_error("socketpair failed");
+      throw errno_as_error("pipe2()");
     }
     return {unique_fd(sv[0]), unique_fd(sv[1])};
   }
@@ -370,7 +373,7 @@ template <typename C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] size_t write(int fd, const C &data) {
   constexpr size_t size = sizeof(typename C::value_type);
-  return check_rw_error(::write(fd, data.data(), size * data.size()), "write failed") / size;
+  return check_rw_error(::write(fd, data.data(), size * data.size()), "write({})", fd) / size;
 }
 [[nodiscard]] size_t inline write(int fd, std::string_view data) {
   return write(fd, std::span<const char>{data.data(), data.size()});
@@ -382,13 +385,13 @@ template <typename C, size_t Size = sizeof(typename C::value_type)>
   auto bytes_written = rw_loop([fd, buf = data.data()](size_t remaining, off_t offset) {
     return ::write(fd, buf + offset / Size, remaining);
   },
-                               Size * data.size(), "write failed");
+                               Size * data.size(), "write()");
   return bytes_written / Size;
 }
 
 template <typename T>
 [[nodiscard]] std::span<T> read(int fd, std::span<T> buffer) {
-  auto n = check_rw_error(::read(fd, buffer.data(), sizeof(T) * buffer.size()), "read failed");
+  auto n = check_rw_error(::read(fd, buffer.data(), sizeof(T) * buffer.size()), "read({})", fd);
   return buffer.subspan(0, n / sizeof(T));
 }
 template <typename C>
@@ -406,18 +409,18 @@ template <typename T, size_t Size = sizeof(T)>
   auto bytes_read = rw_loop([fd, buf = buffer.data()](size_t remaining, off_t offset) {
     return ::read(fd, buf + offset / Size, remaining);
   },
-                            Size * buffer.size(), "read failed");
+                            Size * buffer.size(), "read()");
   return buffer.subspan(0, bytes_read / Size);
 }
 
 [[nodiscard]] struct stat inline stat(int fd) {
   struct stat buf {};
-  if (fstat(fd, &buf) != 0) throw errno_as_error("fstat failed");
+  if (fstat(fd, &buf) != 0) throw errno_as_error("fstat({})", fd);
   return buf;
 }
 
 void inline truncate(int fd, off_t length) {
-  if (ftruncate(fd, length) != 0) throw errno_as_error("ftruncate failed");
+  if (ftruncate(fd, length) != 0) throw errno_as_error("ftruncate({})", fd);
 }
 
 /// A named file descriptor that is closed and removed upon destruction.
@@ -427,7 +430,7 @@ class tmpfd {
 
  public:
   explicit tmpfd(const std::string &prefix = "/tmp/jl_tmpfile_", const std::string &suffix = "")
-      : tmpfd(prefix + "XXXXXX" + suffix, static_cast<int>(suffix.length())) {}
+      : tmpfd(std::format("{}XXXXXX{}", prefix, suffix), static_cast<int>(suffix.length())) {}
 
   [[nodiscard]] unique_fd *operator->() noexcept { return &_fd; }
   [[nodiscard]] const unique_fd *operator->() const noexcept { return &_fd; }
@@ -469,7 +472,7 @@ class tmpfd {
 };
 
 [[nodiscard]] inline std::string uri_host(const std::string &host) {
-  return host.find(':') == std::string::npos ? host : "[" + host + "]";
+  return host.find(':') == std::string::npos ? host : std::format("[{}]", host);
 }
 
 /// An owned addrinfo wrapper that also remembers the hostname you looked up.
@@ -491,14 +494,14 @@ class unique_addr {
 
     addrinfo *result = nullptr;
     if (int status = ::getaddrinfo(_host.empty() ? nullptr : _host.c_str(), _port.c_str(), &hints, &result); status != 0) {
-      if (status == EAI_SYSTEM) throw errno_as_error("getaddrinfo(" + string() + ")");
-      throw std::runtime_error("getaddrinfo(" + string() + ") failed: " + gai_strerror(status));
+      if (status == EAI_SYSTEM) throw errno_as_error("getaddrinfo({})", string());
+      throw std::runtime_error(std::format("getaddrinfo({}): {}", string(), gai_strerror(status)));
     }
     _addr.reset(result);
   }
 
   [[nodiscard]] const addrinfo *get() const { return _addr.get(); }
-  [[nodiscard]] std::string string() const { return uri_host(_host) + ":" + _port; }
+  [[nodiscard]] std::string string() const { return std::format("{}:{}", uri_host(_host), _port); }
 
   ~unique_addr() = default;
   unique_addr(const unique_addr &) = delete;
@@ -532,7 +535,7 @@ struct host_port {
   [[nodiscard]] static host_port from(const addrinfo *ai) { return from(ai->ai_addr); }
   [[nodiscard]] static host_port from(const unique_addr &addr) { return from(addr.get()); }
 
-  [[nodiscard]] std::string string() const { return uri_host(host) + ":" + std::to_string(port); }
+  [[nodiscard]] std::string string() const { return std::format("{}:{}", uri_host(host), port); }
   bool operator==(const host_port &) const = default;
 };
 
@@ -543,7 +546,7 @@ template <typename T>
 template <typename T>
 void setsockopt(int fd, int level, int option_name, const T &value) {
   if (try_setsockopt(fd, level, option_name, value) < 0) {
-    throw errno_as_error("setsockopt(" + std::to_string(level) + ", " + std::to_string(option_name) + ") failed");
+    throw errno_as_error("setsockopt({}, {})", level, option_name);
   }
 }
 
@@ -555,7 +558,7 @@ class unique_socket : public unique_fd {
   [[nodiscard]] static std::pair<unique_socket, unique_socket> pipes(int domain = AF_UNIX, int type = SOCK_STREAM) {
     std::array<int, 2> sv{-1, -1};
     if (socketpair(domain, type, 0, sv.data()) < 0) {
-      throw errno_as_error("socketpair failed");
+      throw errno_as_error("socketpair()");
     }
     return {unique_socket(sv[0]), unique_socket(sv[1])};
   }
@@ -573,7 +576,7 @@ class unique_socket : public unique_fd {
         if (::bind(fd, p->ai_addr, p->ai_addrlen) == 0) return ufd;
       }
     }
-    throw errno_as_error("socket/bind(" + source.string() + ") failed");
+    throw errno_as_error("socket/bind({})", source.string());
   }
   [[nodiscard]] static unique_socket udp(
       const unique_addr &source = {"::", "0"},
@@ -598,7 +601,7 @@ template <typename C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] size_t send(int fd, const C &data, int flags = 0) {
   constexpr size_t size = sizeof(typename C::value_type);
-  return check_rw_error(::send(fd, data.data(), size * data.size(), flags), "send failed") / size;
+  return check_rw_error(::send(fd, data.data(), size * data.size(), flags), "send({})", fd) / size;
 }
 [[nodiscard]] size_t inline send(int fd, std::string_view data, int flags = 0) {
   return send(fd, std::span<const char>{data.data(), data.size()}, flags);
@@ -606,7 +609,7 @@ template <typename C>
 
 template <typename T>
 [[nodiscard]] std::span<T> recv(int fd, std::span<T> buffer, int flags = 0) {
-  auto n = check_rw_error(::recv(fd, buffer.data(), sizeof(T) * buffer.size(), flags), "recv failed");
+  auto n = check_rw_error(::recv(fd, buffer.data(), sizeof(T) * buffer.size(), flags), "recv({})", fd);
   return buffer.subspan(0, n / sizeof(T));
 }
 template <typename C>
@@ -622,25 +625,25 @@ void inline bind(int fd, const unique_addr &source = unique_addr("", "0")) {
   for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
     if (::bind(fd, p->ai_addr, p->ai_addrlen) == 0) return;
   }
-  throw errno_as_error("bind(" + source.string() + ") failed");
+  throw errno_as_error("bind({})", source.string());
 }
 
 void inline connect(int fd, const unique_addr &source) {
   for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
     if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0) return;
   }
-  throw errno_as_error("connect(" + source.string() + ") failed");
+  throw errno_as_error("connect({})", source.string());
 }
 
 void inline listen(int fd, int backlog) {
-  check_rw_error(::listen(fd, backlog), "listen failed");
+  check_rw_error(::listen(fd, backlog), "listen({})", fd);
 }
 [[nodiscard]] inline std::optional<std::pair<unique_socket, host_port>> accept(int fd, int flags = 0) {
   sockaddr_in6 addr_buf{};
   auto *addr = reinterpret_cast<sockaddr *>(&addr_buf);  // NOLINT(*reinterpret-cast) to type-erased C-struct
   socklen_t addr_len = sizeof(addr_buf);
 
-  auto client = check_rw_error(::accept4(fd, addr, &addr_len, flags), "accept failed");
+  auto client = check_rw_error(::accept4(fd, addr, &addr_len, flags), "accept({})", fd);
   if (client < 0) return std::nullopt;
   return {{unique_socket(client), host_port::from(addr)}};
 }
@@ -685,13 +688,13 @@ class mmsg_socket {
   /// Sends message buffers off through off + count.
   /// @returns the number of messages sent.
   [[nodiscard]] size_t sendmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
-    return check_rw_error(::sendmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags), "sendmmsg failed");
+    return check_rw_error(::sendmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags), "sendmmsg");
   }
 
   /// Receives message into buffers off through off + count. Returned spans are
   /// valid until further operations on those same message slots.
   [[nodiscard]] std::span<std::span<T>> recvmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
-    int msgs = check_rw_error(::recvmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags, nullptr), "recvmmsg failed");
+    int msgs = check_rw_error(::recvmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags, nullptr), "recvmmsg");
     if (static_cast<int>(_received.size()) < msgs) {
       _received.resize(_msgs.size());
     }
@@ -759,21 +762,21 @@ class unique_mmap {
  public:
   /// A common mmap. The count/offset parameters are in counts of T, not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
-  explicit unique_mmap(size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap failed")
+  explicit unique_mmap(size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap()")
       : unique_mmap(nullptr, count, prot, flags, fd, offset, errmsg) {
   }
 
   /// More advanced constructor for e.g. MAP_FIXED when you need the addr
   /// parameter. The size/offset parameters are in counts of T, not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
-  unique_mmap(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap failed")
+  unique_mmap(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap()")
       : _map([&] {
           void *pa = ::mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T));
-          if (pa == MAP_FAILED) throw errno_as_error(errmsg);     // NOLINT(*cstyle-cast,*int-to-ptr)
-          return std::span<T>(reinterpret_cast<T *>(pa), count);  // NOLINT(*reinterpret-cast), mmap returns page-aligned address
+          if (pa == MAP_FAILED) throw errno_as_error("{}", errmsg);  // NOLINT(*cstyle-cast,*int-to-ptr)
+          return std::span<T>(reinterpret_cast<T *>(pa), count);     // NOLINT(*reinterpret-cast), mmap returns page-aligned address
         }()) {}
 
-  static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap failed") {
+  static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap") {
     unique_mmap<T> map(count, prot, flags, -1, 0, errmsg);
     std::ignore = prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());  // best effort, so okay if it fails silently
     return map;
@@ -789,10 +792,10 @@ class unique_mmap {
 
   /// The count parameter is in counts of T not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
-  void remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap failed") {
+  void remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap()") {
     void *pa = ::mremap(_map.data(), _map.size() * sizeof(T), count * sizeof(T), flags, addr);
-    if (pa == MAP_FAILED) throw errno_as_error(errmsg);     // NOLINT(*cstyle-cast,*int-to-ptr)
-    _map = std::span<T>(reinterpret_cast<T *>(pa), count);  // NOLINT(*reinterpret-cast), mremap returns page-aligned address
+    if (pa == MAP_FAILED) throw errno_as_error("{}", errmsg);  // NOLINT(*cstyle-cast,*int-to-ptr)
+    _map = std::span<T>(reinterpret_cast<T *>(pa), count);     // NOLINT(*reinterpret-cast), mremap returns page-aligned address
   }
 
   void reset(std::span<T> map = {}) noexcept {
@@ -828,7 +831,7 @@ class fd_mmap {
  public:
   /// A mmap over fd. The count/offset parameters are in counts of T, not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
-  explicit fd_mmap(unique_fd fd, int prot = PROT_READ, int flags = MAP_SHARED, off_t offset = 0, std::optional<size_t> count = std::nullopt, const std::string &errmsg = "fd_mmap failed")  // NOLINT(*-member-init) false positive: https://github.com/llvm/llvm-project/issues/37250
+  explicit fd_mmap(unique_fd fd, int prot = PROT_READ, int flags = MAP_SHARED, off_t offset = 0, std::optional<size_t> count = std::nullopt, const std::string &errmsg = "fd_mmap()")  // NOLINT(*-member-init) false positive: https://github.com/llvm/llvm-project/issues/37250
       : fd_mmap(with_count(std::move(fd), count), prot, flags, offset, count, errmsg) {}
 
   [[nodiscard]] int fd() const noexcept { return _fd.fd(); }
@@ -1005,7 +1008,7 @@ template <numeric T>
   T parsed;
   char *end = value->data() + value->size();  // NOLINT(*pointer-arithmetic), how else?
   if (auto res = std::from_chars(value->data(), end, parsed); res.ec != std::errc()) {
-    throw make_system_error(res.ec, "Failed to parse " + *value);
+    throw make_system_error(res.ec, "Failed to parse {}", *value);
   }
   return parsed;
 }
@@ -1021,7 +1024,7 @@ template <numeric T>
 /// @throws std::runtime_error if there is no environment variable with this name.
 [[nodiscard]] inline std::string reqenv(const char *name) {
   const char *value = std::getenv(name);  // NOLINT(*mt-unsafe)
-  if (value == nullptr) throw std::runtime_error(std::string("Missing ") + name + " environment value");
+  if (value == nullptr) throw std::runtime_error(std::format("Missing {} environment variable", name));
   return value;
 }
 
