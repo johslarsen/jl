@@ -59,6 +59,8 @@ class defer {
   defer &operator=(defer &&) = delete;
 };
 
+static_assert(EAGAIN == EWOULDBLOCK, "Obscure and unsupported platform");
+
 /// @returns n usually or 0 for EAGAIN
 /// @throws std::system_error on other errors
 template <std::integral T, class... Args>
