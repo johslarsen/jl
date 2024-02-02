@@ -512,6 +512,20 @@ class unique_addr {
   unique_addr &operator=(unique_addr &&) noexcept = default;
 };
 
+struct type_erased_sockaddr {
+  sockaddr_storage _buffer{};
+  socklen_t length = sizeof(_buffer);
+
+  static type_erased_sockaddr from(int fd) {
+    type_erased_sockaddr addr;
+    if (getsockname(fd, addr.get(), &addr.length) != 0) throw errno_as_error("getsockname({})", fd);
+    return addr;
+  }
+
+  [[nodiscard]] const sockaddr *get() const { return reinterpret_cast<const sockaddr *>(&_buffer); }  // NOLINT(*reinterpret-cast) to type-erased C-struct
+  [[nodiscard]] sockaddr *get() { return reinterpret_cast<sockaddr *>(&_buffer); }                    // NOLINT(*reinterpret-cast) to type-erased C-struct
+};
+
 /// A converter from the IPv4/6 type-erased sockaddr stuctures
 struct host_port {
   std::string host;
@@ -536,6 +550,8 @@ struct host_port {
   }
   [[nodiscard]] static host_port from(const addrinfo *ai) { return from(ai->ai_addr); }
   [[nodiscard]] static host_port from(const unique_addr &addr) { return from(addr.get()); }
+  [[nodiscard]] static host_port from(const type_erased_sockaddr &addr) { return from(addr.get()); }
+  [[nodiscard]] static host_port from(int fd) { return from(type_erased_sockaddr::from(fd)); }
 
   [[nodiscard]] std::string string() const { return std::format("{}:{}", uri_host(host), port); }
   bool operator==(const host_port &) const = default;
@@ -630,6 +646,12 @@ void inline bind(int fd, const unique_addr &source = unique_addr("", "0")) {
   throw errno_as_error("bind({})", source.string());
 }
 
+void inline connect(int fd, const type_erased_sockaddr &addr) {
+  if (::connect(fd, addr.get(), addr.length) != 0) {
+    throw errno_as_error("connect({})", host_port::from(addr.get()).string());
+  }
+}
+
 void inline connect(int fd, const unique_addr &source) {
   for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
     if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0) return;
@@ -641,13 +663,10 @@ void inline listen(int fd, int backlog) {
   check_rw_error(::listen(fd, backlog), "listen({})", fd);
 }
 [[nodiscard]] inline std::optional<std::pair<unique_socket, host_port>> accept(int fd, int flags = 0) {
-  sockaddr_in6 addr_buf{};
-  auto *addr = reinterpret_cast<sockaddr *>(&addr_buf);  // NOLINT(*reinterpret-cast) to type-erased C-struct
-  socklen_t addr_len = sizeof(addr_buf);
-
-  auto client = check_rw_error(::accept4(fd, addr, &addr_len, flags), "accept({})", fd);
+  type_erased_sockaddr addr;
+  auto client = check_rw_error(::accept4(fd, addr.get(), &addr.length, flags), "accept({})", fd);
   if (client < 0) return std::nullopt;
-  return {{unique_socket(client), host_port::from(addr)}};
+  return {{unique_socket(client), host_port::from(addr.get())}};
 }
 
 /// An abstraction for managing the POSIX "span" structures required by

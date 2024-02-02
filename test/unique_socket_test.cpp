@@ -6,6 +6,14 @@ static inline std::string_view as_view(std::span<char> data) {
 }
 
 TEST_SUITE("unique_socket") {
+  TEST_CASE("sockaddr") {
+    auto pipe = jl::unique_socket(socket(AF_UNIX, SOCK_STREAM, 0));
+    auto ipv4 = jl::unique_socket(socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+    auto ipv6 = jl::unique_socket(socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP));
+    CHECK(":0" == jl::host_port::from(pipe.fd()).string());
+    CHECK("0.0.0.0:0" == jl::host_port::from(ipv4.fd()).string());
+    CHECK("[::]:0" == jl::host_port::from(ipv6.fd()).string());
+  }
   TEST_CASE("pipes") {
     auto [in, out] = jl::unique_socket::pipes();
 
@@ -16,9 +24,10 @@ TEST_SUITE("unique_socket") {
   }
 
   TEST_CASE("UDP") {
-    auto receiver = jl::unique_socket::udp({"::", "4321"});
+    auto receiver = jl::unique_socket::udp();
+    auto port = jl::host_port::from(receiver.fd()).port;
     auto sender = jl::unique_socket::udp();
-    jl::connect(*sender, {"127.0.0.1", "4321"});
+    jl::connect(*sender, {"127.0.0.1", std::to_string(port)});
 
     CHECK(3 == jl::send(*sender, "foo"));
     CHECK(3 == jl::send(*sender, "bar"));
@@ -28,11 +37,10 @@ TEST_SUITE("unique_socket") {
   }
 
   TEST_CASE("TCP") {
-    auto server = jl::unique_socket::tcp({"::", "4321"});
+    auto server = jl::unique_socket::tcp();
     jl::listen(*server, 2);
-
     auto sender = jl::unique_socket::tcp();
-    jl::connect(*sender, {"::1", "4321"});
+    jl::connect(*sender, jl::type_erased_sockaddr::from(server.fd()));
 
     CHECK(3 == jl::send(*sender, "foo"));
     CHECK(3 == jl::send(*sender, "bar"));
