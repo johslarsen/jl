@@ -568,6 +568,11 @@ void setsockopt(int fd, int level, int option_name, const T &value) {
   }
 }
 
+inline int try_linger(int fd, std::chrono::seconds timeout) {
+  auto s = static_cast<int>(timeout.count());
+  return try_setsockopt(fd, SOL_SOCKET, SO_LINGER, ::linger{.l_onoff = 1, .l_linger = s});
+}
+
 /// An owned socket descriptor that simplifies common network usage.
 class unique_socket : public unique_fd {
  public:
@@ -612,6 +617,16 @@ class unique_socket : public unique_fd {
       setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, 1);
       before_bind(fd);
     });
+  }
+
+  std::vector<std::system_error> linger(std::chrono::seconds timeout) && {
+    std::vector<std::system_error> errors;
+    if (try_linger(fd(), timeout) != 0) errors.push_back(errno_as_error("setsockopt({}, linger={}s)", fd(), timeout.count()));
+    if (int fd = release(); close(fd) != 0) errors.push_back(errno_as_error("close({})", fd));
+    return errors;
+  }
+  std::vector<std::system_error> terminate() && {
+    return std::move(*this).linger(std::chrono::seconds(0));
   }
 };
 

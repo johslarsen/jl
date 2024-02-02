@@ -53,6 +53,19 @@ TEST_SUITE("unique_socket") {
     CHECK("foobar" == jl::recv(*receiver, buffer, MSG_DONTWAIT));
   }
 
+  TEST_CASE("TCP RST") {
+    auto server = jl::unique_socket::tcp();
+    jl::listen(*server, 2);
+    auto client = jl::unique_socket::tcp();
+    jl::connect(*client, jl::type_erased_sockaddr::from(server.fd()));
+
+    auto [server_side, _] = jl::accept(*server).value();
+    CHECK(0 == std::move(server_side).terminate().size());
+
+    CHECK(-1 == send(client.fd(), "", 0, 0));
+    CHECK(ECONNRESET == errno);
+  }
+
   TEST_CASE("both IPv4 and IPv6 sockets can be default bound") {
     jl::bind(*jl::unique_socket(socket(AF_INET, SOCK_DGRAM, 0)));
     jl::bind(*jl::unique_socket(socket(AF_INET, SOCK_STREAM, 0)));
