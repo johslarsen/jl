@@ -3,11 +3,6 @@
 
 #include <numbers>
 
-static_assert(std::is_same_v<jl::uint_from_size<sizeof(int8_t)>::type, uint8_t>);
-static_assert(std::is_same_v<jl::uint_from_size<sizeof(int16_t)>::type, uint16_t>);
-static_assert(std::is_same_v<jl::uint_from_size<sizeof(int32_t)>::type, uint32_t>);
-static_assert(std::is_same_v<jl::uint_from_size<sizeof(int64_t)>::type, uint64_t>);
-
 constexpr bool is_mixed_endian = std::endian::native != std::endian::little &&
                                  std::endian::native != std::endian::big;
 
@@ -51,5 +46,21 @@ TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
       CHECK(std::numbers::pi_v<float> == jl::le(std::numbers::pi_v<float>));
       CHECK(std::numbers::pi_v<float> != jl::be(std::numbers::pi_v<float>));
     }
+  }
+
+  TEST_CASE("uint_from_size") {
+    static_assert(std::is_same_v<jl::uint_from_size<sizeof(int8_t)>::type, uint8_t>);
+    static_assert(std::is_same_v<jl::uint_from_size<sizeof(int16_t)>::type, uint16_t>);
+    static_assert(std::is_same_v<jl::uint_from_size<sizeof(int32_t)>::type, uint32_t>);
+    static_assert(std::is_same_v<jl::uint_from_size<sizeof(int64_t)>::type, uint64_t>);
+  }
+
+  TEST_CASE("bitcastable_to") {
+    static_assert(jl::bitcastable_to<uint8_t, std::byte>);
+    static_assert(jl::bitcastable_to<uint8_t, int8_t>);
+    static_assert(jl::bitcastable_to<uint8_t, char>);
+    static_assert(jl::bitcastable_to<uint8_t, signed char>);
+    static_assert(jl::bitcastable_to<uint8_t, unsigned char>);
+    static_assert(!jl::bitcastable_to<char, uint16_t>);
   }
 }

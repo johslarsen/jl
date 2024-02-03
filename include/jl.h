@@ -33,6 +33,9 @@ namespace jl {
 template <typename T>
 concept numeric = std::integral<T> || std::floating_point<T>;
 
+template <typename T, typename U>
+concept bitcastable_to = requires(T t) { std::bit_cast<U>(t); };
+
 template <class... Args>
 [[nodiscard]] inline std::system_error make_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
   return {std::make_error_code(err), std::format(fmt, std::forward<Args>(args)...)};
