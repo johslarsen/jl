@@ -41,4 +41,24 @@ TEST_SUITE("span") {
     CHECK("foo" == jl::view_of(spans[0]));
     CHECK("barbaz" == jl::view_of(spans[1]));
   }
+
+  TEST_CASE("copy") {
+    std::vector<std::string> strings = {"foobar", "baz"};
+    auto iovecs = jl::as_iovecs(strings);
+    std::string dest = "0123456789";
+
+    auto fo = jl::copy(strings, std::span(dest).subspan(0, 2));
+    CHECK("fo" == jl::view_of(fo));
+    CHECK("fo23456789" == dest);
+
+    auto foobar = jl::copy(iovecs, std::span(dest).subspan(0, 6));
+    CHECK("foobar" == jl::view_of(foobar));
+
+    auto foobarba = jl::copy(jl::as_spans<const char>(iovecs), std::span(dest).subspan(0, 8));
+    CHECK("foobarba" == jl::view_of(foobarba));
+
+    auto whole_input = jl::copy(strings, std::span(dest));
+    CHECK("foobarbaz" == jl::view_of(whole_input));
+    CHECK("foobarbaz9" == dest);
+  }
 }

@@ -287,6 +287,21 @@ inline std::vector<std::span<T>> as_spans(std::span<iovec> iovecs) noexcept {
   return spans;
 }
 
+/// Copy the concatenation of list of input buffers (e.g. iovecs)
+template <typename T, typename ListOfSpanable>
+inline std::span<T> copy(ListOfSpanable &&source, std::span<T> dest) noexcept {
+  std::span<T> copied;
+  for (const auto &spanable : source) {
+    if (copied.size() == dest.size()) break;
+
+    auto part = as_span<const T>(spanable);
+    auto last = part.begin() + std::min(part.size(), dest.size() - copied.size());
+    auto copied_end = std::copy(part.begin(), last, dest.begin() + copied.size());
+    copied = {dest.begin(), copied_end};
+  }
+  return copied;
+}
+
 template <typename T, std::size_t Extent = std::dynamic_extent>
 class chunked {
   std::span<T, Extent> _buffer;
