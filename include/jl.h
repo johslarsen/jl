@@ -258,6 +258,12 @@ inline std::span<T, Extent> subspan(std::span<T, Extent> span, size_t offset, si
   return span.subspan(offset, std::min(span.size() - offset, count));
 }
 
+template <bitcastable_to<char> Char>
+inline std::string_view view_of(std::span<Char> bytes) noexcept {
+  const char *data = reinterpret_cast<const char *>(bytes.data());  // NOLINT(*reinterpret-cast) Char template makes this safe
+  return {data, bytes.size()};
+}
+
 template <typename T, std::size_t Extent = std::dynamic_extent>
 class chunked {
   std::span<T, Extent> _buffer;

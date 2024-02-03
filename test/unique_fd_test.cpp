@@ -95,7 +95,7 @@ TEST_SUITE("tmp_fd") {
 
     CHECK(0 == jl::check_rw_error(lseek(*fd, 0, SEEK_SET), "lseek failed"));
     auto foo = jl::read(*fd, char_vector);
-    CHECK("foo" == std::string_view(foo.begin(), foo.end()));
+    CHECK("foo" == jl::view_of(foo));
     CHECK("bar" == jl::read(*fd, string));
     auto int123 = jl::read(*fd, std::span<int>(int_vector));
     CHECK((std::vector<int>{1, 2, 3}) == std::vector<int>(int123.begin(), int123.end()));

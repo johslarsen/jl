@@ -1,10 +1,6 @@
 #include <doctest/doctest.h>
 #include <jl.h>
 
-static inline std::string_view as_view(std::span<char> data) {
-  return {data.begin(), data.end()};
-}
-
 TEST_SUITE("unique_socket") {
   TEST_CASE("sockaddr") {
     auto pipe = jl::unique_socket(socket(AF_UNIX, SOCK_STREAM, 0));
@@ -84,7 +80,7 @@ TEST_SUITE("unique_socket") {
     CHECK(3 == jl::send(*out, int_vector));
 
     auto foo = jl::recv(*in, char_vector);
-    CHECK("foo" == std::string_view(foo.begin(), foo.end()));
+    CHECK("foo" == jl::view_of(foo));
     CHECK("bar" == jl::recv(*in, string));
     auto int123 = jl::recv(*in, std::span<int>(int_vector));
     CHECK((std::vector<int>{1, 2, 3}) == std::vector<int>(int123.begin(), int123.end()));
@@ -103,8 +99,8 @@ TEST_SUITE("mmsg_buffer") {
 
     auto msgs = receiver.recvmmsg();
     REQUIRE(2 == msgs.size());
-    CHECK("foo" == as_view(msgs[0]));
-    CHECK("bar" == as_view(msgs[1]));
+    CHECK("foo" == jl::view_of(msgs[0]));
+    CHECK("bar" == jl::view_of(msgs[1]));
   }
 
   TEST_CASE("stream") {
@@ -116,6 +112,6 @@ TEST_SUITE("mmsg_buffer") {
 
     auto msgs = receiver.recvmmsg();
     REQUIRE(1 == msgs.size());
-    CHECK("foobar" == as_view(msgs[0]));
+    CHECK("foobar" == jl::view_of(msgs[0]));
   }
 }

@@ -1,10 +1,6 @@
 #include <doctest/doctest.h>
 #include <jl.h>
 
-static inline std::string_view as_view(std::span<char> data) {
-  return {data.begin(), data.end()};
-}
-
 TEST_SUITE("fd_mmap") {
   TEST_CASE("basic") {
     jl::unique_fd fd = jl::tmpfd().unlink();
@@ -13,7 +9,7 @@ TEST_SUITE("fd_mmap") {
     SUBCASE("read") {
       jl::fd_mmap<char> map(std::move(fd));
       CHECK('f' == map[0]);
-      CHECK("foo" == as_view(*map));
+      CHECK("foo" == jl::view_of(*map));
     }
     SUBCASE("write") {
       jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
@@ -21,7 +17,7 @@ TEST_SUITE("fd_mmap") {
       std::copy(ba.begin(), ba.end(), map->begin());
       map[2] = 'r';
 
-      CHECK("bar" == as_view(*map));
+      CHECK("bar" == jl::view_of(*map));
     }
   }
 
@@ -33,7 +29,7 @@ TEST_SUITE("fd_mmap") {
 
     jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
 
-    CHECK("foo" == as_view(*map));
+    CHECK("foo" == jl::view_of(*map));
   }
 
   std::string sread(int fd, size_t length, off_t offset) {
@@ -53,7 +49,7 @@ TEST_SUITE("fd_mmap") {
     map.truncate(4097);
     CHECK(1 == map->size());
 
-    CHECK(std::string_view("\0", 1) == as_view(*map));
+    CHECK(std::string_view("\0", 1) == jl::view_of(*map));
     map[0] = 'a';
     CHECK("a" == sread(map.fd(), 1, 4096));
 
