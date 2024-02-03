@@ -25,12 +25,20 @@ TEST_SUITE("span") {
     }
     CHECK(pairs.str() == "01 23 45 67 ");
 
-    std::ranges::for_each(jl::chunked(eight, 3), [&triplets](auto t) {triplets << std::string_view(t) << " ";});
+    std::ranges::for_each(jl::chunked(eight, 3), [&triplets](auto t) { triplets << std::string_view(t) << " "; });
     CHECK(triplets.str() == "012 345 67 ");
 
     jl::chunked in_tens(eight, 10);
-    //std::ranges::end(in_tens);
     std::for_each(in_tens.begin(), in_tens.end(), [&tens](auto t) { tens << std::string_view(t) << " "; });
     CHECK(tens.str() == "01234567 ");
+  }
+
+  TEST_CASE("as_iovecs") {
+    std::vector<std::string> strings{"foo", "barbaz"};
+    auto iovecs = jl::as_iovecs(strings);
+    auto spans = jl::as_spans<const char>(iovecs);
+    REQUIRE(2 == spans.size());
+    CHECK("foo" == jl::view_of(spans[0]));
+    CHECK("barbaz" == jl::view_of(spans[1]));
   }
 }

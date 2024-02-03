@@ -264,6 +264,29 @@ inline std::string_view view_of(std::span<Char> bytes) noexcept {
   return {data, bytes.size()};
 }
 
+template <typename ListOfSpanable>
+inline std::vector<iovec> as_iovecs(ListOfSpanable &&spans) noexcept {
+  std::vector<iovec> iovecs(spans.size());
+  for (size_t i = 0; auto &span : spans) iovecs[i++] = {span.data(), span.size()};
+  return iovecs;
+}
+
+template <typename T>
+inline std::span<T> as_span(auto &&src) noexcept {
+  if constexpr (std::is_same_v<std::remove_cvref_t<decltype(src)>, iovec>) {
+    return {reinterpret_cast<T *>(src.iov_base), src.iov_len / sizeof(T)};
+  } else {
+    return std::span<T>(src);
+  }
+}
+
+template <typename T>
+inline std::vector<std::span<T>> as_spans(std::span<iovec> iovecs) noexcept {
+  std::vector<std::span<T>> spans(iovecs.size());
+  for (size_t i = 0; auto &iovec : iovecs) spans[i++] = as_span<T>(iovec);
+  return spans;
+}
+
 template <typename T, std::size_t Extent = std::dynamic_extent>
 class chunked {
   std::span<T, Extent> _buffer;
