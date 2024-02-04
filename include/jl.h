@@ -260,7 +260,7 @@ inline std::span<T, Extent> subspan(std::span<T, Extent> span, size_t offset, si
 
 template <bitcastable_to<char> Char>
 inline std::string_view view_of(std::span<Char> bytes) noexcept {
-  const char *data = reinterpret_cast<const char *>(bytes.data());  // NOLINT(*reinterpret-cast) Char template makes this safe
+  const char *data = reinterpret_cast<const char *>(bytes.data());  // NOLINT(*reinterpret-cast) Char template requirement makes this safe
   return {data, bytes.size()};
 }
 
@@ -276,7 +276,7 @@ inline std::span<T> as_span(auto &&src) noexcept {
   if constexpr (std::is_same_v<std::remove_cvref_t<decltype(src)>, iovec>) {
     return {reinterpret_cast<T *>(src.iov_base), src.iov_len / sizeof(T)};
   } else {
-    return std::span<T>(src);
+    return std::span(src);
   }
 }
 
@@ -425,7 +425,7 @@ template <typename C>
   return check_rw_error(::write(fd, data.data(), size * data.size()), "write({})", fd) / size;
 }
 [[nodiscard]] size_t inline write(int fd, std::string_view data) {
-  return write(fd, std::span<const char>{data.data(), data.size()});
+  return write(fd, std::span(data));
 }
 
 template <typename C, size_t Size = sizeof(typename C::value_type)>
@@ -446,10 +446,10 @@ template <typename T>
 template <typename C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] std::span<typename C::value_type> read(int fd, C &buffer) {
-  return read(fd, std::span<typename C::value_type>(buffer));
+  return read(fd, std::span(buffer));
 }
 [[nodiscard]] std::string_view inline read(int fd, std::string &buffer) {
-  auto result = read(fd, std::span<char>{buffer.begin(), buffer.size()});
+  auto result = read(fd, std::span(buffer));
   return {result.data(), result.size()};
 }
 
@@ -684,7 +684,7 @@ template <typename C>
   return check_rw_error(::send(fd, data.data(), size * data.size(), flags), "send({})", fd) / size;
 }
 [[nodiscard]] size_t inline send(int fd, std::string_view data, int flags = 0) {
-  return send(fd, std::span<const char>{data.data(), data.size()}, flags);
+  return send(fd, std::span(data), flags);
 }
 
 template <typename T>
@@ -695,10 +695,10 @@ template <typename T>
 template <typename C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] std::span<typename C::value_type> recv(int fd, C &data, int flags = 0) {
-  return recv(fd, std::span<typename C::value_type>(data), flags);
+  return recv(fd, std::span(data), flags);
 }
 [[nodiscard]] std::string_view inline recv(int fd, std::string &buffer, int flags = 0) {
-  auto result = recv(fd, std::span<char>{buffer.data(), buffer.size()}, flags);
+  auto result = recv(fd, std::span(buffer), flags);
   return {result.data(), result.size()};
 }
 void inline bind(int fd, const unique_addr &source = unique_addr("", "0")) {
@@ -856,7 +856,7 @@ class unique_mmap {
       : _map([&] {
           void *pa = ::mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T));
           if (pa == MAP_FAILED) throw errno_as_error("{}", errmsg);  // NOLINT(*cstyle-cast,*int-to-ptr)
-          return std::span<T>(reinterpret_cast<T *>(pa), count);     // NOLINT(*reinterpret-cast), mmap returns page-aligned address
+          return std::span(reinterpret_cast<T *>(pa), count);        // NOLINT(*reinterpret-cast), mmap returns page-aligned address
         }()) {}
 
   static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap") {
@@ -878,7 +878,7 @@ class unique_mmap {
   void remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap()") {
     void *pa = ::mremap(_map.data(), _map.size() * sizeof(T), count * sizeof(T), flags, addr);
     if (pa == MAP_FAILED) throw errno_as_error("{}", errmsg);  // NOLINT(*cstyle-cast,*int-to-ptr)
-    _map = std::span<T>(reinterpret_cast<T *>(pa), count);     // NOLINT(*reinterpret-cast), mremap returns page-aligned address
+    _map = {reinterpret_cast<T *>(pa), count};                 // NOLINT(*reinterpret-cast), mremap returns page-aligned address
   }
 
   void reset(std::span<T> map = {}) noexcept {
