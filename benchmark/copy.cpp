@@ -38,6 +38,24 @@ static inline std::tuple<ssize_t, ssize_t> args(benchmark::State& state) {
 }
 
 template <size_t stride>
+void BM_sendfile(benchmark::State& state) {
+  auto [len, block_size] = args(state);
+  auto [read, write] = open_read_write(len);
+
+  size_t bytes_read = 0;
+  int fd = read->fd();
+  for (auto _ : state) {
+    for (off_t pos = 0; pos < len; pos += stride * block_size) {
+      off_t pos_copy = pos;
+      auto size = jl::check_rw_error(sendfile(write.fd(), fd, &pos_copy, block_size), "sendfile failed");
+      benchmark::DoNotOptimize(bytes_read += size);
+    }
+  }
+  state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
+}
+JL_BENCHMARK_WITH_ARGS(BM_sendfile);
+
+template <size_t stride>
 void BM_mmap_ref(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, write] = open_read_write(len);
@@ -74,22 +92,22 @@ void BM_mmap_copy(benchmark::State& state) {
 JL_BENCHMARK_WITH_ARGS(BM_mmap_copy);
 
 template <size_t stride>
-void BM_sendfile(benchmark::State& state) {
+void BM_pread(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, write] = open_read_write(len);
+  std::vector<char> buffer(block_size);
 
   size_t bytes_read = 0;
   int fd = read->fd();
   for (auto _ : state) {
     for (off_t pos = 0; pos < len; pos += stride * block_size) {
-      off_t pos_copy = pos;
-      auto size = jl::check_rw_error(sendfile(write.fd(), fd, &pos_copy, block_size), "sendfile failed");
-      benchmark::DoNotOptimize(bytes_read += size);
+      size_t size = jl::check_rw_error(pread(fd, buffer.data(), block_size, pos), "pread failed");
+      benchmark::DoNotOptimize(bytes_read += jl::write(*write, {buffer.data(), size}));
     }
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
 }
-JL_BENCHMARK_WITH_ARGS(BM_sendfile);
+JL_BENCHMARK_WITH_ARGS(BM_pread);
 
 template <size_t stride>
 void BM_read(benchmark::State& state) {
@@ -110,24 +128,6 @@ void BM_read(benchmark::State& state) {
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
 }
 JL_BENCHMARK_WITH_ARGS(BM_read);
-
-template <size_t stride>
-void BM_pread(benchmark::State& state) {
-  auto [len, block_size] = args(state);
-  auto [read, write] = open_read_write(len);
-  std::vector<char> buffer(block_size);
-
-  size_t bytes_read = 0;
-  int fd = read->fd();
-  for (auto _ : state) {
-    for (off_t pos = 0; pos < len; pos += stride * block_size) {
-      size_t size = jl::check_rw_error(pread(fd, buffer.data(), block_size, pos), "pread failed");
-      benchmark::DoNotOptimize(bytes_read += jl::write(*write, {buffer.data(), size}));
-    }
-  }
-  state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
-}
-JL_BENCHMARK_WITH_ARGS(BM_pread);
 
 template <size_t stride>
 void BM_fread(benchmark::State& state) {
