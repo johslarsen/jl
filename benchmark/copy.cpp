@@ -48,7 +48,7 @@ void BM_sendfile(benchmark::State& state) {
     for (off_t pos = 0; pos < len; pos += stride * block_size) {
       off_t pos_copy = pos;
       auto size = jl::check_rw_error(sendfile(write.fd(), fd, &pos_copy, block_size), "sendfile failed");
-      benchmark::DoNotOptimize(bytes_read += size);
+      bytes_read += size;
     }
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
@@ -65,7 +65,7 @@ void BM_mmap_ref(benchmark::State& state) {
   size_t bytes_read = 0;
   for (auto _ : state) {
     for (off_t pos = 0; pos < len; pos += stride * block_size) {
-      benchmark::DoNotOptimize(bytes_read += jl::write(*write, map->subspan(pos, block_size)));
+      bytes_read += jl::write(*write, map->subspan(pos, block_size));
     }
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
@@ -84,7 +84,7 @@ void BM_mmap_copy(benchmark::State& state) {
     for (off_t pos = 0; pos < len; pos += stride * block_size) {
       auto base = map->begin() + pos;
       std::copy(base, base + block_size, buffer.begin());
-      benchmark::DoNotOptimize(bytes_read += jl::write(*write, buffer));
+      bytes_read += jl::write(*write, buffer);
     }
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
@@ -102,7 +102,7 @@ void BM_pread(benchmark::State& state) {
   for (auto _ : state) {
     for (off_t pos = 0; pos < len; pos += stride * block_size) {
       size_t size = jl::check_rw_error(pread(fd, buffer.data(), block_size, pos), "pread failed");
-      benchmark::DoNotOptimize(bytes_read += jl::write(*write, {buffer.data(), size}));
+      bytes_read += jl::write(*write, {buffer.data(), size});
     }
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
@@ -122,7 +122,7 @@ void BM_read(benchmark::State& state) {
     for (off_t pos = 0; pos < len; pos += stride * block_size) {
       if constexpr (stride != 0) lseek(fd, pos, SEEK_SET);
       size_t size = jl::check_rw_error(::read(fd, buffer.data(), block_size), "read failed");
-      benchmark::DoNotOptimize(bytes_read += jl::write(*write, {buffer.data(), size}));
+      bytes_read += jl::write(*write, {buffer.data(), size});
     }
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
@@ -147,7 +147,7 @@ void BM_fread(benchmark::State& state) {
     if constexpr (stride == 1) rewind(fp.get());
     for (ssize_t pos = 0; pos < len; pos += stride * block_size) {
       if constexpr (stride != 1) fseek(fp.get(), pos, SEEK_SET);
-      benchmark::DoNotOptimize(bytes_read += fread(buffer.data(), 1, block_size, fp.get()));
+      bytes_read += fread(buffer.data(), 1, block_size, fp.get());
       fwrite(buffer.data(), 1, block_size, null.get());
     }
   }
@@ -170,7 +170,7 @@ void BM_ifstream_read(benchmark::State& state) {
       if constexpr (stride != 1) file.seekg(pos, std::ios::beg);
       file.read(buffer.data(), block_size);
       null.write(buffer.data(), block_size);
-      benchmark::DoNotOptimize(bytes_read += block_size);
+      bytes_read += block_size;
     }
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
