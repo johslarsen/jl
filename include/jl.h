@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/sendfile.h>
@@ -470,6 +471,25 @@ template <typename T, size_t Size = sizeof(T)>
 
 void inline truncate(int fd, off_t length) {
   if (ftruncate(fd, length) != 0) throw errno_as_error("ftruncate({})", fd);
+}
+
+inline std::timespec as_timespec(std::chrono::nanoseconds ns) {
+  auto s = std::chrono::duration_cast<std::chrono::seconds>(ns);
+  return {.tv_sec = s.count(), .tv_nsec = (ns - s).count()};
+}
+
+/// @returns nfd
+inline int poll(std::span<pollfd> fds, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(0), std::optional<sigset_t> sigset = std::nullopt) {
+  auto ts = as_timespec(timeout);
+  int nfd = ::ppoll(fds.data(), fds.size(), &ts, nullable(sigset));
+  if (nfd < 0 && errno != EAGAIN) throw errno_as_error("ppoll(#{})", fds.size());
+  return nfd < 0 ? 0 : nfd;  // EAGAIN as if timeout
+}
+/// @returns revents (0 on timeout/EAGAIN)
+inline int poll(int fd, short events, std::chrono::nanoseconds timeout = std::chrono::nanoseconds{0}, std::optional<sigset_t> sigset = std::nullopt) {
+  pollfd fds{.fd = fd, .events = events, .revents = 0};
+  int nfd = poll(std::span{&fds, 1}, timeout, sigset);
+  return nfd == 1 ? fds.revents : 0;
 }
 
 /// A named file descriptor that is closed and removed upon destruction.

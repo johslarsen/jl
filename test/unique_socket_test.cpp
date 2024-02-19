@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 #include <jl.h>
+#include <sys/poll.h>
 
 TEST_SUITE("unique_socket") {
   TEST_CASE("sockaddr") {
@@ -35,31 +36,39 @@ TEST_SUITE("unique_socket") {
   TEST_CASE("TCP") {
     auto server = jl::unique_socket::tcp();
     jl::listen(*server, 2);
-    auto sender = jl::unique_socket::tcp();
-    jl::connect(*sender, jl::type_erased_sockaddr::from(server.fd()));
-
-    CHECK(3 == jl::send(*sender, "foo"));
-    CHECK(3 == jl::send(*sender, "bar"));
+    auto client = jl::unique_socket::tcp();
+    jl::connect(*client, jl::type_erased_sockaddr::from(server.fd()));
 
     auto accepted = jl::accept(*server);
     REQUIRE(accepted.has_value());  // NOLINTNEXTLINE(*unchecked-optional*)
     auto& [receiver, addr] = *accepted;
     CHECK("::1" == addr.host);
-    std::string buffer = "xxxxxxx";
-    CHECK("foobar" == jl::recv(*receiver, buffer, MSG_DONTWAIT));
-  }
 
-  TEST_CASE("TCP RST") {
-    auto server = jl::unique_socket::tcp();
-    jl::listen(*server, 2);
-    auto client = jl::unique_socket::tcp();
-    jl::connect(*client, jl::type_erased_sockaddr::from(server.fd()));
+    SUBCASE("send/recv") {
+      CHECK(3 == jl::send(*client, "foo"));
+      CHECK(3 == jl::send(*client, "bar"));
 
-    auto [server_side, _] = jl::accept(*server).value();
-    CHECK(0 == std::move(server_side).terminate().size());
+      std::string buffer = "xxxxxxx";
+      CHECK("foobar" == jl::recv(*receiver, buffer, MSG_DONTWAIT));
+    }
 
-    CHECK(-1 == send(client.fd(), "", 0, 0));
-    CHECK(ECONNRESET == errno);
+    SUBCASE("RST") {
+      CHECK(0 == std::move(receiver).terminate().size());
+
+      CHECK(-1 == send(client.fd(), "", 0, 0));
+      CHECK(ECONNRESET == errno);
+    }
+
+    SUBCASE("poll after FIN") {
+      CHECK(0 == jl::poll(receiver.fd(), POLLIN | POLLRDHUP));
+      client.reset();
+      CHECK((POLLIN | POLLRDHUP) == jl::poll(receiver.fd(), POLLIN | POLLRDHUP));
+    }
+
+    SUBCASE("poll after RST") {
+      std::move(client).terminate();
+      CHECK((POLLIN | POLLERR | POLLHUP | POLLRDHUP) == jl::poll(receiver.fd(), POLLIN | POLLRDHUP));
+    }
   }
 
   TEST_CASE("both IPv4 and IPv6 sockets can be default bound") {
