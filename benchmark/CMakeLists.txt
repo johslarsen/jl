@@ -19,6 +19,9 @@ target_link_libraries(copy jl benchmark)
 add_executable(mmap mmap.cpp)
 target_link_libraries(mmap jl benchmark)
 
+add_executable(ring_index ring_index.cpp)
+target_link_libraries(ring_index jl benchmark)
+
 add_executable(span span.cpp)
 target_link_libraries(span jl benchmark)
 

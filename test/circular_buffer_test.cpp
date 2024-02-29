@@ -6,6 +6,45 @@
 #include <random>
 #include <thread>
 
+TEST_SUITE("RingIndex") {
+  TEST_CASE_TEMPLATE("maximum capacity", T, uint8_t, std::atomic<uint8_t>) {
+    jl::RingIndex<T, 128> fifo;
+    using i_n = std::pair<uint8_t, uint8_t>;
+
+    CHECK_MESSAGE(fifo.size() == 0, "w=0, r=0");
+    CHECK(fifo.write_free() == i_n(0, 128));
+    CHECK(fifo.read_filled() == i_n(0, 0));
+    fifo.push(128);
+    CHECK_MESSAGE(fifo.size() == 128, "w=128, r=000");
+    CHECK(fifo.write_free() == i_n(128, 0));
+    CHECK(fifo.read_filled() == i_n(0, 128));
+    fifo.pop(128);
+    CHECK_MESSAGE(fifo.size() == 0, "w=128, r=128");
+    CHECK(fifo.write_free() == i_n(128, 128));
+    CHECK(fifo.read_filled() == i_n(128, 0));
+    fifo.push(127);
+    CHECK_MESSAGE(fifo.size() == 127, "w=255, r=128");
+    CHECK(fifo.write_free() == i_n(255, 1));
+    CHECK(fifo.read_filled() == i_n(128, 127));
+    fifo.pop(127);
+    CHECK_MESSAGE(fifo.size() == 0, "w=255, r=255");
+    CHECK(fifo.write_free() == i_n(255, 128));
+    CHECK(fifo.read_filled() == i_n(255, 0));
+    fifo.push(2);
+    CHECK_MESSAGE(fifo.size() == 2, "w=1, r=255");
+    CHECK(fifo.write_free() == i_n(1, 126));
+    CHECK(fifo.read_filled() == i_n(255, 2));
+    fifo.pop(1);
+    CHECK_MESSAGE(fifo.size() == 1, "w=1, r=0");
+    CHECK(fifo.write_free() == i_n(1, 127));
+    CHECK(fifo.read_filled() == i_n(0, 1));
+    fifo.pop(1);
+    CHECK_MESSAGE(fifo.size() == 0, "w=1, r=1");
+    CHECK(fifo.write_free() == i_n(1, 128));
+    CHECK(fifo.read_filled() == i_n(1, 0));
+  }
+}
+
 TEST_SUITE("CircularBuffer") {
   TEST_CASE("static asserts") {
     // jl::CircularBuffer<4 << 10, int> integer_overflow_would_be_ub;

@@ -1097,24 +1097,65 @@ class fd_mmap {
   }
 };
 
+/// A set of read/write indexes with operations that is suitable for
+/// implementing efficient single-producer-single-consumer data structures.
+/// There is one implementation for raw integers that gives a better performance
+/// if thread-safety is not needed and one lock-free implementation for atomics.
+template <typename T, size_t Capacity, bool is_atomic = !std::unsigned_integral<T>>
+/// See https://www.snellman.net/blog/archive/2016-12-13-ring-buffers/ for further details
+  requires std::unsigned_integral<T> || (std::unsigned_integral<typename T::value_type> && T::is_always_lock_free)
+class RingIndex {
+  static_assert(std::has_single_bit(Capacity),
+                "Ring capacity must be a power-of-2 for performance, and so it divides the integer overflow evenly");
+  static_assert(std::bit_width(Capacity) < static_cast<T>(CHAR_BIT * sizeof(T)),
+                "Ring capacity needs the \"sign\" bit to detect if it is full in the presence of overflow");
+};
+template <typename T, size_t Capacity>
+class RingIndex<T, Capacity, false> {
+  T _read = 0;
+  T _write = 0;
+
+ public:
+  [[nodiscard]] T size() const { return _write - _read; }
+  [[nodiscard]] std::pair<T, T> write_free() const { return {_write, Capacity - size()}; }
+  [[nodiscard]] std::pair<T, T> read_filled() const { return {_read, size()}; }
+
+  T push(size_t n) { return _write += n; }
+  T pop(size_t n) { return _read += n; }
+
+  void store_write(size_t write) { _write = write; }
+  void store_read(size_t read) { _read = read; }
+};
+template <typename Atomic, size_t Capacity>
+class RingIndex<Atomic, Capacity, true> {
+  using T = Atomic::value_type;
+  Atomic _read = 0;
+  Atomic _write = 0;
+
+ public:
+  [[nodiscard]] T size() const { return _write - _read; }
+  [[nodiscard]] std::pair<T, T> write_free() const { return {_write, Capacity - size()}; }
+  [[nodiscard]] std::pair<T, T> read_filled() const { return {_read, size()}; }
+
+  T push(size_t n) { return _write += n; }
+  T pop(size_t n) { return _read += n; }
+
+  void store_write(size_t write) { _write = write; }
+  void store_read(size_t read) { _read = read; }
+};
+
 /// A circular (aka. ring) buffer with support for copy-free read/write of
 /// contiguous elements anywhere in the buffer, even across the wrap-around
 /// threshold. Given an atomic Index type, one writer and one reader can safely
 /// use this to share data across threads. Even so, it is not thread-safe to
 /// use this if there are multiple readers or writers.
 template <typename T, size_t Capacity, typename Index = uint32_t>
-  requires std::unsigned_integral<Index> || std::unsigned_integral<typename Index::value_type>
 class CircularBuffer {
-  static_assert(std::has_single_bit(Capacity),
-                "CircularBuffer capacity must be a power-of-2 for performance, and so it divides the integer overflow evenly");
   static_assert((sizeof(T) * Capacity) % (4 << 10) == 0,
                 "CircularBuffer byte capacity must be page aligned");
-  static_assert(std::bit_width(Capacity) < CHAR_BIT * sizeof(Index) - 1,
-                "CircularBuffer capacity is too large for the Index type");
 
   unique_mmap<T> _data;
-  Index _read = 0;
-  Index _write = 0;
+  RingIndex<Index, Capacity> _fifo;
 
  public:
   explicit CircularBuffer(const std::string &mmap_name = "CircularBuffer")
@@ -1140,15 +1181,15 @@ class CircularBuffer {
   /// @returns a span where you can write new data into the buffer where. Its
   /// size is limited to the amount of free space available.
   [[nodiscard]] std::span<T> peek_back(size_t max) noexcept {
-    return {&_data[_write % Capacity], std::min(max, Capacity - size())};
+    auto [write, available] = _fifo.write_free();
+    return {&_data[write % Capacity], std::min(max, static_cast<size_t>(available))};
   }
 
   /// "Give back" the part at the beginning of the span from peek_back() where
   /// you wrote data.
-  size_t commit_written(std::span<T> &&written) noexcept {
-    assert(written.data() == &_data[_write % Capacity]);
-    assert(size() + written.size() <= Capacity);
-    _write += written.size();
+  template <typename Self>
+  size_t commit_written(this Self &self, std::span<T> &&written) noexcept {
+    self._fifo.push(written.size());
     return written.size();
   }
 
@@ -1156,22 +1197,21 @@ class CircularBuffer {
   /// size is limited by the amount of available data.
   template <typename Self>
   [[nodiscard]] auto peek_front(this Self &self, size_t max) noexcept {
-    return std::span(&self._data[self._read % Capacity], std::min(max, self.size()));
+    auto [read, available] = self._fifo.read_filled();
+    return std::span{&self._data[read % Capacity], std::min(max, static_cast<size_t>(available))};
   }
 
   /// "Give back" the part at the beginning of the span from peek_front() that
   /// you read.
   size_t commit_read(std::span<const T> &&read) noexcept {
-    assert(read.data() == &_data[_read % Capacity]);
-    assert(read.size() <= size());
-    _read += read.size();
+    _fifo.pop(read.size());
     return read.size();
   }
 
   /// @returns the amount of data available to be read. In a threaded
   /// environment where there is exactly one reader and one writer this is
   /// respectively the lower and the upper bound for the current size.
-  [[nodiscard]] size_t size() const noexcept { return _write - _read; }
+  [[nodiscard]] size_t size() const noexcept { return _fifo.size(); }
   [[nodiscard]] bool empty() const noexcept { return size() == 0; }
   [[nodiscard]] size_t capacity() const noexcept { return Capacity; }
 
