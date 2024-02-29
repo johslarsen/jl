@@ -44,6 +44,18 @@
 #undef jl_save__cpp_concepts
 #endif
 
+// BTW, see e.g. https://stackoverflow.com/a/52158819 about pairwise sharing in newer Intel CPUs
+#ifdef __cpp_lib_hardware_interference_size
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winterference-size"
+constexpr std::size_t hardware_constructive_interference_size = std::hardware_constructive_interference_size;
+constexpr std::size_t hardware_destructive_interference_size = std::hardware_destructive_interference_size;
+#pragma GCC diagnostic pop
+#else  // on most architectures
+constexpr std::size_t hardware_constructive_interference_size = 64;
+constexpr std::size_t hardware_destructive_interference_size = 64;
+#endif
+
 /// Johs's <mail@johslarsen.net> Library. Use however you see fit.
 namespace jl {
 
@@ -993,13 +1005,12 @@ class unique_mmap {
   }
 
   template <typename Self>
-  [[nodiscard]] auto& operator[](this Self& self, size_t idx) noexcept { return self._map[idx]; }
-
+  [[nodiscard]] auto &operator[](this Self &self, size_t idx) noexcept { return self._map[idx]; }
 
   template <typename Self>
-  [[nodiscard]] auto &operator*(this Self& self) noexcept { return self._map; }
+  [[nodiscard]] auto &operator*(this Self &self) noexcept { return self._map; }
   template <typename Self>
-  [[nodiscard]] auto *operator->(this Self& self) noexcept { return &self._map; }
+  [[nodiscard]] auto *operator->(this Self &self) noexcept { return &self._map; }
 
   /// The count parameter is in counts of T not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
@@ -1129,19 +1140,29 @@ class RingIndex<T, Capacity, false> {
 template <typename Atomic, size_t Capacity>
 class RingIndex<Atomic, Capacity, true> {
   using T = Atomic::value_type;
-  Atomic _read = 0;
-  Atomic _write = 0;
+  alignas(hardware_destructive_interference_size) Atomic _read = 0;
+  alignas(hardware_destructive_interference_size) Atomic _write = 0;
 
  public:
-  [[nodiscard]] T size() const { return _write - _read; }
-  [[nodiscard]] std::pair<T, T> write_free() const { return {_write, Capacity - size()}; }
-  [[nodiscard]] std::pair<T, T> read_filled() const { return {_read, size()}; }
+  [[nodiscard]] T size() const {
+    return _write.load(std::memory_order_relaxed) - _read.load(std::memory_order_relaxed);
+  }
+  [[nodiscard]] std::pair<T, T> write_free() const {
+    auto write = _write.load(std::memory_order_relaxed);
+    auto read = _read.load(std::memory_order_acquire);
+    return {write, Capacity - (write - read)};
+  }
+  [[nodiscard]] std::pair<T, T> read_filled() const {
+    auto read = _read.load(std::memory_order_relaxed);
+    auto write = _write.load(std::memory_order_acquire);
+    return {read, write - read};
+  }
 
   T push(size_t n) { return _write += n; }
   T pop(size_t n) { return _read += n; }
 
-  void store_write(size_t write) { _write = write; }
-  void store_read(size_t read) { _read = read; }
+  void store_write(size_t write) { _write.store(write, std::memory_order_release); }
+  void store_read(size_t read) { _read.store(read, std::memory_order_release); }
 };
 
 /// A circular (aka. ring) buffer with support for copy-free read/write of
@@ -1156,6 +1177,8 @@ class CircularBuffer {
 
   unique_mmap<T> _data;
   RingIndex<Index, Capacity> _fifo;
+  size_t _producers_write = 0;
+  size_t _consumers_read = 0;
 
  public:
   explicit CircularBuffer(const std::string &mmap_name = "CircularBuffer")
@@ -1189,7 +1212,8 @@ class CircularBuffer {
   /// you wrote data.
   template <typename Self>
   size_t commit_written(this Self &self, std::span<T> &&written) noexcept {
-    self._fifo.push(written.size());
+    self._producers_write += written.size();
+    self._fifo.store_write(self._producers_write);
     return written.size();
   }
 
@@ -1204,7 +1228,8 @@ class CircularBuffer {
   /// "Give back" the part at the beginning of the span from peek_front() that
   /// you read.
   size_t commit_read(std::span<const T> &&read) noexcept {
-    _fifo.pop(read.size());
+    _consumers_read += read.size();
+    _fifo.store_read(_consumers_read);
     return read.size();
   }
 

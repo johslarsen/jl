@@ -122,7 +122,7 @@ void BM_MultithreadedEagerConsumer(benchmark::State& state) {
   }
   state.PauseTiming();
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(steps), benchmark::Counter::kIsRate);
-  fifo.push(Capacity - steps - 1);  // signal thread to stop
+  fifo.store_write(Capacity);
 }
 BENCHMARK(BM_MultithreadedEagerConsumer);
 
@@ -147,7 +147,7 @@ void BM_MultithreadedEagerProducer(benchmark::State& state) {
   }
   state.PauseTiming();
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(steps) / 256, benchmark::Counter::kIsRate);
-  fifo.push(Capacity - steps - 256);  // signal thread to stop
+  fifo.store_write(Capacity);
 }
 BENCHMARK(BM_MultithreadedEagerProducer);
 
