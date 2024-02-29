@@ -1131,9 +1131,6 @@ class RingIndex<T, Capacity, false> {
   [[nodiscard]] std::pair<T, T> write_free() const { return {_write, Capacity - size()}; }
   [[nodiscard]] std::pair<T, T> read_filled() const { return {_read, size()}; }
 
-  T push(size_t n) { return _write += n; }
-  T pop(size_t n) { return _read += n; }
-
   void store_write(size_t write) { _write = write; }
   void store_read(size_t read) { _read = read; }
 };
@@ -1157,9 +1154,6 @@ class RingIndex<Atomic, Capacity, true> {
     auto write = _write.load(std::memory_order_acquire);
     return {read, write - read};
   }
-
-  T push(size_t n) { return _write += n; }
-  T pop(size_t n) { return _read += n; }
 
   void store_write(size_t write) { _write.store(write, std::memory_order_release); }
   void store_read(size_t read) { _read.store(read, std::memory_order_release); }
