@@ -1128,8 +1128,8 @@ class RingIndex<T, Capacity, false> {
 
  public:
   [[nodiscard]] T size() const { return _write - _read; }
-  [[nodiscard]] std::pair<T, T> write_free() const { return {_write, Capacity - size()}; }
-  [[nodiscard]] std::pair<T, T> read_filled() const { return {_read, size()}; }
+  [[nodiscard]] std::pair<T, T> write_free(size_t /*max_needed*/ = Capacity) const { return {_write, Capacity - size()}; }
+  [[nodiscard]] std::pair<T, T> read_filled(size_t /*max_needed*/ = Capacity) const { return {_read, size()}; }
 
   void store_write(size_t write) { _write = write; }
   void store_read(size_t read) { _read = read; }
@@ -1139,24 +1139,38 @@ class RingIndex<Atomic, Capacity, true> {
   using T = Atomic::value_type;
   alignas(hardware_destructive_interference_size) Atomic _read = 0;
   alignas(hardware_destructive_interference_size) Atomic _write = 0;
+  mutable T _producers_read = 0;
+  mutable T _consumers_write = 0;
 
  public:
   [[nodiscard]] T size() const {
     return _write.load(std::memory_order_relaxed) - _read.load(std::memory_order_relaxed);
   }
-  [[nodiscard]] std::pair<T, T> write_free() const {
+  [[nodiscard]] std::pair<T, T> write_free(size_t max_needed = Capacity) const {
+    assert(max_needed > 0);  // otherwise it happily retries forever when full
     auto write = _write.load(std::memory_order_relaxed);
-    auto read = _read.load(std::memory_order_acquire);
-    return {write, Capacity - (write - read)};
+    if (auto size = free(write); size >= max_needed) return {write, size};
+
+    _producers_read = _read.load(std::memory_order_acquire);
+    return {write, free(write)};
   }
-  [[nodiscard]] std::pair<T, T> read_filled() const {
+  [[nodiscard]] std::pair<T, T> read_filled(size_t max_needed = Capacity) const {
+    assert(max_needed > 0);  // otherwise it happily retries forever when empty
     auto read = _read.load(std::memory_order_relaxed);
-    auto write = _write.load(std::memory_order_acquire);
-    return {read, write - read};
+    if (auto size = filled(read); size >= max_needed) return {read, size};
+
+    _consumers_write = _write.load(std::memory_order_acquire);
+    return {read, filled(read)};
   }
 
   void store_write(size_t write) { _write.store(write, std::memory_order_release); }
   void store_read(size_t read) { _read.store(read, std::memory_order_release); }
+
+ private:
+  /// Only safe to call by the producer!
+  [[nodiscard]] T free(T write) const { return Capacity - (write - _producers_read); }
+  /// Only safe to call by the consumer!
+  [[nodiscard]] T filled(T read) const { return _consumers_write - read; }
 };
 
 /// A circular (aka. ring) buffer with support for copy-free read/write of
@@ -1198,7 +1212,7 @@ class CircularBuffer {
   /// @returns a span where you can write new data into the buffer where. Its
   /// size is limited to the amount of free space available.
   [[nodiscard]] std::span<T> peek_back(size_t max) noexcept {
-    auto [write, available] = _fifo.write_free();
+    auto [write, available] = _fifo.write_free(max);
     return {&_data[write % Capacity], std::min(max, static_cast<size_t>(available))};
   }
 
@@ -1215,7 +1229,7 @@ class CircularBuffer {
   /// size is limited by the amount of available data.
   template <typename Self>
   [[nodiscard]] auto peek_front(this Self &self, size_t max) noexcept {
-    auto [read, available] = self._fifo.read_filled();
+    auto [read, available] = self._fifo.read_filled(max);
     return std::span{&self._data[read % Capacity], std::min(max, static_cast<size_t>(available))};
   }
 
