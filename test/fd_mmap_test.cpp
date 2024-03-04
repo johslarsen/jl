@@ -58,7 +58,7 @@ TEST_SUITE("fd_mmap") {
   }
 
   TEST_CASE("remap does not affect file") {
-    jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ);
+    jl::fd_mmap<const char> map(jl::tmpfd().unlink(), PROT_READ);
     map.remap(10);
     CHECK(10 == map->size());
 

@@ -896,13 +896,15 @@ class unique_mmap {
   /// The count parameter is in counts of T not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
   void remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap()") {
-    void *pa = ::mremap(_map.data(), _map.size() * sizeof(T), count * sizeof(T), flags, addr);
+    void *pa = ::mremap(const_cast<std::remove_const_t<T> *>(_map.data()), _map.size() * sizeof(T), count * sizeof(T), flags, addr);
     if (pa == MAP_FAILED) throw errno_as_error("{}", errmsg);  // NOLINT(*cstyle-cast,*int-to-ptr)
     _map = {reinterpret_cast<T *>(pa), count};                 // NOLINT(*reinterpret-cast), mremap returns page-aligned address
   }
 
   void reset(std::span<T> map = {}) noexcept {
-    if (auto old = std::exchange(_map, map); !old.empty()) ::munmap(old.data(), old.size() * sizeof(T));
+    if (auto old = std::exchange(_map, map); !old.empty()) {
+      ::munmap(const_cast<std::remove_const_t<T> *>(old.data()), old.size() * sizeof(T));
+    }
   }
   std::span<T> release() noexcept {
     return std::exchange(_map, {});

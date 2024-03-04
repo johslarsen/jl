@@ -17,12 +17,12 @@ TEST_SUITE("unique_mmap") {
     char n = 42;
     REQUIRE(1 == pwrite(*tmp, &n, 1, 4095));
 
-    jl::unique_mmap<char> map(4096, PROT_READ, MAP_SHARED, *tmp);
+    jl::unique_mmap<const char> map(4096, PROT_READ, MAP_SHARED, *tmp);
     CHECK(42 == map[4095]);
   }
 
   TEST_CASE("remap") {
-    jl::unique_mmap<char> map(4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS);
+    jl::unique_mmap<const char> map(4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS);
     map.remap(8192, MREMAP_MAYMOVE);
   }
 
