@@ -24,11 +24,17 @@ TEST_SUITE("fd_mmap") {
   TEST_CASE("automatic size takes offset into account") {
     jl::unique_fd fd = jl::tmpfd().unlink();
     jl::truncate(*fd, 4096);
-    REQUIRE(4096 == lseek(fd.fd(), 4096, SEEK_SET));
-    CHECK(3 == jl::write(*fd, "foo"));
+    CHECK(3 == pwrite(*fd, "foo", 3, 4096));
 
     jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
 
+    CHECK("foo" == jl::view_of(*map));
+  }
+
+  TEST_CASE("mapping beyond EOF is usable as is after file grows") {
+    jl::fd_mmap<const char> map(jl::tmpfd().unlink(), PROT_READ, MAP_SHARED, 0, 3);
+    CHECK(0 == jl::stat(map.fd()).st_size);
+    CHECK(3 == jl::write(map.fd(), "foo"));
     CHECK("foo" == jl::view_of(*map));
   }
 
