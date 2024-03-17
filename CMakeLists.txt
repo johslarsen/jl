@@ -14,7 +14,6 @@ target_include_directories(jl INTERFACE include/)
 target_compile_features(jl INTERFACE cxx_std_23)
 
 add_definitions(-Wall -Wextra -march=native)
-add_definitions(-std=c++2b) # because clang16 does not officially support 23 yet
 
 set(BENCHMARK_ENABLE_TESTING OFF)
 if(JL_ENABLE_TESTING AND EXISTS
