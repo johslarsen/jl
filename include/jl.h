@@ -28,6 +28,20 @@
 #include <utility>
 #include <vector>
 
+#if __cpp_concepts >= 202002L
+#include <expected>
+#elif __clang_major__ >= 17
+#define jl_save__cpp_concepts
+#pragma clang diagnostic ignored "-Wbuiltin-macro-redefined"
+#define __cpp_concepts 202002L  // this is probably stupid, but I really want std::expected
+
+#include <expected>
+
+#pragma clang diagnostic ignored "-Wmacro-redefined"
+#define __cpp_concepts jl_save__cpp_concepts
+#undef jl_save__cpp_concepts
+#endif
+
 /// Johs's <mail@johslarsen.net> Library. Use however you see fit.
 namespace jl {
 
@@ -37,14 +51,45 @@ concept numeric = std::integral<T> || std::floating_point<T>;
 template <typename T, typename U>
 concept bitcastable_to = requires(T t) { std::bit_cast<U>(t); };
 
+/// @returns expected value or throw its error
+/// Like: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap
+template <typename T, typename E>
+[[nodiscard]] T unwrap(std::expected<T, E> &&expected) {
+  if (!expected.has_value()) throw std::move(expected.error());
+  if constexpr (!std::is_void_v<T>) return std::move(*expected);
+}
+
+/// @returns std::expected with the given value or the given error
+/// Like: https://doc.rust-lang.org/std/option/enum.Option.html#method.ok_or
+template <typename T, typename E>
+[[nodiscard]] std::expected<T, E> ok_or(std::optional<T> opt, E error) noexcept {
+  if (opt) return *opt;
+  return std::unexpected(std::move(error));
+}
+/// @returns std::expected with the given value or the result from calling error
+/// Like: https://doc.rust-lang.org/std/option/enum.Option.html#method.ok_or_else
+template <typename T, std::invocable F>
+[[nodiscard]] std::expected<T, std::invoke_result_t<F>> ok_or_else(std::optional<T> opt, F error) noexcept {
+  if (opt) return *opt;
+  return std::unexpected(error());
+}
+
 template <class... Args>
 [[nodiscard]] inline std::system_error make_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
   return {std::make_error_code(err), std::format(fmt, std::forward<Args>(args)...)};
+}
+template <class... Args>
+[[nodiscard]] inline std::unexpected<std::system_error> unexpected_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
+  return std::unexpected(make_system_error(err, fmt, std::forward<Args>(args)...));
 }
 
 template <class... Args>
 [[nodiscard]] inline std::system_error errno_as_error(std::format_string<Args...> fmt, Args &&...args) noexcept {
   return make_system_error(std::errc(errno), fmt, std::forward<Args>(args)...);
+}
+template <class... Args>
+[[nodiscard]] inline std::unexpected<std::system_error> unexpected_errno(std::format_string<Args...> fmt, Args &&...args) noexcept {
+  return std::unexpected(errno_as_error(fmt, std::forward<Args>(args)...));
 }
 
 /// Utility to run a method at the end of the scope like a defer statement in Go
