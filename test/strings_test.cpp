@@ -80,4 +80,13 @@ TEST_SUITE("strings") {
     CHECK("" == jl::join(std::vector<std::string>{}));
     CHECK("foo,bar,baz" == jl::join(std::vector{"foo", "bar", "baz"}));
   }
+
+  TEST_CASE("from_str") {
+    CHECK(42 == jl::from_str<int>("42").value());
+    REQUIRE(doctest::Approx(3.14) == jl::from_str<float>("3.14").value());
+    CHECK(3 == jl::from_str<int>("3.14").value());
+
+    CHECK_MESSAGE(!jl::from_str<int>("").has_value(), "Empty string is not an integer");
+    CHECK_MESSAGE(!jl::from_str<int>("abc").has_value(), "Integers starts with digits, not characters");
+  }
 }

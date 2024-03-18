@@ -160,6 +160,15 @@ template <typename T>
 [[nodiscard]] inline std::string str_or_empty(const char *str) {
   return {str == nullptr ? "" : str};
 }
+template <numeric T>
+[[nodiscard]] std::expected<T, std::system_error> from_str(std::string_view s) noexcept {
+  std::expected<T, std::system_error> parsed;
+  if (auto res = std::from_chars(s.begin(), s.end(), *parsed); res.ec == std::errc()) {
+    return parsed;
+  } else {
+    return unexpected_system_error(res.ec, "Failed to parse \"{}\"", s);
+  }
+}
 
 /// @returns index of the first unescaped ch or std::string::npos.
 /// @returns size-1 if that happens to be an incomplete escape sequence
@@ -1162,23 +1171,16 @@ class CircularBuffer {
 }
 
 template <numeric T>
-[[nodiscard]] inline std::optional<T> env_as(const char *name) {
-  auto value = optenv(name);
-  if (!value) return std::nullopt;
-
-  T parsed;
-  char *end = value->data() + value->size();  // NOLINT(*pointer-arithmetic), how else?
-  if (auto res = std::from_chars(value->data(), end, parsed); res.ec != std::errc()) {
-    throw make_system_error(res.ec, "Failed to parse {}", *value);
-  }
-  return parsed;
+[[nodiscard]] inline std::expected<T, std::system_error> env_as(const char *name) {
+  return ok_or_else(optenv(name), [name] { return make_system_error({}, "Missing {} environment value", name); })
+      .and_then(from_str<T>);
 }
 
 template <numeric T>
-[[nodiscard]] inline T env_or(const char *name, T fallback) {
+[[nodiscard]] inline T env_or(const char *name, T fallback) noexcept {
   return env_as<T>(name).value_or(fallback);
 }
-[[nodiscard]] inline std::string env_or(const char *name, const std::string &fallback) {
+[[nodiscard]] inline std::string env_or(const char *name, const std::string &fallback) noexcept {
   return optenv(name).value_or(fallback);
 }
 
