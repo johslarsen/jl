@@ -922,6 +922,13 @@ class mmsg_buffer : public mmsg_socket<T> {
   mmsg_buffer &operator=(mmsg_buffer &&) noexcept = default;
 };
 
+template <typename T = void, class... Args>
+std::expected<T *, std::system_error> mmap(void *addr, size_t len, int prot, int flags, int fildes, off_t off, std::format_string<Args...> fmt, Args &&...args) noexcept {
+  void *p = ::mmap(addr, len, prot, flags, fildes, off);
+  if (p == MAP_FAILED) return unexpected_errno(fmt, std::forward<Args>(args)...);
+  return reinterpret_cast<T *>(p);
+}
+
 /// An owned and managed memory mapped span.
 template <typename T>
   requires std::is_trivially_copyable_v<T>
@@ -939,11 +946,7 @@ class unique_mmap {
   /// parameter. The size/offset parameters are in counts of T, not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
   unique_mmap(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap()")
-      : _map([&] {
-          void *pa = ::mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T));
-          if (pa == MAP_FAILED) throw errno_as_error("{}", errmsg);  // NOLINT(*cstyle-cast,*int-to-ptr)
-          return std::span(reinterpret_cast<T *>(pa), count);        // NOLINT(*reinterpret-cast), mmap returns page-aligned address
-        }()) {}
+      : _map(unwrap(mmap<T>(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T), "{}", errmsg)), count) {}
 
   static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap") {
     unique_mmap<T> map(count, prot, flags, -1, 0, errmsg);
@@ -1078,10 +1081,6 @@ class CircularBuffer {
  public:
   explicit CircularBuffer(const std::string &mmap_name = "CircularBuffer")
       : _data(unique_mmap<T>::anon(Capacity * 2, PROT_NONE, mmap_name)) {
-    unique_fd fd = tmpfd().unlink();
-    constexpr off_t len = Capacity * sizeof(T);
-    truncate(*fd, len);
-
     // _data is a continues virtual memory span twice as big as the Capacity
     // where the first and second half is mapped to the same shared buffer.
     // This gives a circular buffer that supports continuous memory spans even
@@ -1092,12 +1091,12 @@ class CircularBuffer {
     // This concept/trick originates from https://github.com/willemt/cbuffer
     int prot = PROT_READ | PROT_WRITE;
     int flags = MAP_FIXED | MAP_SHARED;
-    if (::mmap(_data->data(), len, prot, flags, *fd, 0) == MAP_FAILED) {  // NOLINT(*cstyle-cast,*int-to-ptr)
-      throw errno_as_error("CircularBuffer mmap data failed");
-    }
-    if (::mmap(_data->data() + Capacity, len, prot, flags, *fd, 0) == MAP_FAILED) {  // NOLINT(*cstyle-cast,*int-to-ptr)
-      throw errno_as_error("CircularBuffer mmap shadow failed");
-    }
+    unique_fd fd = tmpfd().unlink();
+    constexpr off_t len = Capacity * sizeof(T);
+    auto status = ok_or_errno(ftruncate(*fd, len), "ftruncate({})", *fd)
+                      .and_then([&](auto) { return mmap(_data->data(), len, prot, flags, *fd, 0, "mmap(CircularBuffer data)"); })
+                      .and_then([&](auto) { return mmap(_data->data() + Capacity, len, prot, flags, *fd, 0, "mmap(CircularBuffer shadow)"); });
+    if (!status) throw status.error();
   }
 
   /// @returns a span where you can write new data into the buffer where. Its
