@@ -91,6 +91,13 @@ template <class... Args>
 [[nodiscard]] inline std::unexpected<std::system_error> unexpected_errno(std::format_string<Args...> fmt, Args &&...args) noexcept {
   return std::unexpected(errno_as_error(fmt, std::forward<Args>(args)...));
 }
+/// @returns non-negative n, 0 for EAGAIN or unexpected_errno(...)
+template <std::integral T, class... Args>
+std::expected<T, std::system_error> ok_or_errno(T n, std::format_string<Args...> fmt, Args &&...args) {
+  if (n >= 0) return n;
+  if (errno == EAGAIN) return 0;
+  return unexpected_errno(fmt, std::forward<Args>(args)...);
+}
 
 /// Utility to run a method at the end of the scope like a defer statement in Go
 template <std::invocable F>

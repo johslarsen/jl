@@ -58,6 +58,16 @@ TEST_SUITE("error handling") {
     CHECK(what(make_timed_out()) == error_what(jl::ok_or_else<int>(std::nullopt, make_timed_out)));
   }
 
+  TEST_CASE("ok_or_errno") {
+    CHECK(42 == jl::unwrap(jl::ok_or_errno(42, "")));
+
+    errno = EAGAIN;
+    CHECK(0 == jl::unwrap(jl::ok_or_errno(-1, "")));
+
+    errno = ETIMEDOUT;
+    CHECK(what(std::system_error(std::make_error_code(std::errc::timed_out), "foo")) == error_what(jl::ok_or_errno(-1, "foo")));
+  }
+
   TEST_CASE("defer") {
     size_t calls = 0;
     {
