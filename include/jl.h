@@ -129,28 +129,26 @@ T check_rw_error(T n, std::format_string<Args...> fmt, Args &&...args) {
 }
 
 /// Retry the f(...) wrapping a system call failing with EAGAIN.
-/// @returns the non-negative successful result or std::nullopt if EAGAIN attempts were exhausted.
-/// @throws a std::system_error based on errno and error_message for other failures.
-template <std::invocable F>
+/// @returns the non-negative successful result or the error that occurred.
+template <int64_t Attempts = 3, std::invocable F, class... Args>
   requires std::integral<std::invoke_result_t<F>>
-std::optional<std::invoke_result_t<F>> retry(F f, const std::string &error_message, int attempts = 2) {
-  do {                                                  // NOLINT(*do-while), because we are checking the post-condition of f()
+std::expected<std::invoke_result_t<F>, std::system_error> retry(F f, std::format_string<Args...> fmt, Args &&...args) {
+  for (int64_t attempts = Attempts; attempts != 0; --attempts) {
     if (auto result = f(); result >= 0) return result;  // successful, so exit early
-    if (errno != EAGAIN) throw errno_as_error("{}", error_message);
-  } while (--attempts > 0);
-  return std::nullopt;  // multiple EAGAINs, so probably a non-blocking operation
+    if (errno != EAGAIN) break;
+  }
+  return unexpected_errno(fmt, std::forward<Args>(args)...);
 }
 
 /// Repeat f(...) wrapping read/write/... operations until the whole input is processed.
 /// @returns the amount processed. Usually length unless call returns 0 to indicate EOF.
-/// @throw std::system_error if the system call fails (EAGAIN retried attempts first.
-template <std::invocable<size_t, off_t> F>
+template <int64_t Attempts = 3, std::invocable<size_t, off_t> F, class... Args>
   requires std::integral<std::invoke_result_t<F, size_t, off_t>>
-size_t rw_loop(F f, size_t length, const std::string &error_message, int attempts = 5) {
+std::expected<size_t, std::system_error> rw_loop(F f, size_t length, std::format_string<Args...> fmt, Args &&...args) {
   size_t offset = 0;
   for (size_t count = -1; offset < length && count != 0; offset += count) {
-    auto result = jl::retry([&] { return f(length - offset, offset); }, error_message, attempts);
-    if (!result.has_value()) throw errno_as_error("retried {}", error_message);
+    auto result = jl::retry<Attempts>([&] { return f(length - offset, offset); }, fmt, std::forward<Args>(args)...);
+    if (!result.has_value()) return std::unexpected(result.error());
 
     count = *result;
     if (count == 0) break;  // EOF
@@ -437,20 +435,20 @@ struct ofd {
 
 /// Copy up to len bytes from in to out (see `man 2 sendfile` for details).
 /// NOTE: The system call requires that at most one of the file descriptors is a pipe.
-size_t inline sendfileall(int fd_out, ofd in, size_t len) {
+std::expected<size_t, std::system_error> inline sendfileall(int fd_out, ofd in, size_t len) {
   return rw_loop([fd_out, in_fd = in.fd, in_off = nullable(in.offset)](size_t remaining, off_t) {
     return ::sendfile(fd_out, in_fd, in_off, remaining);
   },
-                 len, "sendfile()");
+                 len, "sendfile({} -> {})", in.fd, fd_out);
 }
 
 /// Copy up to len bytes from in to out (see `man 2 splice` for details).
 /// NOTE: The system call requires that at least one of the file descriptors is a pipe.
-size_t inline spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {  // NOLINT(*swappable-parameters), to mimic ::splice
+std::expected<size_t, std::system_error> inline spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {  // NOLINT(*swappable-parameters), to mimic ::splice
   return rw_loop([flags, in = in.fd, in_off = nullable(in.offset), out = out.fd, out_off = nullable(out.offset)](size_t remaining, off_t) {
     return ::splice(in, in_off, out, out_off, remaining, flags);
   },
-                 len, "splice()");
+                 len, "splice({} -> {})", in.fd, out.fd);
 }
 
 /// An owned and managed file descriptor.
@@ -503,12 +501,10 @@ template <typename C>
 
 template <typename C, size_t Size = sizeof(typename C::value_type)>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
-[[nodiscard]] size_t writeall(int fd, const C &data) {
-  auto bytes_written = rw_loop([fd, buf = data.data()](size_t remaining, off_t offset) {
-    return ::write(fd, buf + offset / Size, remaining);
-  },
-                               Size * data.size(), "write()");
-  return bytes_written / Size;
+[[nodiscard]] std::expected<size_t, std::system_error> writeall(int fd, const C &data) {
+  return rw_loop([fd, buf = data.data()](size_t remaining, off_t offset) { return ::write(fd, buf + offset / Size, remaining); },
+                 Size * data.size(), "write({})", fd)
+      .transform([](size_t bytes_written) { return bytes_written / Size; });
 }
 
 template <typename T>
@@ -527,12 +523,10 @@ template <typename C>
 }
 
 template <typename T, size_t Size = sizeof(T)>
-[[nodiscard]] std::span<T> readall(int fd, std::span<T> buffer) {
-  auto bytes_read = rw_loop([fd, buf = buffer.data()](size_t remaining, off_t offset) {
-    return ::read(fd, buf + offset / Size, remaining);
-  },
-                            Size * buffer.size(), "read()");
-  return buffer.subspan(0, bytes_read / Size);
+[[nodiscard]] std::expected<std::span<T>, std::system_error> readall(int fd, std::span<T> buffer) {
+  return rw_loop([fd, buf = buffer.data()](size_t remaining, off_t offset) { return ::read(fd, buf + offset / Size, remaining); },
+                 Size * buffer.size(), "read({})", fd)
+      .transform([buffer](size_t bytes_read) { return buffer.subspan(0, bytes_read / Size); });
 }
 
 [[nodiscard]] struct stat inline stat(int fd) {

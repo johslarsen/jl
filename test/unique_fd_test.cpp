@@ -37,7 +37,7 @@ TEST_SUITE("unique_fd") {
       auto [from, to] = jl::unique_fd::pipes();
 
       REQUIRE(3 == jl::write(*to, "foo"));
-      CHECK(3 == jl::spliceall({*from}, {*out}, 3));
+      CHECK(3 == jl::unwrap(jl::spliceall({*from}, {*out}, 3)));
 
       std::string buffer("???");
       CHECK("foo" == jl::read(*in, buffer));
@@ -46,14 +46,14 @@ TEST_SUITE("unique_fd") {
     SUBCASE("spliceall with file") {
       auto fd = jl::tmpfd().unlink();
 
-      CHECK(0 == jl::spliceall({*fd, 0}, {*out}, 3));
+      CHECK(0 == jl::unwrap(jl::spliceall({*fd, 0}, {*out}, 3)));
 
       REQUIRE(3 == jl::write(*out, "foo"));
-      CHECK(3 == jl::spliceall({*in}, {*fd, 0}, 3));
+      CHECK(3 == jl::unwrap(jl::spliceall({*in}, {*fd, 0}, 3)));
       CHECK_MESSAGE(0 == jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"),
                     "splice at a specific offset was not supposed to change the fd position");
 
-      CHECK(3 == jl::spliceall({*fd}, {*out}, 3));
+      CHECK(3 == jl::unwrap(jl::spliceall({*fd}, {*out}, 3)));
       CHECK_MESSAGE(3 == jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"),
                     "splice from/to the fd current position was supposed to change fd position");
 
@@ -64,15 +64,15 @@ TEST_SUITE("unique_fd") {
     SUBCASE("sendfile") {
       auto fd = jl::tmpfd().unlink();
 
-      CHECK(0 == jl::sendfileall(*out, {*fd, 0}, 3));
+      CHECK(0 == jl::unwrap(jl::sendfileall(*out, {*fd, 0}, 3)));
 
       REQUIRE(3 == jl::write(*fd, "foo"));
       jl::check_rw_error(lseek(*fd, 0, SEEK_SET), "lseek failed");
-      CHECK(3 == jl::sendfileall(*out, {*fd, 0}, 3));
+      CHECK(3 == jl::unwrap(jl::sendfileall(*out, {*fd, 0}, 3)));
       CHECK_MESSAGE(0 == jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"),
                     "sendfile at a specific offset was not supposed to change the fd position");
 
-      CHECK(3 == jl::sendfileall(*out, {*fd}, 3));
+      CHECK(3 == jl::unwrap(jl::sendfileall(*out, {*fd}, 3)));
       CHECK_MESSAGE(3 == jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"),
                     "sendfile from/to the fd current position was supposed to change fd position");
 

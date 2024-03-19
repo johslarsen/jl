@@ -37,7 +37,7 @@ TEST_SUITE("unique_mmap") {
 
     std::string smaps_path = "/proc/" + std::to_string(getpid()) + "/smaps";
     jl::unique_fd smaps_fd(open(smaps_path.c_str(), O_RDONLY | O_CLOEXEC));
-    auto smaps = jl::readall(*smaps_fd, *map);
+    auto smaps = jl::unwrap(jl::readall(*smaps_fd, *map));
     CHECK(std::string::npos != jl::view_of(smaps).find("[anon:NamedAnonymousPages]"));
   }
 }

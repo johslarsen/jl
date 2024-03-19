@@ -8,15 +8,15 @@ TEST_SUITE("rw_loop") {
       offsets.push_back(off);
       return remaining > 10 ? 10 : remaining;
     };
-    CHECK(0 == jl::rw_loop(process_upto_10, 0, ""));
+    CHECK(0 == jl::unwrap(jl::rw_loop(process_upto_10, 0, "")));
     CHECK_MESSAGE((std::vector<off_t>{}) == offsets, "never called when there was no length to process");
 
     offsets.clear();
-    CHECK(10 == jl::rw_loop(process_upto_10, 10, ""));
+    CHECK(10 == jl::unwrap(jl::rw_loop(process_upto_10, 10, "")));
     CHECK_MESSAGE((std::vector<off_t>{0}) == offsets, "called once");
 
     offsets.clear();
-    CHECK(25 == jl::rw_loop(process_upto_10, 25, ""));
+    CHECK(25 == jl::unwrap(jl::rw_loop(process_upto_10, 25, "")));
     CHECK_MESSAGE((std::vector<off_t>{0, 10, 20}) == offsets, "called repeatedly");
   }
 
@@ -28,7 +28,7 @@ TEST_SUITE("rw_loop") {
       available -= batch;
       return batch;
     };
-    CHECK(25 == jl::rw_loop(eof_at_25, 30, ""));
+    CHECK(25 == jl::unwrap(jl::rw_loop(eof_at_25, 30, "")));
   }
 
   TEST_CASE("non-retryable errors") {
@@ -36,7 +36,7 @@ TEST_SUITE("rw_loop") {
       errno = ETIMEDOUT;
       return --attempts > 0 ? -1 : 42;
     };
-    CHECK_THROWS_AS(jl::rw_loop(serious_error_only_on_first_attempt, 100, ""), std::system_error);
+    CHECK(!jl::rw_loop<5>(serious_error_only_on_first_attempt, 100, ""));
   }
 
   TEST_CASE("retryable errors") {
@@ -44,7 +44,7 @@ TEST_SUITE("rw_loop") {
       errno = EAGAIN;
       return --attempts > 0 ? -1 : 42;
     };
-    CHECK(84 == jl::rw_loop(five_eagain, 84, ""));
-    CHECK_THROWS_AS(jl::rw_loop(five_eagain, 84, "", 4), std::system_error);
+    CHECK(84 == jl::unwrap(jl::rw_loop<5>(five_eagain, 84, "")));
+    CHECK(!jl::rw_loop<4>(five_eagain, 84, ""));
   }
 }
