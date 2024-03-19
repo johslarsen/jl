@@ -23,7 +23,7 @@ TEST_SUITE("unique_mmap") {
 
   TEST_CASE("remap") {
     jl::unique_mmap<const char> map(4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS);
-    map.remap(8192, MREMAP_MAYMOVE);
+    jl::unwrap(map.remap(8192, MREMAP_MAYMOVE));
   }
 
   TEST_CASE("integer") {

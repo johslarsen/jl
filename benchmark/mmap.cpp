@@ -21,7 +21,7 @@ template <int flags>
 void BM_mmap_sparse_file(benchmark::State& state) {
   auto fd = jl::tmpfd().unlink();
   auto map_size = 1L << state.range(0);
-  jl::truncate(fd.fd(), map_size);
+  jl::unwrap(jl::truncate(fd.fd(), map_size));
   size_t bytes_mapped = 0;
   for (auto _ : state) {
     jl::unique_mmap<char> map(map_size, PROT_READ, flags, fd.fd());

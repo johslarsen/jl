@@ -99,6 +99,18 @@ std::expected<T, std::system_error> ok_or_errno(T n, std::format_string<Args...>
   return unexpected_errno(fmt, std::forward<Args>(args)...);
 }
 
+template <std::integral T, class... Args>
+std::expected<void, std::system_error> zero_or_errno(T n, std::format_string<Args...> fmt, Args &&...args) {
+  if (n == 0) return {};
+  return unexpected_errno(fmt, std::forward<Args>(args)...);
+}
+
+template <typename T = void, class... Args>
+std::expected<T *, std::system_error> ok_mmap(void *p, std::format_string<Args...> fmt, Args &&...args) {
+  if (p == MAP_FAILED) return unexpected_errno(fmt, std::forward<Args>(args)...);
+  return reinterpret_cast<T *>(p);
+}
+
 /// Utility to run a method at the end of the scope like a defer statement in Go
 template <std::invocable F>
   requires std::is_void_v<std::invoke_result_t<F>>
@@ -529,14 +541,13 @@ template <typename T, size_t Size = sizeof(T)>
       .transform([buffer](size_t bytes_read) { return buffer.subspan(0, bytes_read / Size); });
 }
 
-[[nodiscard]] struct stat inline stat(int fd) {
+[[nodiscard]] std::expected<struct stat, std::system_error> inline stat(int fd) {
   struct stat buf {};
-  if (fstat(fd, &buf) != 0) throw errno_as_error("fstat({})", fd);
-  return buf;
+  return zero_or_errno(fstat(fd, &buf), "fstat({})", fd).transform([&] { return std::move(buf); });
 }
 
-void inline truncate(int fd, off_t length) {
-  if (ftruncate(fd, length) != 0) throw errno_as_error("ftruncate({})", fd);
+[[nodiscard]] std::expected<void, std::system_error> inline truncate(int fd, off_t length) {
+  return zero_or_errno(ftruncate(fd, length), "ftruncate({}, {})", fd, length);
 }
 
 inline std::timespec as_timespec(std::chrono::nanoseconds ns) {
@@ -922,13 +933,6 @@ class mmsg_buffer : public mmsg_socket<T> {
   mmsg_buffer &operator=(mmsg_buffer &&) noexcept = default;
 };
 
-template <typename T = void, class... Args>
-std::expected<T *, std::system_error> mmap(void *addr, size_t len, int prot, int flags, int fildes, off_t off, std::format_string<Args...> fmt, Args &&...args) noexcept {
-  void *p = ::mmap(addr, len, prot, flags, fildes, off);
-  if (p == MAP_FAILED) return unexpected_errno(fmt, std::forward<Args>(args)...);
-  return reinterpret_cast<T *>(p);
-}
-
 /// An owned and managed memory mapped span.
 template <typename T>
   requires std::is_trivially_copyable_v<T>
@@ -946,7 +950,7 @@ class unique_mmap {
   /// parameter. The size/offset parameters are in counts of T, not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
   unique_mmap(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap()")
-      : _map(unwrap(mmap<T>(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T), "{}", errmsg)), count) {}
+      : _map(unwrap(ok_mmap<T>(mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T)), "{}", errmsg)), count) {}
 
   static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap") {
     unique_mmap<T> map(count, prot, flags, -1, 0, errmsg);
@@ -964,10 +968,9 @@ class unique_mmap {
 
   /// The count parameter is in counts of T not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
-  void remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap()") {
-    void *pa = ::mremap(const_cast<std::remove_const_t<T> *>(_map.data()), _map.size() * sizeof(T), count * sizeof(T), flags, addr);
-    if (pa == MAP_FAILED) throw errno_as_error("{}", errmsg);  // NOLINT(*cstyle-cast,*int-to-ptr)
-    _map = {reinterpret_cast<T *>(pa), count};                 // NOLINT(*reinterpret-cast), mremap returns page-aligned address
+  [[nodiscard]] std::expected<void, std::system_error> remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap()") {
+    return ok_mmap<T>(mremap(const_cast<std::remove_const_t<T> *>(_map.data()), _map.size() * sizeof(T), count * sizeof(T), flags, addr), "{}", errmsg)
+        .transform([count, this](T *p) { _map = {p, count}; });
   }
 
   void reset(std::span<T> map = {}) noexcept {
@@ -1021,9 +1024,9 @@ class fd_mmap {
   /// The count parameter is in counts of T not bytes. New mapping is relative
   /// to offset from construction.
   /// @throws std::system_error with errno and errmsg if it fails.
-  void remap(size_t count, int mremap_flags = 0) {
-    _mmap.remap(count, mremap_flags);
-    _map = *_mmap;
+  [[nodiscard]] std::expected<void, std::system_error> remap(size_t count, int mremap_flags = 0) {
+    return _mmap.remap(count, mremap_flags)
+        .transform([this] { _map = *_mmap; });
   }
 
   /// Remove the mmap and release the fd from construction.
@@ -1036,15 +1039,15 @@ class fd_mmap {
   /// Length is relative to start of file, but remapping is relative to offset
   /// from construction.
   /// @throws std::system_error with errno and errmsg if it fails.
-  void truncate(size_t length, int mremap_flags = 0) {
-    jl::truncate(*_fd, length * sizeof(T));
-    _mmap.remap(beyond_offset(length), mremap_flags);
-    _map = _offset < static_cast<off_t>(length) ? *_mmap : _mmap->subspan(0, 0);
+  [[nodiscard]] std::expected<void, std::system_error> truncate(size_t length, int mremap_flags = 0) {
+    return jl::truncate(*_fd, length * sizeof(T))
+        .and_then([=, this] { return _mmap.remap(beyond_offset(length), mremap_flags); })
+        .transform([=, this] { _map = _offset < static_cast<off_t>(length) ? *_mmap : _mmap->subspan(0, 0); });
   }
 
  private:
   static std::pair<unique_fd, size_t> with_count(unique_fd fd, std::optional<size_t> specified_count) {
-    auto count = specified_count.value_or(stat(*fd).st_size / sizeof(T));
+    auto count = specified_count.value_or(jl::unwrap(stat(*fd)).st_size / sizeof(T));
     return {std::move(fd), count};
   }
   fd_mmap(std::pair<unique_fd, size_t> fd_count, int prot, int flags, off_t offset, std::optional<size_t> specified_count, const std::string &errmsg)
@@ -1093,9 +1096,9 @@ class CircularBuffer {
     int flags = MAP_FIXED | MAP_SHARED;
     unique_fd fd = tmpfd().unlink();
     constexpr off_t len = Capacity * sizeof(T);
-    auto status = ok_or_errno(ftruncate(*fd, len), "ftruncate({})", *fd)
-                      .and_then([&](auto) { return mmap(_data->data(), len, prot, flags, *fd, 0, "mmap(CircularBuffer data)"); })
-                      .and_then([&](auto) { return mmap(_data->data() + Capacity, len, prot, flags, *fd, 0, "mmap(CircularBuffer shadow)"); });
+    auto status = jl::truncate(*fd, len)
+                      .and_then([&] { return ok_mmap(mmap(_data->data(), len, prot, flags, *fd, 0), "mmap(CircularBuffer data)"); })
+                      .and_then([&](auto) { return ok_mmap(mmap(_data->data() + Capacity, len, prot, flags, *fd, 0), "mmap(CircularBuffer shadow)"); });
     if (!status) throw status.error();
   }
 

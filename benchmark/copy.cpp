@@ -17,7 +17,7 @@ auto* configure_arguments(auto* b) {
 
 static inline std::pair<jl::tmpfd, jl::unique_fd> open_read_write(off_t size) {
   auto read = jl::tmpfd();
-  jl::truncate(read->fd(), size);
+  jl::unwrap(jl::truncate(read->fd(), size));
 
   // it is more realistic and fair if the data is not just zero pages, because
   // those are cheap for the OS to copy into user-space buffers (e.g. read).

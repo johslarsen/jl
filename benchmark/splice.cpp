@@ -32,7 +32,7 @@ BENCHMARK(BM_readwrite)->ArgsProduct({{block_sizes}});
 void BM_splice(benchmark::State& state) {
   ssize_t block_size = state.range(0);
   auto zero = jl::tmpfd().unlink();
-  jl::truncate(*zero, block_size);
+  jl::unwrap(jl::truncate(*zero, block_size));
   auto [in, out] = jl::unique_fd::pipes();
   jl::unique_fd devnull(open("/dev/null", O_WRONLY | O_CLOEXEC));
 
@@ -48,7 +48,7 @@ BENCHMARK(BM_splice)->ArgsProduct({{block_sizes}});
 void BM_sendfile(benchmark::State& state) {
   ssize_t block_size = state.range(0);
   auto zero = jl::tmpfd();
-  jl::truncate(zero->fd(), block_size);
+  jl::unwrap(jl::truncate(zero->fd(), block_size));
   jl::unique_fd devnull(open("/dev/null", O_WRONLY | O_CLOEXEC));
 
   size_t bytes_copied = 0;

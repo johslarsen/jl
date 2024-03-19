@@ -23,7 +23,7 @@ TEST_SUITE("fd_mmap") {
 
   TEST_CASE("automatic size takes offset into account") {
     jl::unique_fd fd = jl::tmpfd().unlink();
-    jl::truncate(*fd, 4096);
+    jl::unwrap(jl::truncate(*fd, 4096));
     CHECK(3 == pwrite(*fd, "foo", 3, 4096));
 
     jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
@@ -33,7 +33,7 @@ TEST_SUITE("fd_mmap") {
 
   TEST_CASE("mapping beyond EOF is usable as is after file grows") {
     jl::fd_mmap<const char> map(jl::tmpfd().unlink(), PROT_READ, MAP_SHARED, 0, 3);
-    CHECK(0 == jl::stat(map.fd()).st_size);
+    CHECK(0 == jl::unwrap(jl::stat(map.fd())).st_size);
     CHECK(3 == jl::write(map.fd(), "foo"));
     CHECK("foo" == jl::view_of(*map));
   }
@@ -50,22 +50,22 @@ TEST_SUITE("fd_mmap") {
   TEST_CASE("truncate takes offset into account") {
     jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ | PROT_WRITE, MAP_SHARED, 4096);
 
-    map.truncate(4096);
+    jl::unwrap(map.truncate(4096));
     CHECK(0 == map->size());
-    map.truncate(4097);
+    jl::unwrap(map.truncate(4097));
     CHECK(1 == map->size());
 
     CHECK(std::string_view("\0", 1) == jl::view_of(*map));
     map[0] = 'a';
     CHECK("a" == sread(map.fd(), 1, 4096));
 
-    map.truncate(0);
+    jl::unwrap(map.truncate(0));
     CHECK(0 == map->size());
   }
 
   TEST_CASE("remap does not affect file") {
     jl::fd_mmap<const char> map(jl::tmpfd().unlink(), PROT_READ);
-    map.remap(10);
+    jl::unwrap(map.remap(10));
     CHECK(10 == map->size());
 
     struct stat buf {};
@@ -75,7 +75,7 @@ TEST_SUITE("fd_mmap") {
 
   TEST_CASE("file descriptor is usable after unmap") {
     jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_WRITE);
-    map.truncate(3);
+    jl::unwrap(map.truncate(3));
 
     map[0] = 'f';
     map[1] = 'o';
