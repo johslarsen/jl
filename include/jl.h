@@ -702,19 +702,14 @@ struct host_port {
 };
 
 template <typename T>
-[[nodiscard]] int try_setsockopt(int fd, int level, int option_name, const T &value) {
-  return ::setsockopt(fd, level, option_name, &value, sizeof(value));
-}
-template <typename T>
-void setsockopt(int fd, int level, int option_name, const T &value) {
-  if (try_setsockopt(fd, level, option_name, value) < 0) {
-    throw errno_as_error("setsockopt({}, {})", level, option_name);
-  }
+[[nodiscard]] std::expected<void, std::system_error> setsockopt(int fd, int level, int option_name, const T &value) {
+  return zero_or_errno(::setsockopt(fd, level, option_name, &value, sizeof(value)),
+                       "setsockopt({}, {}, {})", fd, level, option_name);
 }
 
-inline int try_linger(int fd, std::chrono::seconds timeout) {
-  auto s = static_cast<int>(timeout.count());
-  return try_setsockopt(fd, SOL_SOCKET, SO_LINGER, ::linger{.l_onoff = 1, .l_linger = s});
+[[nodiscard]] std::expected<void, std::system_error> inline linger(int fd, std::chrono::seconds timeout) {
+  return setsockopt(fd, SOL_SOCKET, SO_LINGER,
+                    ::linger{.l_onoff = 1, .l_linger = static_cast<int>(timeout.count())});
 }
 
 /// An owned socket descriptor that simplifies common network usage.
@@ -758,14 +753,14 @@ class unique_socket : public unique_fd {
       std::optional<int> protocol = IPPROTO_TCP,
       const std::function<void(unique_socket &)> &before_bind = [](auto &) {}) {
     return bound(source, domain, SOCK_STREAM, protocol, [&](auto &fd) {
-      setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, 1);
+      jl::unwrap(setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, 1));
       before_bind(fd);
     });
   }
 
   std::vector<std::system_error> linger(std::chrono::seconds timeout) && {
     std::vector<std::system_error> errors;
-    if (try_linger(fd(), timeout) != 0) errors.push_back(errno_as_error("setsockopt({}, linger={}s)", fd(), timeout.count()));
+    if (auto status = jl::linger(fd(), timeout); !status) errors.push_back(status.error());
     if (int fd = release(); close(fd) != 0) errors.push_back(errno_as_error("close({})", fd));
     return errors;
   }
