@@ -950,7 +950,11 @@ class unique_mmap {
 
   static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap") {
     unique_mmap<T> map(count, prot, flags, -1, 0, errmsg);
+#ifdef PR_SET_VMA
     std::ignore = prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());  // best effort, so okay if it fails silently
+#else
+    (void)name;
+#endif
     return map;
   }
 

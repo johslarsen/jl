@@ -32,6 +32,7 @@ TEST_SUITE("unique_mmap") {
     CHECK(4096 == map->size_bytes());
   }
 
+#ifdef PR_SET_VMA
   TEST_CASE("named anonymous pages") {
     auto map = jl::unique_mmap<char>::anon(1 << 20, PROT_READ | PROT_WRITE, "NamedAnonymousPages");
 
@@ -40,4 +41,5 @@ TEST_SUITE("unique_mmap") {
     auto smaps = jl::unwrap(jl::readall(*smaps_fd, *map));
     CHECK(std::string::npos != jl::view_of(smaps).find("[anon:NamedAnonymousPages]"));
   }
+#endif
 }
