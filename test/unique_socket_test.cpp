@@ -1,6 +1,5 @@
 #include <doctest/doctest.h>
 #include <jl.h>
-#include <sys/poll.h>
 
 TEST_SUITE("unique_socket") {
   TEST_CASE("sockaddr") {

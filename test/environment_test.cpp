@@ -1,5 +1,4 @@
 #include <doctest/doctest.h>
-#include <gtest/gtest.h>
 #include <jl.h>
 
 #include <cmath>
