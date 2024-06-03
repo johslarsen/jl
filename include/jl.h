@@ -15,6 +15,7 @@
 #include <bit>
 #include <cassert>
 #include <charconv>
+#include <chrono>
 #include <climits>
 #include <cstring>
 #include <filesystem>
