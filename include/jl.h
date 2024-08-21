@@ -464,6 +464,14 @@ std::expected<size_t, std::system_error> inline spliceall(ofd in, ofd out, size_
                  len, "splice({} -> {})", in.fd, out.fd);
 }
 
+/// Wrapper around free(...) like functions to use them as a std::unique_ptr deleter
+template <auto F>
+struct deleter {
+  void operator()(auto *p) noexcept {
+    if (p) F(p);
+  }
+};
+
 /// An owned and managed file descriptor.
 class unique_fd {
  protected:
@@ -627,12 +635,7 @@ class unique_addr {
   std::string _host;
   std::string _port;
 
-  struct addrinfo_deleter {
-    void operator()(addrinfo *p) {
-      if (p != nullptr) freeaddrinfo(p);
-    }
-  };
-  std::unique_ptr<addrinfo, addrinfo_deleter> _addr;
+  std::unique_ptr<addrinfo, deleter<freeaddrinfo>> _addr;
 
  public:
   unique_addr(std::string host, std::string port, int family = 0, addrinfo hints = {}) : _host(std::move(host)), _port(std::move(port)) {
