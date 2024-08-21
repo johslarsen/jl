@@ -591,6 +591,7 @@ class tmpfd {
   [[nodiscard]] const unique_fd *operator->() const noexcept { return &_fd; }
 
   [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
+  [[nodiscard]] std::string url() const noexcept { return std::format("file://{}", path().string()); }
 
   /// Tries to unlink the file, and clears path if this is successful to be idempotent.
   [[nodiscard]] std::error_code try_unlink() noexcept {
