@@ -2,6 +2,8 @@
 
 #include <curl/curl.h>
 
+#include <future>
+
 #include "jl.h"
 
 namespace jl::curl::detail {
@@ -51,14 +53,16 @@ class unique_slist {
   curl_slist* operator*() { return _list.get(); }
   void reset(curl_slist* p) { _list.reset(p); }
 
-  unique_slist& add(const char* str) {
-    decltype(_list) next(curl_slist_append(_list.get(), str));
+  template <class Self>
+  auto&& add(this Self&& self, const char* str) {
+    decltype(_list) next(curl_slist_append(self._list.get(), str));
     if (!next) throw std::runtime_error("curl_slist_append(...) failed");
-    std::swap(_list, next);
+    std::swap(self._list, next);
     std::ignore = next.release();
-    return *this;
+    return std::forward<Self>(self);
   }
-  unique_slist& add(const std::string& str) { return add(str.c_str()); }
+  template <class Self>
+  auto&& add(this Self&& self, const std::string& str) { return self.add(str.c_str()); }
 
   [[nodiscard]] std::vector<std::string_view> dump() const {
     std::vector<std::string_view> result;
@@ -101,7 +105,35 @@ static writer overwrite(std::string& buffer) {
 
 /// Wrapper around a CURL* handle.
 class easy {
+  /// state that the CURL handle points to, so it needs to be stable across moves
+  struct stable_state {
+    std::array<char, CURL_ERROR_SIZE> error{};
+    writer response = discard_body;
+    reader body = no_body;
+  };
+  std::unique_ptr<stable_state> _state;  // should outlive _curl handle
+  std::unique_ptr<CURL, deleter<curl_easy_cleanup>> _curl;
+
  public:
+  template <class Self>
+  auto&& reset(this Self&& self) {
+    curl_easy_reset(self._curl.get());
+    self.setopt(CURLOPT_ERRORBUFFER, self._state->error.data());
+    self.setopt(CURLOPT_WRITEFUNCTION, writefunction);
+    self.setopt(CURLOPT_WRITEDATA, &self._state->response);
+    self.setopt(CURLOPT_READFUNCTION, readfunction);
+    self.setopt(CURLOPT_READDATA, &self._state->body);
+    return std::forward<Self>(self);
+  }
+
+  template <class Self>
+  auto&& setopt(this Self&& self, CURLoption setopt, const auto& value) {
+    if (auto err = curl_easy_setopt(self._curl.get(), setopt, value); err != CURLE_OK) {
+      throw self.error(err, "curl_easy_setopt({}) failed", static_cast<int>(setopt));
+    }
+    return std::forward<Self>(self);
+  }
+
   easy() : _state(std::make_unique<stable_state>()), _curl(curl_easy_init()) {
     if (!_curl) throw std::runtime_error("curl_easy_init() failed");
     reset();
@@ -112,28 +144,13 @@ class easy {
     return instance.reset();
   }
 
-  easy& reset() {
-    curl_easy_reset(_curl.get());
-    setopt(CURLOPT_ERRORBUFFER, _state->error.data());
-    setopt(CURLOPT_WRITEFUNCTION, writefunction);
-    setopt(CURLOPT_WRITEDATA, &_state->response);
-    setopt(CURLOPT_READFUNCTION, readfunction);
-    setopt(CURLOPT_READDATA, &_state->body);
-    return *this;
-  }
-
   /// Configure a request. Use e.g. `jl::curl_ok(curl.request(...))`, to run it
-  easy& request(const std::string& url, writer response, reader body = no_body) {
-    setopt(CURLOPT_URL, url.c_str());
-    _state->response = std::move(response);
-    _state->body = std::move(body);
-    return *this;
-  }
-
-  void setopt(CURLoption setopt, const auto& value) {
-    if (auto err = curl_easy_setopt(_curl.get(), setopt, value); err != CURLE_OK) {
-      throw error(err, "curl_easy_setopt({}) failed", static_cast<int>(setopt));
-    }
+  template <class Self>
+  auto&& request(this Self&& self, const std::string& url, writer response, reader body = no_body) {
+    self.setopt(CURLOPT_URL, url.c_str());
+    self._state->response = std::move(response);
+    self._state->body = std::move(body);
+    return std::forward<Self>(self);
   }
 
   template <typename T>
@@ -161,15 +178,6 @@ class easy {
   }
 
  private:
-  /// state that the CURL handle points to, so it needs to be stable across moves
-  struct stable_state {
-    std::array<char, CURL_ERROR_SIZE> error{};
-    writer response = discard_body;
-    reader body = no_body;
-  };
-  std::unique_ptr<stable_state> _state;  // should outlive _curl handle
-  std::unique_ptr<CURL, deleter<curl_easy_cleanup>> _curl;
-
   static size_t writefunction(char* ptr, size_t size, size_t nmemb, writer* userdata) {
     return (*userdata)(std::string_view(ptr, ptr + size * nmemb));
   }
@@ -212,16 +220,16 @@ class easy {
   return ok(curl, url, body, std::move(buffer));
 }
 
-/// Wrapper around a CURLM* handle.
-class multi {
+/// Wrapper around a CURLM* handle, and the CURL* it manages
+class curlm {
   std::unique_ptr<CURLM, deleter<curl_multi_cleanup>> _curlm;
   std::unordered_map<CURL*, easy> _curls;  // in order to lookup from e.g. CURLMsg
 
  public:
-  multi() : _curlm(curl_multi_init()) {
+  curlm() : _curlm(curl_multi_init()) {
     if (!_curlm) throw std::runtime_error("curl_multi_init() failed");
   }
-  ~multi() {
+  ~curlm() {
     // https://curl.se/libcurl/c/curl_multi_cleanup.html suggests the deletion order:
     for (auto& [_, curl] : _curls) {  // Step 1, disassociate
       curl_multi_remove_handle(_curlm.get(), *curl);
@@ -230,26 +238,117 @@ class multi {
     _curlm.reset();  // Step 3, cleanup CURLM* handle
   }
 
-  easy& handle(easy handle = {}) {
-    auto p = *handle;
-    if (auto ok = curl_multi_add_handle(_curlm.get(), p); ok != CURLM_OK) {
-      throw make_multi_error(ok, "curl_multi_add_handle({}, {}) failed", _curlm.get(), p);
+  easy& add(easy curl = {}) {
+    auto p = *curl;
+    if (auto err = curl_multi_add_handle(_curlm.get(), p); err != CURLM_OK) {
+      throw make_multi_error(err, "curl_multi_add_handle({}, {}) failed", _curlm.get(), p);
     }
-    return _curls.emplace(p, std::move(handle)).first->second;
+    return _curls.emplace(p, std::move(curl)).first->second;
+  }
+  easy& at(CURL* ptr) { return _curls.at(ptr); }
+  easy release(CURL* ptr) {
+    auto iter = _curls.find(ptr);
+    if (iter == _curls.end()) throw std::out_of_range("not in this CURLM*");
+
+    if (auto err = curl_multi_remove_handle(_curlm.get(), ptr); err != CURLM_OK) {
+      throw make_multi_error(err, "curl_multi_remove_handle({}, {}) failed", _curlm.get(), ptr);
+    }
+
+    easy released = std::move(iter->second);
+    _curls.erase(iter);
+    return released;
   }
 
-  std::expected<int, std::system_error> perform() {
-    int active = 0;
-    if (auto ok = curl_multi_perform(_curlm.get(), &active); ok != CURLM_OK) {
-      return std::unexpected(make_multi_error(ok, "curl_multi_perform({}) failed", _curlm.get()));
+  template <class Self>
+  auto&& setopt(this Self&& self, CURLMoption setopt, const auto& value) {
+    if (auto err = curl_multi_setopt(self._curlm.get(), setopt, value); err != CURLM_OK) {
+      throw make_multi_error(err, "curl_multi_setopt({}) failed", static_cast<int>(setopt));
     }
+    return std::forward<Self>(self);
+  }
+
+  CURLM* operator*() { return _curlm.get(); }
+
+  curlm(const curlm&) = delete;
+  curlm& operator=(const curlm&) = delete;
+  curlm(curlm&&) = default;
+  curlm& operator=(curlm&&) = default;
+
+ private:
+};
+
+// Wrapper around the curl_multi_socket_... interface
+class multi {
+  struct stable_state {
+    std::vector<pollfd> pollfds;
+    curlm multi;
+  };
+  std::unique_ptr<stable_state> _state;
+  std::unordered_map<CURLM*, std::promise<std::pair<CURLcode, easy>>> _results;
+
+ public:
+  multi() : _state(std::make_unique<stable_state>()) {
+    _state->multi.setopt(CURLMOPT_SOCKETDATA, _state.get());
+    _state->multi.setopt(CURLMOPT_SOCKETFUNCTION, socket_callback);
+  }
+
+  [[nodiscard]] std::future<std::pair<CURLcode, easy>> start(easy preconfigured_request) {
+    auto& curl = _state->multi.add(std::move(preconfigured_request));
+    auto [iter, _] = _results.emplace(*curl, std::promise<std::pair<CURLcode, easy>>());
+    return iter->second.get_future();
+  }
+
+  /// poll(...) these for activity to delegate to action(...)
+  [[nodiscard]] std::span<pollfd> fds() const { return _state->pollfds; }
+  /// upon non-zero revents on a relevant fd, call this with that fd, also call this periodically with CURL_SOCKET_TIMEOUT to progress
+  /// @returns number of still active easy requests on this CURLM
+  int action(curl_socket_t sockfd = CURL_SOCKET_TIMEOUT) {
+    int active = 0;
+    // NOTE: https://github.com/curl/curl/blob/c8c64c882c8ed1b2d0875504687b2162db2b6387/lib/multi.c#L3194 does not actually use ev_bitmask
+    if (auto err = curl_multi_socket_action(*_state->multi, sockfd, 0, &active); err != CURLM_OK) {
+      throw make_multi_error(err, "curl_multi_socket_action({}, {}) failed", *_state->multi, sockfd);
+    }
+    propagate_results();
     return active;
   }
 
-  multi(const multi&) = delete;
-  multi& operator=(const multi&) = delete;
-  multi(multi&&) = default;
-  multi& operator=(multi&&) = default;
+ private:
+  void propagate_results() {
+    int ignore_nmsg;
+    for (const CURLMsg* m; (m = curl_multi_info_read(*_state->multi, &ignore_nmsg));) {
+      if (m->msg != CURLMSG_DONE) continue;
+      auto promise = _results.find(m->easy_handle);
+      if (promise == _results.end()) continue;  // not supposed to happen
+
+      promise->second.set_value({m->data.result, _state->multi.release(m->easy_handle)});
+      _results.erase(promise);
+    }
+  }
+
+  static int socket_callback(CURL* /*easy*/, curl_socket_t s, int what, stable_state* clientp, void* /*socketp*/) {  // NOLINT(*swappable-parameters)
+    auto& fds = clientp->pollfds;
+    auto fd = std::ranges::find(fds, s, &pollfd::fd);
+    if (fd != fds.end()) {
+      fd->events = as_poll_events(what);
+    } else if (what != CURL_POLL_REMOVE) {
+      fds.emplace_back(pollfd{.fd = s, .events = as_poll_events(what), .revents = 0});
+    }
+    return 0;
+  }
+
+  static short as_poll_events(int curl_poll) {
+    switch (curl_poll) {
+      case CURL_POLL_INOUT:
+        return POLLIN | POLLOUT;
+      case CURL_POLL_IN:
+        return POLLIN;
+      case CURL_POLL_OUT:
+        return POLLOUT;
+      case CURL_POLL_REMOVE:
+      default:
+        return 0;
+    }
+  }
 };
 
 }  // namespace jl::curl
