@@ -49,9 +49,19 @@ std::system_error make_curlm_error(CURLMcode status, std::format_string<Args...>
 /// Wrapper around a CURL* handle.
 class curl {
  public:
-  curl() : _curl(curl_easy_init()) {
+  curl() : _state(std::make_unique<stable_state>()), _curl(curl_easy_init()) {
     if (!_curl) throw std::runtime_error("curl_easy_init() failed");
-    reinit();
+    reset();
+  }
+
+  curl& reset() {
+    curl_easy_reset(_curl.get());
+    setopt(CURLOPT_ERRORBUFFER, _state->error.data());
+    setopt(CURLOPT_WRITEFUNCTION, writefunction);
+    setopt(CURLOPT_WRITEDATA, &_state->response);
+    setopt(CURLOPT_READFUNCTION, readfunction);
+    setopt(CURLOPT_READDATA, &_state->body);
+    return *this;
   }
 
   /// C++ variant of https://curl.se/libcurl/c/CURLOPT_WRITEFUNCTION.html
@@ -90,8 +100,8 @@ class curl {
   /// Configure a request. Use e.g. `jl::curl_ok(curl.request(...))`, to run it
   curl& request(const std::string& url, writer response, reader body = no_body) {
     setopt(CURLOPT_URL, url.c_str());
-    _writer = std::move(response);
-    _reader = std::move(body);
+    _state->response = std::move(response);
+    _state->body = std::move(body);
     return *this;
   }
 
@@ -148,47 +158,24 @@ class curl {
   CURL* operator*() { return _curl.get(); }
   template <class... Args>
   std::system_error error(CURLcode err, std::format_string<Args...> fmt, Args&&... args) noexcept {
-    return make_curl_error(err, "{}: {}", std::format(fmt, std::forward<Args>(args)...), _error.data());
+    return make_curl_error(err, "{}: {}", std::format(fmt, std::forward<Args>(args)...), _state->error.data());
   }
-
-  void swap(curl& other) noexcept {
-    _curl.swap(other._curl);
-    _error.swap(other._error);
-    _writer.swap(other._writer);
-    _reader.swap(other._reader);
-    reinit();
-    other.reinit();
-  }
-  curl(curl&& other) noexcept {
-    swap(other);
-  }
-  curl& operator=(curl&& other) noexcept {
-    swap(other);
-    return *this;
-  }
-  curl(const curl&) = delete;
-  curl& operator=(const curl&) = delete;
 
  private:
+  /// state that the CURL handle points to, so it needs to be stable across moves
+  struct stable_state {
+    std::array<char, CURL_ERROR_SIZE> error{};
+    writer response = discard_body;
+    reader body = no_body;
+  };
+  std::unique_ptr<stable_state> _state;  // should outlive _curl handle
   std::unique_ptr<CURL, deleter<curl_easy_cleanup>> _curl;
-  std::array<char, CURL_ERROR_SIZE> _error{};
-  writer _writer = discard_body;
-  reader _reader = no_body;
 
-  void reinit() noexcept {  // NOLINT(*exception*) none of these CURLOPTs are supposed to be able to fail,
-    if (!_curl) return;     // but make sure we bail out early if null because that always fails
-    setopt(CURLOPT_ERRORBUFFER, _error.data());
-    setopt(CURLOPT_WRITEFUNCTION, writefunction);
-    setopt(CURLOPT_WRITEDATA, &_writer);
-    setopt(CURLOPT_READFUNCTION, readfunction);
-    setopt(CURLOPT_READDATA, &_reader);
+  static size_t writefunction(char* ptr, size_t size, size_t nmemb, writer* userdata) {
+    return (*userdata)(std::string_view(ptr, ptr + size * nmemb));
   }
-
-  static size_t writefunction(char* ptr, size_t size, size_t nmemb, void* userdata) {
-    return (*reinterpret_cast<writer*>(userdata))(std::string_view(ptr, ptr + size * nmemb));
-  }
-  static size_t readfunction(std::byte* ptr, size_t size, size_t nmemb, void* userdata) {
-    return (*reinterpret_cast<reader*>(userdata))(std::span(ptr, ptr + size * nmemb));
+  static size_t readfunction(std::byte* ptr, size_t size, size_t nmemb, reader* userdata) {
+    return (*userdata)(std::span(ptr, ptr + size * nmemb));
   }
 };
 
