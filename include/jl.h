@@ -268,6 +268,22 @@ inline std::string join(const R &&words, const std::string &delimiter = ",") {
   });
 }
 
+struct line_eol {
+  std::string_view line;
+  std::string_view eol;
+
+  size_t size() { return line.size() + eol.size(); }
+
+  static line_eol find_first_in(std::string_view s) {
+    auto eol = s.find_first_of("\r\n");
+    if (eol == std::string::npos) return {s, s.substr(s.size())};
+
+    auto line = s.substr(0, eol);
+    size_t n = s[eol] == '\r' && s.size() > eol + 1 && s[eol + 1] == '\n' ? 2 : 1;
+    return {line, s.substr(eol, n)};
+  }
+};
+
 /// Container that can be used to pass string literal as template parameter.
 /// NOTE: Like std::string/_view initializer, the stored string is not null-terminated!
 template <size_t N>

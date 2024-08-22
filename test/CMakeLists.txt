@@ -15,11 +15,11 @@ add_executable(
   unique_socket_test.cpp
   test.cpp)
 target_link_libraries(jl_test jl doctest)
-add_test(all_tests jl_test)
+add_test(jl_test jl_test)
 
 add_executable(
   jl_curl_test
   curl_test.cpp
   test.cpp)
 target_link_libraries(jl_curl_test jl_curl doctest)
-add_test(all_tests jl_curl_test)
+add_test(jl_curl_test jl_curl_test)

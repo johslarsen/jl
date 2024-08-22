@@ -89,4 +89,42 @@ TEST_SUITE("strings") {
     CHECK_MESSAGE(!jl::from_str<int>("").has_value(), "Empty string is not an integer");
     CHECK_MESSAGE(!jl::from_str<int>("abc").has_value(), "Integers starts with digits, not characters");
   }
+
+  TEST_CASE("line_eol") {
+    SUBCASE("at end of input") {
+      auto [standard_line, nl] = jl::line_eol::find_first_in("foo\n");
+      CHECK(standard_line == "foo");
+      CHECK(nl == "\n");
+
+      auto [windows_line, crlf] = jl::line_eol::find_first_in("foo\r\n");
+      CHECK(windows_line == "foo");
+      CHECK(crlf == "\r\n");
+
+      auto [mac_line, cr] = jl::line_eol::find_first_in("foo\r");
+      CHECK(mac_line == "foo");
+      CHECK(cr == "\r");
+    }
+    SUBCASE("in the middle of input") {
+      auto [standard_line, nl] = jl::line_eol::find_first_in("foo\nbar");
+      CHECK(standard_line == "foo");
+      CHECK(nl == "\n");
+
+      auto [windows_line, crlf] = jl::line_eol::find_first_in("foo\r\nbar");
+      CHECK(windows_line == "foo");
+      CHECK(crlf == "\r\n");
+
+      auto [mac_line, cr] = jl::line_eol::find_first_in("foo\rbar");
+      CHECK(mac_line == "foo");
+      CHECK(cr == "\r");
+    }
+    SUBCASE("incomplete lines") {
+      auto [no_line, no_eol] = jl::line_eol::find_first_in("");
+      CHECK(no_line == "");
+      CHECK(no_eol == "");
+
+      auto [line, but_no_eol] = jl::line_eol::find_first_in("foo");
+      CHECK(line == "foo");
+      CHECK(but_no_eol == "");
+    }
+  }
 }
