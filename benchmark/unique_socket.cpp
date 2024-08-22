@@ -2,8 +2,6 @@
 #include <jl.h>
 #include <poll.h>
 
-#include <iostream>
-#include <latch>
 #include <thread>
 
 static std::vector<int64_t> sizes{1, 128, 1024, 65500};
@@ -23,7 +21,7 @@ static void send_loop(const std::stop_token& token, std::atomic<bool>& finished,
 
 void drain(std::atomic<bool>& sender_finished, jl::unique_socket& fd, std::span<char> buffer) {
   while (!sender_finished) {
-    (void)jl::recv(*fd, buffer, MSG_DONTWAIT).empty();
+    std::ignore = jl::recv(*fd, buffer, MSG_DONTWAIT).empty();
   }
 }
 
@@ -260,8 +258,7 @@ BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, StreamOnRecvCalls, SOCK_STREA
 void BM_NonBlockingSendOnFullSocket(benchmark::State& state, int socket_type, int recv_flags) {  // NOLINT(*swappable*)
   auto [_, out] = jl::unique_socket::pipes(AF_UNIX, socket_type);
   std::vector<char> buffer(1024);
-  while (send(out.fd(), buffer.data(), buffer.size(), recv_flags) >= 0)
-    ;  // fill the socket
+  while (send(out.fd(), buffer.data(), buffer.size(), recv_flags) >= 0);  // fill the socket
   for (auto _ : state) {
     size_t n = 0;
     benchmark::DoNotOptimize(n = jl::send(*out, buffer, recv_flags));

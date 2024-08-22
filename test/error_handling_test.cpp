@@ -35,13 +35,13 @@ TEST_SUITE("error handling") {
 
     SUBCASE("regular type") {
       CHECK(42 == jl::unwrap(std::expected<int, std::system_error>(42)));
-      CHECK_THROWS_WITH_AS((void)jl::unwrap(std::expected<int, std::system_error>(std::unexpected(timed_out))),
+      CHECK_THROWS_WITH_AS(std::ignore = jl::unwrap(std::expected<int, std::system_error>(std::unexpected(timed_out))),
                            timed_out.what(), decltype(timed_out));
     }
 
     SUBCASE("move-only type") {
       CHECK(nullptr == jl::unwrap(std::expected<std::unique_ptr<int>, std::system_error>(nullptr)));
-      CHECK_THROWS_WITH_AS((void)jl::unwrap(std::expected<std::unique_ptr<int>, std::system_error>(std::unexpected(timed_out))),
+      CHECK_THROWS_WITH_AS(std::ignore = jl::unwrap(std::expected<std::unique_ptr<int>, std::system_error>(std::unexpected(timed_out))),
                            timed_out.what(), decltype(timed_out));
     }
 
@@ -49,6 +49,16 @@ TEST_SUITE("error handling") {
       jl::unwrap(std::expected<void, std::system_error>());
       CHECK_THROWS_WITH_AS(jl::unwrap(std::expected<void, std::system_error>(std::unexpected(timed_out))),
                            timed_out.what(), decltype(timed_out));
+    }
+
+    SUBCASE("move-only future before ready") {
+      std::promise<std::unique_ptr<int>> promise;
+      CHECK_THROWS(std::ignore = jl::unwrap(promise.get_future()));
+    }
+    SUBCASE("move-only future when ready") {
+      std::promise<std::unique_ptr<int>> promise;
+      promise.set_value(nullptr);
+      CHECK(jl::unwrap(promise.get_future()) == nullptr);
     }
   }
 

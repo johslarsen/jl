@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <format>
 #include <functional>
+#include <future>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -58,6 +59,15 @@ template <typename T, typename E>
 [[nodiscard]] T unwrap(std::expected<T, E> &&expected) {
   if (!expected.has_value()) throw std::move(expected.error());
   if constexpr (!std::is_void_v<T>) return std::move(*expected);
+}
+
+/// @returns promised value now or throw if it is not ready without blocking
+template <typename T>
+[[nodiscard]] T unwrap(std::future<T> future) {
+  if (future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+    throw std::runtime_error("unwrapped future was not ready");
+  }
+  return future.get();
 }
 
 /// @returns std::expected with the given value or the given error
@@ -973,7 +983,7 @@ class unique_mmap {
 #ifdef PR_SET_VMA
     std::ignore = prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());  // best effort, so okay if it fails silently
 #else
-    (void)name;
+    std::ignore = name;
 #endif
     return map;
   }

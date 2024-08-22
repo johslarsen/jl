@@ -18,7 +18,7 @@ TEST_SUITE("environment") {
     setenv("JL_TEST_ENV_STRING", "foo", 1);  // NOLINT(*mt-unsafe)
     CHECK("foo" == jl::reqenv("JL_TEST_ENV_STRING"));
 
-    CHECK_THROWS_AS((void)jl::reqenv("DONT_SET_THIS"), std::runtime_error);
+    CHECK_THROWS_AS(std::ignore = jl::reqenv("DONT_SET_THIS"), std::runtime_error);
   }
 
   TEST_CASE("env_as distinguishes missing from parsing error") {
