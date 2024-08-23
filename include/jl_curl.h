@@ -90,8 +90,7 @@ inline reader read_from(std::string_view body) {
 
 /// C++ variant of https://curl.se/libcurl/c/CURLOPT_WRITEFUNCTION.html
 using writer = std::function<size_t(std::string_view)>;
-// writer factories: {
-static size_t discard_body(std::string_view /*ignored*/) { return 0; }
+static size_t discard_body(std::string_view buffer) { return buffer.size(); }
 static writer append_to(std::string& buffer) {
   return [&buffer](std::string_view s) {
     buffer += s;
@@ -277,6 +276,20 @@ class curlm {
  private:
 };
 
+static constexpr short as_poll_events(int curl_poll) {
+  switch (curl_poll) {
+    case CURL_POLL_INOUT:
+      return POLLIN | POLLOUT;
+    case CURL_POLL_IN:
+      return POLLIN;
+    case CURL_POLL_OUT:
+      return POLLOUT;
+    case CURL_POLL_REMOVE:
+    default:
+      return 0;
+  }
+}
+
 // Wrapper around the curl_multi_socket_... interface
 class multi {
   struct stable_state {
@@ -329,25 +342,12 @@ class multi {
     auto& fds = clientp->pollfds;
     auto fd = std::ranges::find(fds, s, &pollfd::fd);
     if (fd != fds.end()) {
+      // NOTE: CURL* handles, and their FDs are often reused, so just disable on CURL_POLL_REMOVE rather than actually removing them
       fd->events = as_poll_events(what);
     } else if (what != CURL_POLL_REMOVE) {
       fds.emplace_back(pollfd{.fd = s, .events = as_poll_events(what), .revents = 0});
     }
     return 0;
-  }
-
-  static short as_poll_events(int curl_poll) {
-    switch (curl_poll) {
-      case CURL_POLL_INOUT:
-        return POLLIN | POLLOUT;
-      case CURL_POLL_IN:
-        return POLLIN;
-      case CURL_POLL_OUT:
-        return POLLOUT;
-      case CURL_POLL_REMOVE:
-      default:
-        return 0;
-    }
   }
 };
 

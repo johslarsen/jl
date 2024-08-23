@@ -122,6 +122,19 @@ TEST_SUITE("asynchronous multi API") {
     CHECK(b.size() > 0);
   }
 
+  TEST_CASE("reuse same handle") {
+    jl::curl::multi curlm;
+    auto future = curlm.start(jl::curl::easy().request(url_to_this_file, jl::curl::discard_body));
+    CHECK(curlm.action() == 0);
+    auto [result, curl] = jl::unwrap(std::move(future));
+    CHECK(result == CURLE_OK);
+
+    future = curlm.start(std::move(curl)); // i.e. redo same request
+    CHECK(curlm.action() == 0);
+    std::tie(result, curl) = jl::unwrap(std::move(future));
+    CHECK(result == CURLE_OK);
+  }
+
   TEST_CASE("make_curlm_error") {
     auto ok = jl::curl::make_multi_error(CURLM_OK, "foo");
     CHECK("foo: No error" == std::string(ok.what()));
