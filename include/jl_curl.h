@@ -366,13 +366,36 @@ class multi {
   }
 };
 
-// Wrapper around a CURLU* handle, that is their URL parsing interface
-class url {
-  std::unique_ptr<CURLU, deleter<curl_url_cleanup>> _url;
+// An owned and managed CURLU* handle
+using unique_url = std::unique_ptr<CURLU, deleter<curl_url_cleanup>>;
 
+/// A wrapper around the CURLU* handle, that is their URL parsing interface
+///
+/// Everything in the CURL URL library can fail, but usually more in an
+/// std::optional fashion (e.g. that part does not exist, albeit with a
+/// descriptive error code), so exceptions are not suitable here. Everything
+/// could return std::expected<...>, but all the `and_then`s get annoying pretty
+/// fast. Turns out we can do one better, and just be an extended version of
+/// std::expected<unique_url, std::system_error> that chains those `and_then`s.
+///
+/// NOTE: I am not really sure whether to be impressed or horrified that this is
+/// actually possible, but at least it is cute so I am trying it out.
+class url : public std::expected<unique_url, std::system_error> {
  public:
-  url() : _url(curl_url()) {
-    if (!_url) throw std::runtime_error("curl_url");
+  using std::expected<unique_url, std::system_error>::expected;
+  url() : std::expected<unique_url, std::system_error>(curl_url()) {
+    if (value() == nullptr) {
+      *this = unexpected_system_error(std::errc::not_enough_memory, "curl_url");
+    }
+  }
+  static url parse(const std::string& url, int flags = 0) {
+    return curl::url().with(CURLUPART_URL, url, flags);
+  }
+
+  [[nodiscard]] url with(CURLUPart part, const std::string& value, int flags = 0) && {
+    if (!has_value()) return std::unexpected(error());
+    if (auto ok = set(part, value, flags); !ok) return std::unexpected(ok.error());
+    return std::move(*this);
   }
 
   [[nodiscard]] std::expected<std::string, std::system_error> str(int flags = 0) const {
@@ -384,44 +407,28 @@ class url {
   }
 
   [[nodiscard]] std::expected<std::string, std::system_error> get(CURLUPart part, int flags = 0) const {
-    char* copy = nullptr;
-    if (auto err = curl_url_get(_url.get(), part, &copy, flags); err != CURLUE_OK) {
-      return std::unexpected(make_url_error(err, "curl_url_get"));
-    }
-    std::unique_ptr<char, deleter<curl_free>> managed(copy);
-    return std::string(managed.get());
+    return and_then([part, flags](const auto& url) -> std::expected<std::string, std::system_error> {
+      char* copy = nullptr;
+      if (auto err = curl_url_get(url.get(), part, &copy, flags); err != CURLUE_OK) {
+        return std::unexpected(make_url_error(err, "curl_url_get"));
+      }
+      std::unique_ptr<char, deleter<curl_free>> managed(copy);
+      return std::string(managed.get());
+    });
   }
   [[nodiscard]] std::expected<void, std::system_error> set(CURLUPart part, const std::string& value, int flags = 0) {
-    if (auto err = curl_url_set(_url.get(), part, value.c_str(), flags); err != CURLUE_OK) {
-      return std::unexpected(make_url_error(err, "curl_url_set"));
-    }
-    return {};
-  }
-  CURLU* operator*() { return _url.get(); }
-};
-
-/// std::expected<url, ...> enhanced with builder pattern and "getters"
-///
-/// NOTE: I am not really sure whether to be impressed or horrified that this
-/// was actually possible, but at least it is cute so I am trying it out.
-class expected_url : public std::expected<url, std::system_error> {
- public:
-  using std::expected<url, std::system_error>::expected;
-  [[nodiscard]] expected_url with(CURLUPart part, const std::string& value, int flags = 0) && {
-    if (!has_value()) return std::unexpected(error());
-    if (auto ok = expected_url::value().set(part, value, flags); !ok) return std::unexpected(ok.error());
-    return std::move(*this);
+    return and_then([part, value, flags](const auto& url) -> std::expected<void, std::system_error> {
+      if (auto err = curl_url_set(url.get(), part, value.c_str(), flags); err != CURLUE_OK) {
+        return std::unexpected(make_url_error(err, "curl_url_set"));
+      }
+      return {};
+    });
   }
 
-  [[nodiscard]] std::expected<std::string, std::system_error> str(int flags = 0) const {
-    return get(CURLUPART_URL, flags);
-  }
-  [[nodiscard]] std::expected<std::string, std::system_error> get(CURLUPart part, int flags = 0) const {
-    return and_then([part, flags](const auto& url) { return url.get(part, flags); });
+  [[nodiscard]] CURLU* ptr() const {
+    if (!has_value()) throw std::system_error(error());
+    return (*this)->get();
   }
 };
-[[nodiscard]] inline expected_url parse_url(const std::string& url, int flags = 0) {
-  return expected_url().with(CURLUPART_URL, url, flags);
-}
 
 }  // namespace jl::curl

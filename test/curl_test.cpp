@@ -147,7 +147,7 @@ TEST_SUITE("asynchronous multi API") {
 
 TEST_SUITE("URL API") {
   TEST_CASE("http://minimal") {
-    auto url = jl::unwrap(jl::curl::parse_url("http://minimal"));
+    auto url = jl::curl::url::parse("http://minimal");
     CHECK(jl::unwrap(url.str()) == "http://minimal/");
     CHECK(jl::unwrap(url.get(CURLUPART_SCHEME)) == "http");
     CHECK(!url.get(CURLUPART_USER));
@@ -161,7 +161,7 @@ TEST_SUITE("URL API") {
   }
   TEST_CASE("http://... (full)") {
     std::string org = "http://user:pw@domain.tld:42/dir/file.suffix?key=value&without#fragment";
-    auto url = jl::unwrap(jl::curl::parse_url(org));
+    auto url = jl::curl::url::parse(org);
     CHECK(jl::unwrap(url.str()) == org);
     CHECK(jl::unwrap(url.get(CURLUPART_SCHEME)) == "http");
     CHECK(jl::unwrap(url.get(CURLUPART_USER)) == "user");
@@ -174,16 +174,16 @@ TEST_SUITE("URL API") {
   }
   TEST_CASE("invalid URLs") {
     SUBCASE("empty URL is not representable") {
-      CHECK(!jl::curl::parse_url(""));
+      CHECK(!jl::curl::url::parse(""));
       CHECK(!jl::curl::url().str());
     }
     SUBCASE("missing scheme") {
-      CHECK(!jl::curl::parse_url("no_scheme"));
+      CHECK(!jl::curl::url::parse("no_scheme"));
     }
   }
 
-  TEST_CASE("expected_url as builder") {
-    auto url = jl::curl::expected_url()
+  TEST_CASE("constructed with a builder pattern") {
+    auto url = jl::curl::url()
                    .with(CURLUPART_SCHEME, "http")
                    .with(CURLUPART_HOST, "domain");
     CHECK(jl::unwrap(url.str()) == "http://domain/");
@@ -191,7 +191,6 @@ TEST_SUITE("URL API") {
 
   TEST_CASE("CURLU_DEFAULT_SCHEME") {
     CHECK(!jl::curl::url().get(CURLUPART_SCHEME, CURLU_DEFAULT_SCHEME));
-    auto url = jl::unwrap(jl::curl::parse_url("minimal", CURLU_DEFAULT_SCHEME));
-    CHECK(jl::unwrap(url.str()) == "https://minimal/");
+    CHECK(jl::unwrap(jl::curl::url::parse("minimal", CURLU_DEFAULT_SCHEME).str()) == "https://minimal/");
   }
 }
