@@ -390,7 +390,7 @@ inline std::vector<iovec> as_iovecs(ListOfSpanable &&spans) noexcept {
 
 template <typename T>
 inline std::span<T> as_span(auto &&src) noexcept {
-  if constexpr (std::is_same_v<std::remove_cvref_t<decltype(src)>, iovec>) {
+  if constexpr (std::same_as<std::remove_cvref_t<decltype(src)>, iovec>) {
     return {reinterpret_cast<T *>(src.iov_base), src.iov_len / sizeof(T)};
   } else {
     return std::span(src);
@@ -462,12 +462,8 @@ class chunked {
       return *this;
     }
 
-    friend bool operator<(const iter &a, const iter &b) { return a._i < b._i; }
-    friend bool operator<=(const iter &a, const iter &b) { return a._i <= b._i; }
-    friend bool operator>(const iter &a, const iter &b) { return a._i > b._i; }
-    friend bool operator>=(const iter &a, const iter &b) { return a._i >= b._i; }
-    friend bool operator!=(const iter &a, const iter &b) { return a._i != b._i; }
     friend bool operator==(const iter &a, const iter &b) { return a._i == b._i; }
+    friend std::strong_ordering operator<=>(const iter &a, const iter &b) { return a._i <=> b._i; }
   };
   iter begin() const { return iter(_buffer, _n); }
   iter end() const { return iter(_buffer, _n, div_ceil(_buffer.size(), _n)); }
@@ -620,8 +616,8 @@ class tmpfd {
   explicit tmpfd(const std::string &prefix = "/tmp/jl_tmpfile_", const std::string &suffix = "")
       : tmpfd(std::format("{}XXXXXX{}", prefix, suffix), static_cast<int>(suffix.length())) {}
 
-  [[nodiscard]] unique_fd *operator->() noexcept { return &_fd; }
-  [[nodiscard]] const unique_fd *operator->() const noexcept { return &_fd; }
+  template <typename Self>
+  [[nodiscard]] auto *operator->(this Self &self) noexcept { return &self._fd; }
 
   [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
   [[nodiscard]] std::string url() const noexcept { return std::format("file://{}", path().string()); }
@@ -684,7 +680,8 @@ class unique_addr {
     _addr.reset(result);
   }
 
-  [[nodiscard]] const addrinfo *get() const { return _addr.get(); }
+  template <typename Self>
+  [[nodiscard]] auto *get(this Self &self) { return self._addr.get(); }
   [[nodiscard]] std::string string() const { return std::format("{}:{}", uri_host(_host), _port); }
 
   ~unique_addr() = default;
@@ -922,7 +919,7 @@ class mmsg_socket {
   [[nodiscard]] unique_socket &fd() noexcept { return _fd; }
 
   template <std::ranges::sized_range R>
-    requires std::is_same_v<typename R::value_type, std::span<T>>
+    requires std::same_as<typename R::value_type, std::span<T>>
   void reset(const R &buffers) {
     _msgs.resize(std::ranges::size(buffers));
     _iovecs.resize(std::ranges::size(buffers));
@@ -995,13 +992,14 @@ class unique_mmap {
     return map;
   }
 
-  [[nodiscard]] T &operator[](size_t idx) noexcept { return _map[idx]; }
-  [[nodiscard]] const T &operator[](size_t idx) const noexcept { return _map[idx]; }
+  template <typename Self>
+  [[nodiscard]] auto& operator[](this Self& self, size_t idx) noexcept { return self._map[idx]; }
 
-  [[nodiscard]] std::span<T> &operator*() noexcept { return _map; }
-  [[nodiscard]] const std::span<T> &operator*() const noexcept { return _map; }
-  [[nodiscard]] std::span<T> *operator->() noexcept { return &_map; }
-  [[nodiscard]] const std::span<T> *operator->() const noexcept { return &_map; }
+
+  template <typename Self>
+  [[nodiscard]] auto &operator*(this Self& self) noexcept { return self._map; }
+  template <typename Self>
+  [[nodiscard]] auto *operator->(this Self& self) noexcept { return &self._map; }
 
   /// The count parameter is in counts of T not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
@@ -1050,13 +1048,13 @@ class fd_mmap {
 
   [[nodiscard]] int fd() const noexcept { return _fd.fd(); }
 
-  [[nodiscard]] T &operator[](size_t idx) noexcept { return _map[idx]; }
-  [[nodiscard]] const T &operator[](size_t idx) const noexcept { return _map[idx]; }
+  template <typename Self>
+  [[nodiscard]] auto &operator[](this Self &self, size_t idx) noexcept { return self._map[idx]; }
 
-  [[nodiscard]] std::span<T> &operator*() noexcept { return _map; }
-  [[nodiscard]] const std::span<T> &operator*() const noexcept { _map; }
-  [[nodiscard]] std::span<T> *operator->() noexcept { return &_map; }
-  [[nodiscard]] const std::span<T> *operator->() const noexcept { return &_map; }
+  template <typename Self>
+  [[nodiscard]] auto &operator*(this Self &self) noexcept { return self._map; }
+  template <typename Self>
+  [[nodiscard]] auto *operator->(this Self &self) noexcept { return &self._map; }
 
   /// The count parameter is in counts of T not bytes. New mapping is relative
   /// to offset from construction.
@@ -1156,11 +1154,9 @@ class CircularBuffer {
 
   /// @returns a span where you can read available data from the buffer. Its
   /// size is limited by the amount of available data.
-  [[nodiscard]] std::span<const T> peek_front(size_t max) const noexcept {
-    return {&_data[_read % Capacity], std::min(max, size())};
-  }
-  [[nodiscard]] std::span<T> peek_front(size_t max) noexcept {
-    return {&_data[_read % Capacity], std::min(max, size())};
+  template <typename Self>
+  [[nodiscard]] auto peek_front(this Self &self, size_t max) noexcept {
+    return std::span(&self._data[self._read % Capacity], std::min(max, self.size()));
   }
 
   /// "Give back" the part at the beginning of the span from peek_front() that
