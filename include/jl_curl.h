@@ -22,6 +22,13 @@ class curlm_error_category : public std::error_category {
     return curl_multi_strerror(static_cast<CURLMcode>(ev));
   }
 };
+class curlu_error_category : public std::error_category {
+ public:
+  [[nodiscard]] const char* name() const noexcept override { return "CURLUcode"; }
+  [[nodiscard]] std::string message(int ev) const override {
+    return curl_url_strerror(static_cast<CURLUcode>(ev));
+  }
+};
 
 }  // namespace jl::curl::detail
 
@@ -35,6 +42,10 @@ inline const std::error_category& multi_error_category() noexcept {
   static detail::curlm_error_category instance;
   return instance;
 }
+inline const std::error_category& url_error_category() noexcept {
+  static detail::curlu_error_category instance;
+  return instance;
+}
 
 template <class... Args>
 std::system_error make_easy_error(CURLcode status, std::format_string<Args...> fmt, Args&&... args) noexcept {
@@ -43,6 +54,10 @@ std::system_error make_easy_error(CURLcode status, std::format_string<Args...> f
 template <class... Args>
 std::system_error make_multi_error(CURLMcode status, std::format_string<Args...> fmt, Args&&... args) noexcept {
   return {{static_cast<int>(status), multi_error_category()}, std::format(fmt, std::forward<Args>(args)...)};
+}
+template <class... Args>
+std::system_error make_url_error(CURLUcode status, std::format_string<Args...> fmt, Args&&... args) noexcept {
+  return {{static_cast<int>(status), url_error_category()}, std::format(fmt, std::forward<Args>(args)...)};
 }
 
 /// WARN: in most cases this must outlive the curl handle it is set on
@@ -350,5 +365,63 @@ class multi {
     return 0;
   }
 };
+
+// Wrapper around a CURLU* handle, that is their URL parsing interface
+class url {
+  std::unique_ptr<CURLU, deleter<curl_url_cleanup>> _url;
+
+ public:
+  url() : _url(curl_url()) {
+    if (!_url) throw std::runtime_error("curl_url");
+  }
+
+  [[nodiscard]] std::expected<std::string, std::system_error> str(int flags = 0) const {
+    return get(CURLUPART_URL, flags);
+  }
+
+  [[nodiscard]] std::expected<uint16_t, std::system_error> port(int flags = 0) const {
+    return get(CURLUPART_PORT, flags).and_then([](auto s) { return jl::from_str<uint16_t>(s); });
+  }
+
+  [[nodiscard]] std::expected<std::string, std::system_error> get(CURLUPart part, int flags = 0) const {
+    char* copy = nullptr;
+    if (auto err = curl_url_get(_url.get(), part, &copy, flags); err != CURLUE_OK) {
+      return std::unexpected(make_url_error(err, "curl_url_get"));
+    }
+    std::unique_ptr<char, deleter<curl_free>> managed(copy);
+    return std::string(managed.get());
+  }
+  [[nodiscard]] std::expected<void, std::system_error> set(CURLUPart part, const std::string& value, int flags = 0) {
+    if (auto err = curl_url_set(_url.get(), part, value.c_str(), flags); err != CURLUE_OK) {
+      return std::unexpected(make_url_error(err, "curl_url_set"));
+    }
+    return {};
+  }
+  CURLU* operator*() { return _url.get(); }
+};
+
+/// std::expected<url, ...> enhanced with builder pattern and "getters"
+///
+/// NOTE: I am not really sure whether to be impressed or horrified that this
+/// was actually possible, but at least it is cute so I am trying it out.
+class expected_url : public std::expected<url, std::system_error> {
+ public:
+  using std::expected<url, std::system_error>::expected;
+  [[nodiscard]] expected_url with(CURLUPart part, const std::string& value, int flags = 0) && {
+    if (!has_value()) return std::unexpected(error());
+    if (auto ok = expected_url::value().set(part, value, flags); !ok) return std::unexpected(ok.error());
+    return std::move(*this);
+  }
+
+  [[nodiscard]] std::expected<std::string, std::system_error> str(int flags = 0) const {
+    return get(CURLUPART_URL, flags);
+  }
+  [[nodiscard]] std::expected<std::string, std::system_error> get(CURLUPart part, int flags = 0) const {
+    return and_then([part, flags](const auto& url) { return url.get(part, flags); });
+  }
+};
+[[nodiscard]] inline expected_url parse_url(const std::string& url, int flags = 0) {
+  return expected_url().with(CURLUPART_URL, url, flags);
+}
 
 }  // namespace jl::curl

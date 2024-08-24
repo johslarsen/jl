@@ -129,7 +129,7 @@ TEST_SUITE("asynchronous multi API") {
     auto [result, curl] = jl::unwrap(std::move(future));
     CHECK(result == CURLE_OK);
 
-    future = curlm.start(std::move(curl)); // i.e. redo same request
+    future = curlm.start(std::move(curl));  // i.e. redo same request
     CHECK(curlm.action() == 0);
     std::tie(result, curl) = jl::unwrap(std::move(future));
     CHECK(result == CURLE_OK);
@@ -142,5 +142,56 @@ TEST_SUITE("asynchronous multi API") {
 
     CHECK("CURLMcode" == std::string(jl::curl::multi_error_category().name()));
     CHECK("Unknown error" == jl::curl::multi_error_category().message(0xdeadbeef));
+  }
+}
+
+TEST_SUITE("URL API") {
+  TEST_CASE("http://minimal") {
+    auto url = jl::unwrap(jl::curl::parse_url("http://minimal"));
+    CHECK(jl::unwrap(url.str()) == "http://minimal/");
+    CHECK(jl::unwrap(url.get(CURLUPART_SCHEME)) == "http");
+    CHECK(!url.get(CURLUPART_USER));
+    CHECK(!url.get(CURLUPART_PASSWORD));
+    CHECK(jl::unwrap(url.get(CURLUPART_HOST)) == "minimal");
+    CHECK(!url.port());
+    CHECK(url.port(CURLU_DEFAULT_PORT) == 80);
+    CHECK(jl::unwrap(url.get(CURLUPART_PATH)) == "/");
+    CHECK(!url.get(CURLUPART_QUERY));
+    CHECK(!url.get(CURLUPART_FRAGMENT));
+  }
+  TEST_CASE("http://... (full)") {
+    std::string org = "http://user:pw@domain.tld:42/dir/file.suffix?key=value&without#fragment";
+    auto url = jl::unwrap(jl::curl::parse_url(org));
+    CHECK(jl::unwrap(url.str()) == org);
+    CHECK(jl::unwrap(url.get(CURLUPART_SCHEME)) == "http");
+    CHECK(jl::unwrap(url.get(CURLUPART_USER)) == "user");
+    CHECK(jl::unwrap(url.get(CURLUPART_PASSWORD)) == "pw");
+    CHECK(jl::unwrap(url.get(CURLUPART_HOST)) == "domain.tld");
+    CHECK(jl::unwrap(url.port()) == 42);
+    CHECK(jl::unwrap(url.get(CURLUPART_PATH)) == "/dir/file.suffix");
+    CHECK(jl::unwrap(url.get(CURLUPART_QUERY)) == "key=value&without");
+    CHECK(jl::unwrap(url.get(CURLUPART_FRAGMENT)) == "fragment");
+  }
+  TEST_CASE("invalid URLs") {
+    SUBCASE("empty URL is not representable") {
+      CHECK(!jl::curl::parse_url(""));
+      CHECK(!jl::curl::url().str());
+    }
+    SUBCASE("missing scheme") {
+      CHECK(!jl::curl::parse_url("no_scheme"));
+    }
+  }
+
+  TEST_CASE("expected_url as builder") {
+    auto url = jl::curl::expected_url()
+                   .with(CURLUPART_SCHEME, "http")
+                   .with(CURLUPART_HOST, "domain");
+    CHECK(jl::unwrap(url.str()) == "http://domain/");
+  }
+
+  TEST_CASE("CURLU_DEFAULT_SCHEME") {
+    CHECK(!jl::curl::url().get(CURLUPART_SCHEME, CURLU_DEFAULT_SCHEME));
+    auto url = jl::unwrap(jl::curl::parse_url("minimal", CURLU_DEFAULT_SCHEME));
+    CHECK(jl::unwrap(url.str()) == "https://minimal/");
   }
 }
