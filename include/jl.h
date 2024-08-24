@@ -70,6 +70,13 @@ template <typename T>
   return future.get();
 }
 
+/// @returns iterator to the first ready future without blocking
+[[nodiscard]] auto any_ready_of(std::ranges::range auto &&futures) {
+  return std::ranges::find_if(futures, [](auto &&f) {
+    return f.valid() && f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+  });
+}
+
 /// @returns std::expected with the given value or the given error
 /// Like: https://doc.rust-lang.org/std/option/enum.Option.html#method.ok_or
 template <typename T, typename E>

@@ -50,16 +50,6 @@ TEST_SUITE("error handling") {
       CHECK_THROWS_WITH_AS(jl::unwrap(std::expected<void, std::system_error>(std::unexpected(timed_out))),
                            timed_out.what(), decltype(timed_out));
     }
-
-    SUBCASE("move-only future before ready") {
-      std::promise<std::unique_ptr<int>> promise;
-      CHECK_THROWS(std::ignore = jl::unwrap(promise.get_future()));
-    }
-    SUBCASE("move-only future when ready") {
-      std::promise<std::unique_ptr<int>> promise;
-      promise.set_value(nullptr);
-      CHECK(jl::unwrap(promise.get_future()) == nullptr);
-    }
   }
 
   TEST_CASE("ok_or") {

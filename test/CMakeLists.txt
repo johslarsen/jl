@@ -8,6 +8,7 @@ add_executable(
   rw_loop_test.cpp
   span_test.cpp
   strings_test.cpp
+  synchronization_test.cpp
   time_test.cpp
   unique_fd_test.cpp
   unique_mmap_test.cpp
