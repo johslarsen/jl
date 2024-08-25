@@ -380,15 +380,21 @@ using unique_url = std::unique_ptr<CURLU, deleter<curl_url_cleanup>>;
 /// actually possible, but at least it is cute so I am trying it out.
 class url : public std::expected<unique_url, std::system_error> {
  public:
-  using std::expected<unique_url, std::system_error>::expected;
-  url() : std::expected<unique_url, std::system_error>(curl_url()) {
-    if (value() == nullptr) {
-      *this = unexpected_system_error(std::errc::not_enough_memory, "curl_url");
-    }
-  }
   static url parse(const char* url, int flags = 0) {
     return curl::url().with(CURLUPART_URL, url, flags);
   }
+
+  // WARN: I tried `using std::expected<unique_url, std::system_error>::expected;`,
+  // and only overriding the empty constructor. That works fine with clang 18.1.8,
+  // but gcc 14.2.1 20240805 (mistakenly?) use the std::expected constructors
+  // instead, even publicly if I put it under a private section.
+  url() : std::expected<unique_url, std::system_error>(new_url()) {}
+  url(std::unexpected<std::system_error>&& err) noexcept  // NOLINT(*explicit*)
+      : std::expected<unique_url, std::system_error>::expected(std::move(err)) {}
+  url(std::expected<unique_url, std::system_error>&& url) noexcept  // NOLINT(*explicit*)
+      : std::expected<unique_url, std::system_error>::expected(std::move(url)) {}
+  url(unique_url&& url) noexcept  // NOLINT(*explicit*)
+      : std::expected<unique_url, std::system_error>::expected(std::move(url)) {}
 
   [[nodiscard]] url with(CURLUPart part, const char* value, int flags = 0) && {
     if (!has_value()) return std::unexpected(error());
@@ -426,6 +432,12 @@ class url : public std::expected<unique_url, std::system_error> {
   [[nodiscard]] CURLU* ptr() const {
     if (!has_value()) throw std::system_error(error());
     return (*this)->get();
+  }
+
+ private:
+  static std::expected<unique_url, std::system_error> new_url() {
+    if (unique_url url(curl_url()); url != nullptr) return url;
+    return unexpected_system_error(std::errc::not_enough_memory, "curl_url");
   }
 };
 
