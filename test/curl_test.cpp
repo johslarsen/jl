@@ -6,12 +6,12 @@ const std::string url_to_this_file = std::format("file://{}", __FILE__);
 TEST_SUITE("synchronize easy API") {
   TEST_CASE("file://...") {
     SUBCASE("GET") {
-      auto content = jl::unwrap(jl::curl::GET(url_to_this_file));
+      auto content = jl::unwrap(jl::curl::GET(url_to_this_file.c_str()));
       CHECK(content.size() == std::filesystem::file_size(__FILE__));
     }
     SUBCASE("PUT") {
       jl::tmpfd tmp;
-      auto response = jl::unwrap(jl::curl::PUT(tmp.url(), "foo"));
+      auto response = jl::unwrap(jl::curl::PUT(tmp.url().c_str(), "foo"));
       CHECK(response == "");
 
       jl::fd_mmap<char> content(std::move(tmp).unlink());
@@ -87,8 +87,8 @@ TEST_SUITE("asynchronous multi API") {
   TEST_CASE("file://...") {  // which completes on first action() without every registering any poll sockets
     jl::curl::multi curlm;
     std::string a, b;
-    auto af = curlm.start(jl::curl::easy().request(url_to_this_file, jl::curl::overwrite(a)));
-    auto bf = curlm.start(jl::curl::easy().request(url_to_this_file, jl::curl::overwrite(b)));
+    auto af = curlm.start(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::overwrite(a)));
+    auto bf = curlm.start(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::overwrite(b)));
     CHECK(curlm.action() == 0);
 
     CHECK(jl::unwrap(std::move(af)).first == CURLE_OK);
@@ -124,7 +124,7 @@ TEST_SUITE("asynchronous multi API") {
 
   TEST_CASE("reuse same handle") {
     jl::curl::multi curlm;
-    auto future = curlm.start(jl::curl::easy().request(url_to_this_file, jl::curl::discard_body));
+    auto future = curlm.start(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::discard_body));
     CHECK(curlm.action() == 0);
     auto [result, curl] = jl::unwrap(std::move(future));
     CHECK(result == CURLE_OK);
@@ -160,7 +160,7 @@ TEST_SUITE("URL API") {
     CHECK(!url.get(CURLUPART_FRAGMENT));
   }
   TEST_CASE("http://... (full)") {
-    std::string org = "http://user:pw@domain.tld:42/dir/file.suffix?key=value&without#fragment";
+    const char* org = "http://user:pw@domain.tld:42/dir/file.suffix?key=value&without#fragment";
     auto url = jl::curl::url::parse(org);
     CHECK(jl::unwrap(url.str()) == org);
     CHECK(jl::unwrap(url.get(CURLUPART_SCHEME)) == "http");
@@ -192,5 +192,14 @@ TEST_SUITE("URL API") {
   TEST_CASE("CURLU_DEFAULT_SCHEME") {
     CHECK(!jl::curl::url().get(CURLUPART_SCHEME, CURLU_DEFAULT_SCHEME));
     CHECK(jl::unwrap(jl::curl::url::parse("minimal", CURLU_DEFAULT_SCHEME).str()) == "https://minimal/");
+  }
+
+  TEST_CASE("construction and assignment") {
+    jl::curl::url url;
+    jl::curl::url moved_constructed(std::move(url));
+    jl::curl::url from_ptr(jl::curl::unique_url(nullptr));
+
+    url = std::move(moved_constructed);
+    url = jl::curl::unique_url(nullptr);
   }
 }
