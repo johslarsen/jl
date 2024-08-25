@@ -386,8 +386,7 @@ class url : public std::expected<unique_url, std::system_error> {
 
   // WARN: I tried `using std::expected<unique_url, std::system_error>::expected;`,
   // and only overriding the empty constructor. That works fine with clang 18.1.8,
-  // but gcc 14.2.1 20240805 (mistakenly?) use the std::expected constructors
-  // instead, even publicly if I put it under a private section.
+  // but gcc 14.2.1 20240805 (mistakenly?) use std::expected constructors instead.
   url() : std::expected<unique_url, std::system_error>(new_url()) {}
   url(std::unexpected<std::system_error>&& err) noexcept  // NOLINT(*explicit*)
       : std::expected<unique_url, std::system_error>::expected(std::move(err)) {}
