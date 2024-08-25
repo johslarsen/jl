@@ -5,6 +5,7 @@ add_executable(
   error_handling_test.cpp
   fd_mmap_test.cpp
   circular_buffer_test.cpp
+  ring_test.cpp
   rw_loop_test.cpp
   span_test.cpp
   strings_test.cpp

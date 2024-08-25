@@ -1173,12 +1173,45 @@ class RingIndex<Atomic, Capacity, true> {
   [[nodiscard]] T filled(T read) const { return _consumers_write - read; }
 };
 
+/// A basic ring buffer. Given an atomic Index type, one writer and one reader
+/// can safely use this to share data across threads. Even so, it is not
+/// thread-safe to use this if there are multiple readers or writers.
+template <typename T, size_t Capacity, typename Index = uint32_t>
+class Ring {
+  std::array<T, Capacity> _buffer;
+  RingIndex<Index, Capacity> _fifo;
+  size_t _producers_write = 0;
+  size_t _consumers_read = 0;
+
+ public:
+  bool push(T value) {
+    return push_from(value);
+  }
+  bool push_from(T &value) {
+    auto [write, free] = _fifo.write_free(1);
+    if (free == 0) return false;
+
+    _buffer[write % Capacity] = std::move(value);
+    _fifo.store_write(write + 1);
+    return true;
+  }
+
+  std::optional<T> pop() {
+    auto [read, available] = _fifo.read_filled(1);
+    if (available == 0) return std::nullopt;
+
+    _fifo.store_read(read + 1);
+    return std::move(_buffer[read % Capacity]);
+  }
+};
+
 /// A circular (aka. ring) buffer with support for copy-free read/write of
 /// contiguous elements anywhere in the buffer, even across the wrap-around
 /// threshold. Given an atomic Index type, one writer and one reader can safely
 /// use this to share data across threads. Even so, it is not thread-safe to
 /// use this if there are multiple readers or writers.
 template <typename T, size_t Capacity, typename Index = uint32_t>
+  requires std::is_trivially_copyable_v<T>  // because the wrap-around functionality uses mmaps
 class CircularBuffer {
   static_assert((sizeof(T) * Capacity) % (4 << 10) == 0,
                 "CircularBuffer byte capacity must be page aligned");
