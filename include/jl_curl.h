@@ -310,7 +310,6 @@ class multi {
     curlm multi;
   };
   std::unique_ptr<stable_state> _state;
-  std::unordered_map<CURLM*, std::promise<std::pair<CURLcode, easy>>> _results;
 
  public:
   multi() : _state(std::make_unique<stable_state>()) {
@@ -318,15 +317,16 @@ class multi {
     _state->multi.setopt(CURLMOPT_SOCKETFUNCTION, socket_callback);
   }
 
-  [[nodiscard]] std::future<std::pair<CURLcode, easy>> start(easy preconfigured_request) {
-    auto& curl = _state->multi.add(std::move(preconfigured_request));
-    auto [iter, _] = _results.emplace(*curl, std::promise<std::pair<CURLcode, easy>>());
-    return iter->second.get_future();
+  /// Adds this request to the CURLM* handle.
+  /// WARN: nothing happens unless action(...) is called to progress
+  void send(easy preconfigured_request) {
+    _state->multi.add(std::move(preconfigured_request));
   }
 
   /// poll(...) these for activity to delegate to action(...)
   [[nodiscard]] std::span<pollfd> fds() const { return _state->pollfds; }
-  /// upon non-zero revents on a relevant fd, call this with that fd, also call this periodically with CURL_SOCKET_TIMEOUT to progress
+  /// upon non-zero revents on a relevant fd, call this with that fd, also call
+  /// this periodically with CURL_SOCKET_TIMEOUT to progress.
   /// @returns number of still active easy requests on this CURLM
   int action(curl_socket_t sockfd = CURL_SOCKET_TIMEOUT) {
     int active = 0;
@@ -334,23 +334,19 @@ class multi {
     if (auto err = curl_multi_socket_action(*_state->multi, sockfd, 0, &active); err != CURLM_OK) {
       throw make_multi_error(err, "curl_multi_socket_action({}, {}) failed", *_state->multi, sockfd);
     }
-    propagate_results();
     return active;
   }
 
- private:
-  void propagate_results() {
+  /// @returns one of the responses (if any), and the removed handle associated with it
+  std::optional<std::pair<CURLcode, easy>> pop_response() {
     int ignore_nmsg;
-    for (const CURLMsg* m; (m = curl_multi_info_read(*_state->multi, &ignore_nmsg));) {
-      if (m->msg != CURLMSG_DONE) continue;
-      auto promise = _results.find(m->easy_handle);
-      if (promise == _results.end()) continue;  // not supposed to happen
+    const CURLMsg* m = curl_multi_info_read(*_state->multi, &ignore_nmsg);
+    if (m == nullptr || m->msg != CURLMSG_DONE) return std::nullopt;
 
-      promise->second.set_value({m->data.result, _state->multi.release(m->easy_handle)});
-      _results.erase(promise);
-    }
-  }
+    return std::pair{m->data.result, _state->multi.release(m->easy_handle)};
+  };
 
+ private:
   static int socket_callback(CURL* /*easy*/, curl_socket_t s, int what, stable_state* clientp, void* /*socketp*/) {  // NOLINT(*swappable-parameters)
     auto& fds = clientp->pollfds;
     auto fd = std::ranges::find(fds, s, &pollfd::fd);
@@ -361,6 +357,38 @@ class multi {
       fds.emplace_back(pollfd{.fd = s, .events = as_poll_events(what), .revents = 0});
     }
     return 0;
+  }
+};
+
+// Wrapper around the curl_multi_socket_... interface that tracks responses to originating request
+class async {
+  multi _multi;
+  std::unordered_map<CURLM*, std::promise<std::pair<CURLcode, easy>>> _results;
+
+ public:
+  /// Adds this request to the CURLM* handle.
+  /// WARN: nothing happens unless action(...) is called to progress
+  [[nodiscard]] std::future<std::pair<CURLcode, easy>> send(easy preconfigured_request) {
+    CURL* ptr = *preconfigured_request;
+    _multi.send(std::move(preconfigured_request));
+    auto [iter, _] = _results.emplace(ptr, std::promise<std::pair<CURLcode, easy>>());
+    return iter->second.get_future();
+  }
+
+  /// poll(...) these for activity to delegate to action(...)
+  [[nodiscard]] std::span<pollfd> fds() const { return _multi.fds(); }
+  /// upon non-zero revents on a relevant fd, call this with that fd, also call
+  /// this periodically with CURL_SOCKET_TIMEOUT to progress.
+  /// @returns number of still active easy requests on this CURLM
+  int action(curl_socket_t sockfd = CURL_SOCKET_TIMEOUT) {
+    int active = _multi.action(sockfd);
+    for (std::optional<std::pair<CURLcode, easy>> r; (r = _multi.pop_response());) {
+      if (auto promise = _results.find(*r->second); promise != _results.end()) {
+        promise->second.set_value(std::move(*r));
+        _results.erase(promise);
+      }
+    }
+    return active;
   }
 };
 

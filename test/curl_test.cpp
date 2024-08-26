@@ -85,10 +85,10 @@ TEST_SUITE("synchronize easy API") {
 
 TEST_SUITE("asynchronous multi API") {
   TEST_CASE("file://...") {  // which completes on first action() without every registering any poll sockets
-    jl::curl::multi curlm;
+    jl::curl::async curlm;
     std::string a, b;
-    auto af = curlm.start(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::overwrite(a)));
-    auto bf = curlm.start(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::overwrite(b)));
+    auto af = curlm.send(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::overwrite(a)));
+    auto bf = curlm.send(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::overwrite(b)));
     CHECK(curlm.action() == 0);
 
     CHECK(jl::unwrap(std::move(af)).first == CURLE_OK);
@@ -99,10 +99,10 @@ TEST_SUITE("asynchronous multi API") {
 
   // assumes a local `docker run --rm -p 8080:80 ealen/echo-server:0.9.2`
   TEST_CASE("http echoserver" * doctest::skip()) {
-    jl::curl::multi curlm;
+    jl::curl::async curlm;
     std::string a, b;
-    auto af = curlm.start(jl::curl::easy().request("http://localhost:8080/foo", jl::curl::overwrite(a)));
-    auto bf = curlm.start(jl::curl::easy().request("http://localhost:8080/bar", jl::curl::overwrite(b)));
+    auto af = curlm.send(jl::curl::easy().request("http://localhost:8080/foo", jl::curl::overwrite(a)));
+    auto bf = curlm.send(jl::curl::easy().request("http://localhost:8080/bar", jl::curl::overwrite(b)));
 
     while (curlm.action() != 0) {
       if (jl::poll(curlm.fds()) == 0) continue;
@@ -123,13 +123,13 @@ TEST_SUITE("asynchronous multi API") {
   }
 
   TEST_CASE("reuse same handle") {
-    jl::curl::multi curlm;
-    auto future = curlm.start(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::discard_body));
+    jl::curl::async curlm;
+    auto future = curlm.send(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::discard_body));
     CHECK(curlm.action() == 0);
     auto [result, curl] = jl::unwrap(std::move(future));
     CHECK(result == CURLE_OK);
 
-    future = curlm.start(std::move(curl));  // i.e. redo same request
+    future = curlm.send(std::move(curl));  // i.e. redo same request
     CHECK(curlm.action() == 0);
     std::tie(result, curl) = jl::unwrap(std::move(future));
     CHECK(result == CURLE_OK);

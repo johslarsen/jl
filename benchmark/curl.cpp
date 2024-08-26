@@ -16,17 +16,15 @@ void BM_CURLMReleaseAndReaddHandles(benchmark::State& state) {
 BENCHMARK(BM_CURLMReleaseAndReaddHandles)->Range(1, 4096);
 
 void BM_CURLMEmptyFileRequests(benchmark::State& state) {
-  std::vector<std::future<std::pair<CURLcode, jl::curl::easy>>> results(state.range(0));
   jl::curl::multi curlm;
-  for (auto& result : results) {
-    result = curlm.start(jl::curl::easy().request("file:///dev/null", jl::curl::discard_body));
+  for (long i = 0; i < state.range(0); ++i) {
+    curlm.send(jl::curl::easy().request("file:///dev/null", jl::curl::discard_body));
   }
 
   for (auto _ : state) {
     curlm.action();
-    for (auto& result : results) {
-      auto [_, curl] = result.get();
-      result = curlm.start(std::move(curl));
+    for (std::optional<std::pair<CURLcode, jl::curl::easy>> r; (r = curlm.pop_response());) {
+      curlm.send(std::move(r->second));
     }
   }
 }
