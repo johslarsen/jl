@@ -65,6 +65,14 @@ concept numeric = std::integral<T> || std::floating_point<T>;
 template <typename T, typename U>
 concept bitcastable_to = requires(T t) { std::bit_cast<U>(t); };
 
+template <typename T, typename... Us>
+concept any_of = (... || std::same_as<std::remove_cvref_t<T>, Us>);
+
+template <class... Ts>
+struct overload : Ts... {
+  using Ts::operator()...;
+};
+
 /// @returns expected value or throw its error
 /// Like: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap
 template <typename T, typename E>
