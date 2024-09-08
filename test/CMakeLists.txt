@@ -16,6 +16,7 @@ add_executable(
   unique_mmap_test.cpp
   unique_addr_test.cpp
   unique_socket_test.cpp
+  vectors_test.cpp
   test.cpp)
 target_link_libraries(jl_test jl doctest)
 add_test(jl_test jl_test)

@@ -1341,4 +1341,49 @@ template <numeric T>
   return value;
 }
 
+/// A tuple of vectors acting like a vector of tuples
+template <typename... Ts>
+struct vectors : public std::tuple<std::vector<Ts>...> {
+  // Inspired by the initial and simplest version from Björn Fahller's talk:
+  //     https://youtu.be/XJzs4kC9d-Y?feature=shared&t=549
+
+  using std::tuple<std::vector<Ts>...>::tuple;
+
+  // gory implementation details to quack like the most relevant parts
+  // of a std::vector<std::tuple<Ts...>> follows:
+
+  constexpr std::tuple<Ts &...> operator[](size_t i) {
+    return [&]<size_t... Is>(std::index_sequence<Is...>) {
+      return std::tuple<Ts &...>{std::get<Is>(*this)[i]...};
+    }(std::index_sequence_for<Ts...>{});
+  }
+
+  template <typename... Args>
+  constexpr std::tuple<Ts &...> emplace_back(Args &&...args) {
+    return [&]<size_t... Is, typename T>(std::index_sequence<Is...>, T &&t) {
+      return std::tuple<Ts &...>{std::get<Is>(*this).emplace_back(std::get<Is>(std::forward<T>(t)))...};
+    }(std::index_sequence_for<Ts...>{}, std::forward_as_tuple(std::forward<Args>(args)...));
+  }
+
+  [[nodiscard]] constexpr std::size_t size() const { return std::get<0>(*this).size(); }
+  [[nodiscard]] constexpr std::size_t capacity() const { return std::get<0>(*this).capacity(); }
+  [[nodiscard]] constexpr bool empty() const { return std::get<0>(*this).empty(); }
+
+  constexpr void reserve(size_t new_cap) {
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      (std::get<Is>(*this).reserve(new_cap), ...);
+    }(std::index_sequence_for<Ts...>{});
+  }
+  constexpr void resize(size_t count) {
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      (std::get<Is>(*this).resize(count), ...);
+    }(std::index_sequence_for<Ts...>{});
+  }
+  constexpr void clear() {
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      (std::get<Is>(*this).clear(), ...);
+    }(std::index_sequence_for<Ts...>{});
+  }
+};
+
 }  // namespace jl
