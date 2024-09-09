@@ -1341,49 +1341,103 @@ template <numeric T>
   return value;
 }
 
-/// A tuple of vectors acting like a vector of tuples
-template <typename... Ts>
-struct vectors : public std::tuple<std::vector<Ts>...> {
+/// A tuple of array-like structures acting like a array-like structure of tuples
+template <std::ranges::random_access_range... Rs>
+class rows {
+ public:
   // Inspired by the initial and simplest version from Björn Fahller's talk:
   //     https://youtu.be/XJzs4kC9d-Y?feature=shared&t=549
+  //
 
-  using std::tuple<std::vector<Ts>...>::tuple;
-
-  // gory implementation details to quack like the most relevant parts
-  // of a std::vector<std::tuple<Ts...>> follows:
-
-  constexpr std::tuple<Ts &...> operator[](size_t i) {
-    return [&]<size_t... Is>(std::index_sequence<Is...>) {
-      return std::tuple<Ts &...>{std::get<Is>(*this)[i]...};
-    }(std::index_sequence_for<Ts...>{});
+  constexpr rows() = default;
+  constexpr explicit rows(Rs... columns) noexcept : _columns(std::move(columns)...) {
+    [&]<size_t... Js>(std::index_sequence<Js...>) {
+      // assert((std::get<Js>(_columns).size() == ...));
+    }(std::index_sequence_for<Rs...>{});
   }
+
+  template <size_t j>
+  [[nodiscard]] constexpr auto &column() const { return std::get<j>(_columns); }
+
+  // gory implementation details to quack like the most relevant parts of std::span<std::tuple<Ts...>> follows:
+
+  /// @returns std::tuple<maybe const &, ...>
+  template <typename Self>
+  constexpr auto operator[](this Self &&self, size_t i) {
+    return [&]<size_t... Js>(std::index_sequence<Js...>) {
+      if constexpr (std::is_const_v<std::remove_reference_t<Self>>) {
+        return std::tuple<std::ranges::range_const_reference_t<Rs>...>{std::get<Js>(self._columns)[i]...};
+      } else {
+        return std::tuple<std::ranges::range_reference_t<Rs>...>{std::get<Js>(self._columns)[i]...};
+      }
+    }(std::index_sequence_for<Rs...>{});
+  }
+  /// @returns std::tuple<maybe const &, ...> or throws on out of bounds
+  template <typename Self>
+  constexpr auto at(this Self &&self, size_t i) {
+    if (i >= self.size()) throw std::out_of_range(std::format("rows::at {} >= {}", i, self.size()));
+    return self.operator[](i);
+  }
+
+  [[nodiscard]] constexpr std::size_t size() const { return std::get<0>(_columns).size(); }
+  [[nodiscard]] constexpr bool empty() const { return std::get<0>(_columns).empty(); }
+
+ protected:
+  template <size_t j>
+  [[nodiscard]] auto &mutable_column() { return std::get<j>(_columns); }
+
+ private:
+  std::tuple<Rs...> _columns;
+};
+
+template <size_t N, typename... Rs>
+using arrays = rows<std::array<Rs, N>...>;
+
+template <std::ranges::random_access_range... Rs>
+class resizeable_rows : public rows<Rs...> {  // e.g. std::valarray
+ public:
+  using rows<Rs...>::rows;
+
+  constexpr void resize(size_t count) {
+    [&]<size_t... Js>(std::index_sequence<Js...>) {
+      (rows<Rs...>::template mutable_column<Js>().resize(count), ...);
+    }(std::index_sequence_for<Rs...>{});
+  }
+
+  // implemented via resize, because std::valarray have no clear
+  constexpr void clear() { resize(0); }
+};
+
+template <std::ranges::random_access_range... Rs>
+class dynamic_rows : public resizeable_rows<Rs...> {  // e.g. std::deque
+ public:
+  using resizeable_rows<Rs...>::resizeable_rows;
 
   template <typename... Args>
-  constexpr std::tuple<Ts &...> emplace_back(Args &&...args) {
-    return [&]<size_t... Is, typename T>(std::index_sequence<Is...>, T &&t) {
-      return std::tuple<Ts &...>{std::get<Is>(*this).emplace_back(std::get<Is>(std::forward<T>(t)))...};
-    }(std::index_sequence_for<Ts...>{}, std::forward_as_tuple(std::forward<Args>(args)...));
-  }
-
-  [[nodiscard]] constexpr std::size_t size() const { return std::get<0>(*this).size(); }
-  [[nodiscard]] constexpr std::size_t capacity() const { return std::get<0>(*this).capacity(); }
-  [[nodiscard]] constexpr bool empty() const { return std::get<0>(*this).empty(); }
-
-  constexpr void reserve(size_t new_cap) {
-    [&]<size_t... Is>(std::index_sequence<Is...>) {
-      (std::get<Is>(*this).reserve(new_cap), ...);
-    }(std::index_sequence_for<Ts...>{});
-  }
-  constexpr void resize(size_t count) {
-    [&]<size_t... Is>(std::index_sequence<Is...>) {
-      (std::get<Is>(*this).resize(count), ...);
-    }(std::index_sequence_for<Ts...>{});
-  }
-  constexpr void clear() {
-    [&]<size_t... Is>(std::index_sequence<Is...>) {
-      (std::get<Is>(*this).clear(), ...);
-    }(std::index_sequence_for<Ts...>{});
+  constexpr std::tuple<std::ranges::range_value_t<Rs> &...> emplace_back(Args &&...args) {
+    return [&]<size_t... Js, typename T>(std::index_sequence<Js...>, T &&t) {
+      return std::tuple<std::ranges::range_value_t<Rs> &...>{
+          rows<Rs...>::template mutable_column<Js>().emplace_back(std::get<Js>(std::forward<T>(t)))...,
+      };
+    }(std::index_sequence_for<Rs...>{}, std::forward_as_tuple(std::forward<Args>(args)...));
   }
 };
+
+/// A tuple of vector-like structures acting like a vector-like structure of tuples
+template <std::ranges::random_access_range... Rs>
+class reservable_rows : public dynamic_rows<Rs...> {
+ public:
+  using dynamic_rows<Rs...>::dynamic_rows;
+
+  [[nodiscard]] constexpr std::size_t capacity() const { return rows<Rs...>::template column<0>().capacity(); }
+  constexpr void reserve(size_t new_cap) {
+    [&]<size_t... Js>(std::index_sequence<Js...>) {
+      (rows<Rs...>::template mutable_column<Js>().reserve(new_cap), ...);
+    }(std::index_sequence_for<Rs...>{});
+  }
+};
+
+template <typename... Ts>
+using vectors = reservable_rows<std::vector<Ts>...>;
 
 }  // namespace jl

@@ -7,6 +7,7 @@ add_executable(
   circular_buffer_test.cpp
   misc_test.cpp
   ring_test.cpp
+  rows_test.cpp
   rw_loop_test.cpp
   span_test.cpp
   strings_test.cpp
@@ -16,7 +17,6 @@ add_executable(
   unique_mmap_test.cpp
   unique_addr_test.cpp
   unique_socket_test.cpp
-  vectors_test.cpp
   test.cpp)
 target_link_libraries(jl_test jl doctest)
 add_test(jl_test jl_test)
