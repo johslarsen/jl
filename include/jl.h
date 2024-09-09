@@ -636,8 +636,7 @@ class tmpfd {
   explicit tmpfd(const std::string &prefix = "/tmp/jl_tmpfile_", const std::string &suffix = "")
       : tmpfd(std::format("{}XXXXXX{}", prefix, suffix), static_cast<int>(suffix.length())) {}
 
-  template <typename Self>
-  [[nodiscard]] auto *operator->(this Self &self) noexcept { return &self._fd; }
+  [[nodiscard]] auto *operator->(this auto &self) noexcept { return &self._fd; }
 
   [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
   [[nodiscard]] std::string url() const noexcept { return std::format("file://{}", path().string()); }
@@ -700,8 +699,7 @@ class unique_addr {
     _addr.reset(result);
   }
 
-  template <typename Self>
-  [[nodiscard]] auto *get(this Self &self) { return self._addr.get(); }
+  [[nodiscard]] auto *get(this auto &self) { return self._addr.get(); }
   [[nodiscard]] std::string string() const { return std::format("{}:{}", uri_host(_host), _port); }
 
   ~unique_addr() = default;
@@ -1012,13 +1010,10 @@ class unique_mmap {
     return map;
   }
 
-  template <typename Self>
-  [[nodiscard]] auto &operator[](this Self &self, size_t idx) noexcept { return self._map[idx]; }
+  [[nodiscard]] auto &operator[](this auto &self, size_t idx) noexcept { return self._map[idx]; }
 
-  template <typename Self>
-  [[nodiscard]] auto &operator*(this Self &self) noexcept { return self._map; }
-  template <typename Self>
-  [[nodiscard]] auto *operator->(this Self &self) noexcept { return &self._map; }
+  [[nodiscard]] auto &operator*(this auto &self) noexcept { return self._map; }
+  [[nodiscard]] auto *operator->(this auto &self) noexcept { return &self._map; }
 
   /// The count parameter is in counts of T not bytes.
   /// @throws std::system_error with errno and errmsg if it fails.
@@ -1067,13 +1062,10 @@ class fd_mmap {
 
   [[nodiscard]] int fd() const noexcept { return _fd.fd(); }
 
-  template <typename Self>
-  [[nodiscard]] auto &operator[](this Self &self, size_t idx) noexcept { return self._map[idx]; }
+  [[nodiscard]] auto &operator[](this auto &self, size_t idx) noexcept { return self._map[idx]; }
 
-  template <typename Self>
-  [[nodiscard]] auto &operator*(this Self &self) noexcept { return self._map; }
-  template <typename Self>
-  [[nodiscard]] auto *operator->(this Self &self) noexcept { return &self._map; }
+  [[nodiscard]] auto &operator*(this auto &self) noexcept { return self._map; }
+  [[nodiscard]] auto *operator->(this auto &self) noexcept { return &self._map; }
 
   /// The count parameter is in counts of T not bytes. New mapping is relative
   /// to offset from construction.
@@ -1259,8 +1251,7 @@ class CircularBuffer {
 
   /// "Give back" the part at the beginning of the span from peek_back() where
   /// you wrote data.
-  template <typename Self>
-  size_t commit_written(this Self &self, std::span<T> &&written) noexcept {
+  size_t commit_written(this auto &self, std::span<T> &&written) noexcept {
     self._producers_write += written.size();
     self._fifo.store_write(self._producers_write);
     return written.size();
@@ -1268,8 +1259,7 @@ class CircularBuffer {
 
   /// @returns a span where you can read available data from the buffer. Its
   /// size is limited by the amount of available data.
-  template <typename Self>
-  [[nodiscard]] auto peek_front(this Self &self, size_t max) noexcept {
+  [[nodiscard]] auto peek_front(this auto &self, size_t max) noexcept {
     auto [read, available] = self._fifo.read_filled(max);
     return std::span{&self._data[read % Capacity], std::min(max, static_cast<size_t>(available))};
   }
@@ -1363,7 +1353,7 @@ class rows {
 
   /// @returns std::tuple<maybe const &, ...>
   template <typename Self>
-  constexpr auto operator[](this Self &&self, size_t i) {
+  constexpr auto operator[](this Self &self, size_t i) {
     return [&]<size_t... Js>(std::index_sequence<Js...>) {
       if constexpr (std::is_const_v<std::remove_reference_t<Self>>) {
         return std::tuple<std::ranges::range_const_reference_t<Rs>...>{std::get<Js>(self._columns)[i]...};
@@ -1373,8 +1363,7 @@ class rows {
     }(std::index_sequence_for<Rs...>{});
   }
   /// @returns std::tuple<maybe const &, ...> or throws on out of bounds
-  template <typename Self>
-  constexpr auto at(this Self &&self, size_t i) {
+  constexpr auto at(this auto &self, size_t i) {
     if (i >= self.size()) throw std::out_of_range(std::format("rows::at {} >= {}", i, self.size()));
     return self.operator[](i);
   }
