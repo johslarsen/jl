@@ -1415,8 +1415,8 @@ class rows {
   std::tuple<Rs...> _columns;
 };
 
-template <size_t N, typename... Rs>
-using arrays = rows<std::array<Rs, N>...>;
+template <size_t N, typename... Ts>
+using arrays = rows<std::array<Ts, N>...>;
 
 template <std::ranges::random_access_range... Rs>
 class resizeable_rows : public rows<Rs...> {  // e.g. std::valarray
