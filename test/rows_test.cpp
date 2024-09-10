@@ -62,4 +62,14 @@ TEST_SUITE("columns") {
         };
     CHECK(std::tuple<uint32_t, float, int, char, char, int, int>{1, 1.1, -1, 'b', 'B', 10, 100} == rows[1]);
   }
+
+  TEST_CASE("compatible with ranges") {
+    static_assert(std::ranges::random_access_range<jl::rows<jl::vectors<int, float>>>);
+    jl::vectors<int, float> vectors{
+        {0, 1, 2, 3},
+        {0.0, 1.1, 2.2, 3.3},
+    };
+    auto tuples = std::ranges::to<std::vector>(vectors);
+    CHECK(std::tuple<int, float>(1, 1.1) == tuples.at(1));
+  }
 }

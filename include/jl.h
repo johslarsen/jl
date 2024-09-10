@@ -439,6 +439,39 @@ inline std::span<T> copy(ListOfSpanable &&source, std::span<T> dest) noexcept {
   return copied;
 }
 
+/// A std::random_access_iterator implemented by keeping an index into a range
+///
+/// NOTE: actually requires std::ranges::random_access_range<R>. However, if
+/// that was to be enforced, then this could not be used to implement the
+/// iterator for said range, because it would not satisfy the range concept
+/// needed for this until it already had a proper iterator implemented.
+template <typename R, typename T = std::ranges::range_value_t<R>>
+struct idx_iter {
+  R *_range = nullptr;
+  size_t _i = 0;
+
+  using difference_type = ptrdiff_t;
+  using value_type = T;
+
+  [[nodiscard]] decltype(auto) operator*(this auto &self) { return (*self._range)[self._i]; }
+  [[nodiscard]] decltype(auto) operator[](this auto &self, difference_type n) { return (*self._range)[self._i + n]; }
+
+  constexpr idx_iter &operator++() { return ++_i, *this; }
+  constexpr idx_iter &operator--() { return --_i, *this; }
+  constexpr idx_iter operator++(int) { return std::exchange(*this, {_range, _i + 1}); }
+  constexpr idx_iter operator--(int) { return std::exchange(*this, {_range, _i - 1}); }
+
+  [[nodiscard]] constexpr difference_type operator-(const idx_iter &other) const { return _i - other._i; }
+  [[nodiscard]] constexpr idx_iter operator-(difference_type n) const { return {_range, _i - n}; }
+  [[nodiscard]] constexpr friend idx_iter operator+(difference_type n, const idx_iter &iter) { return {iter._range, iter.iter._i + n}; }
+  [[nodiscard]] constexpr idx_iter operator+(difference_type n) const { return {_range, _i + n}; }
+  [[nodiscard]] constexpr idx_iter &operator+=(difference_type n) { return _i += n, *this; }
+  [[nodiscard]] constexpr idx_iter &operator-=(difference_type n) { return _i -= n, *this; }
+
+  [[nodiscard]] constexpr bool operator==(const idx_iter &other) const { return _i == other._i; }
+  [[nodiscard]] constexpr auto operator<=>(const idx_iter &other) const { return _i <=> other._i; }
+};
+
 template <typename T, std::size_t Extent = std::dynamic_extent>
 class chunked {
   std::span<T, Extent> _buffer;
@@ -469,8 +502,7 @@ class chunked {
     iter operator--(int) { return std::exchange(*this, {_buffer, _n, _i - 1}); }
 
     difference_type operator-(const iter &other) const { return _i - other._i; }
-    friend iter operator-(difference_type n, const iter &a) { return {a._buffer, a._n, n + a._i}; }
-    friend iter operator-(const iter &a, difference_type n) { return {a._buffer, a._n, a._i + n}; }
+    friend iter operator-(const iter &a, difference_type n) { return {a._buffer, a._n, a._i - n}; }
     friend iter operator+(difference_type n, const iter &a) { return {a._buffer, a._n, n + a._i}; }
     friend iter operator+(const iter &a, difference_type n) { return {a._buffer, a._n, a._i + n}; }
     iter &operator+=(difference_type n) {
@@ -1337,7 +1369,8 @@ class rows {
  public:
   // Inspired by the initial and simplest version from Björn Fahller's talk:
   //     https://youtu.be/XJzs4kC9d-Y?feature=shared&t=549
-  //
+
+  using iterator = idx_iter<rows, std::tuple<std::ranges::range_reference_t<Rs>...>>;
 
   constexpr rows() = default;
   constexpr explicit rows(Rs... columns) noexcept : _columns(std::move(columns)...) {
@@ -1370,6 +1403,9 @@ class rows {
 
   [[nodiscard]] constexpr std::size_t size() const { return std::get<0>(_columns).size(); }
   [[nodiscard]] constexpr bool empty() const { return std::get<0>(_columns).empty(); }
+
+  [[nodiscard]] iterator begin() { return {this, 0}; }
+  [[nodiscard]] iterator end() { return {this, size()}; }
 
  protected:
   template <size_t j>
