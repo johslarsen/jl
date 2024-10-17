@@ -16,7 +16,7 @@ target_compile_features(jl INTERFACE cxx_std_23)
 add_library(jl_curl INTERFACE include/jl_curl.h)
 target_link_libraries(jl_curl INTERFACE jl curl)
 
-add_definitions(-Wall -Wextra -march=native)
+add_definitions(-Wall -Wextra -Wno-unknown-warning-option -march=native)
 
 set(BENCHMARK_ENABLE_TESTING OFF)
 if(JL_ENABLE_TESTING AND EXISTS
