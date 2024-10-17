@@ -412,16 +412,13 @@ class url : public std::expected<unique_url, std::system_error> {
     return curl::url().with(CURLUPART_URL, url, flags);
   }
 
-  // WARN: I tried `using std::expected<unique_url, std::system_error>::expected;`,
-  // and only overriding the empty constructor. That works fine with clang 18.1.8,
-  // but gcc 14.2.1 20240805 (mistakenly?) use std::expected constructors instead.
-  url() : std::expected<unique_url, std::system_error>(new_url()) {}
-  url(std::unexpected<std::system_error>&& err) noexcept  // NOLINT(*explicit*)
-      : std::expected<unique_url, std::system_error>::expected(std::move(err)) {}
-  url(std::expected<unique_url, std::system_error>&& url) noexcept  // NOLINT(*explicit*)
-      : std::expected<unique_url, std::system_error>::expected(std::move(url)) {}
-  url(unique_url&& url) noexcept  // NOLINT(*explicit*)
-      : std::expected<unique_url, std::system_error>::expected(std::move(url)) {}
+  // NOTE: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=116492 before gcc 14.3
+  using std::expected<unique_url, std::system_error>::expected;
+  url() : std::expected<unique_url, std::system_error>(curl_url()) {
+    if (value() == nullptr) {
+      *this = unexpected_system_error(std::errc::not_enough_memory, "curl_url");
+    }
+  }
 
   [[nodiscard]] url with(CURLUPart part, const char* value, int flags = 0) && {
     if (!has_value()) return std::unexpected(error());
@@ -459,12 +456,6 @@ class url : public std::expected<unique_url, std::system_error> {
   [[nodiscard]] CURLU* ptr() const {
     if (!has_value()) throw std::system_error(error());
     return (*this)->get();
-  }
-
- private:
-  static std::expected<unique_url, std::system_error> new_url() {
-    if (unique_url url(curl_url()); url != nullptr) return url;
-    return unexpected_system_error(std::errc::not_enough_memory, "curl_url");
   }
 };
 
