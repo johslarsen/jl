@@ -1,5 +1,8 @@
 #include <doctest/doctest.h>
 #include <jl_curl.h>
+#include <jl_posix.h>
+
+#include <filesystem>
 
 const std::string url_to_this_file = std::format("file://{}", __FILE__);
 

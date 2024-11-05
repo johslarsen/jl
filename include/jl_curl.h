@@ -1,8 +1,10 @@
 #pragma once
 
 #include <curl/curl.h>
+#include <poll.h>
 
 #include <future>
+#include <unordered_map>
 
 #include "jl.h"
 

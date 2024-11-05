@@ -1,9 +1,5 @@
 #include <benchmark/benchmark.h>
-#include <jl.h>
-
-#include <iostream>
-#include <latch>
-#include <thread>
+#include <jl_posix.h>
 
 auto* configure_arguments(auto* b) {
   return b;

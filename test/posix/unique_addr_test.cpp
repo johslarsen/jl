@@ -1,5 +1,5 @@
 #include <doctest/doctest.h>
-#include <jl.h>
+#include <jl_posix.h>
 
 TEST_SUITE("unique_addr") {
   TEST_CASE("empty host indicates bind address") {

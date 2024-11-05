@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
 #include <fcntl.h>
-#include <jl.h>
+#include <jl_posix.h>
 
 TEST_SUITE("unique_mmap") {
   TEST_CASE("move and assignment neither double free nor leaks") {
