@@ -16,6 +16,16 @@ TEST_SUITE("time") {
     CHECK(1 == one_ns.tv_nsec);
   }
 
+  TEST_CASE_TEMPLATE("clamped_cast", T, std::chrono::seconds, std::chrono::days, std::chrono::nanoseconds, std::chrono::duration<double>) {
+    using namespace std::chrono;
+    CHECK(jl::clamped_cast<nanoseconds>(T::min()) <= nanoseconds::min() + duration_cast<nanoseconds>(T(1)));
+    CHECK(jl::clamped_cast<nanoseconds>(T::max()) >= nanoseconds::max() - duration_cast<nanoseconds>(T(1)));
+  }
+  TEST_CASE("clamped_cast only compiles if it is safe to use") {
+    // jl::clamped_cast<std::chrono::nanoseconds>(std::chrono::duration<int8_t>::min());
+    // jl::clamped_cast<std::chrono::nanoseconds>(std::chrono::duration<int64_t, std::pico>::min());
+  }
+
   TEST_CASE("clock conversion") {
     using namespace std::chrono;
     auto last_leap = utc_clock::from_sys(sys_days(January / 1 / 2017)) - 1s;

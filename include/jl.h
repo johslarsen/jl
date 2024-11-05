@@ -645,6 +645,22 @@ inline std::timespec as_timespec(std::chrono::nanoseconds ns) {
   return {.tv_sec = s.count(), .tv_nsec = (ns - s).count()};
 }
 
+/// std::chrono::duration_cast, but safely clamped close to ToDur::min/max when the input duration have a larger range
+template <typename ToDur, typename Rep, typename Period>
+ToDur clamped_cast(const std::chrono::duration<Rep, Period> &t) {
+  using namespace std::chrono;
+  static_assert(duration<double>(duration<Rep, Period>::max()) >= duration<double>(ToDur::max()),
+                "boundaries for ToDur must not overflow in the type of the input duration");
+
+  // makes sure boundaries are small enough that loss of precision does not overflow ToDur.
+  // NOTE: this is a no-op for integral types, since their epsilon is defined to be 0
+  constexpr auto margin = 1 - std::numeric_limits<Rep>::epsilon();
+
+  constexpr auto min = margin * ceil<duration<Rep, Period>>(ToDur::min());
+  constexpr auto max = margin * floor<duration<Rep, Period>>(ToDur::max());
+  return std::chrono::duration_cast<ToDur>(std::clamp(t, min, max));
+}
+
 /// @returns nfd
 inline int poll(std::span<pollfd> fds, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(0), std::optional<sigset_t> sigset = std::nullopt) {
   auto ts = as_timespec(timeout);
