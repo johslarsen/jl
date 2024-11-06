@@ -493,6 +493,61 @@ ToDur clamped_cast(const std::chrono::duration<Rep, Period> &t) {
   return std::chrono::duration_cast<ToDur>(std::clamp(t, min, max));
 }
 
+template <typename Clock = std::chrono::system_clock>
+struct realtimer {
+  Clock::duration elapsed{};  //< Total time spent between start()s and stop()s.
+  // NOTE: negative after start(), but before stop(), idea from and see details in
+  // https://youtu.be/ElUM28ECjy8?feature=shared&t=3015
+
+  void start(Clock::time_point now = Clock::now()) {
+    assert(elapsed >= typename Clock::duration{});
+    elapsed -= now.time_since_epoch();
+  }
+  void stop(Clock::time_point now = Clock::now()) {
+    assert(elapsed < typename Clock::duration{});
+    elapsed += now.time_since_epoch();
+  }
+};
+struct usertimer {
+  std::clock_t elapsed{};  //< Total time spent between start()s and stop()s.
+  // NOTE: negative after start(), but before stop(), idea from and see details in
+  // https://youtu.be/ElUM28ECjy8?feature=shared&t=3015
+
+  void start(clock_t now = std::clock()) {
+    assert(elapsed >= 0);
+    elapsed -= now;
+  }
+  void stop(clock_t now = std::clock()) {
+    assert(elapsed < 0);
+    elapsed += now;
+  }
+};
+
+/// Start the given timer at construction and stop it on destruction
+template <typename Timer>
+class scoped_timer {
+  Timer &_timer;
+
+ public:
+  explicit scoped_timer(Timer &timer) : _timer(timer) { timer.start(); }
+  ~scoped_timer() { _timer.stop(); }
+  scoped_timer(const scoped_timer &) = delete;
+  scoped_timer &operator=(const scoped_timer &) = delete;
+};
+
+struct elapsed {
+  realtimer<std::chrono::system_clock> real;
+  usertimer user;
+
+  void start() { real.start(), user.start(); }
+  void stop() { real.stop(), user.stop(); }
+
+  [[nodiscard]] auto
+  time_rest_of_scope() {
+    return std::forward_as_tuple(scoped_timer(real), scoped_timer(user));
+  }
+};
+
 [[nodiscard]] inline std::string uri_host(const std::string &host) {
   return host.find(':') == std::string::npos ? host : std::format("[{}]", host);
 }

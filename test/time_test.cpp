@@ -26,6 +26,48 @@ TEST_SUITE("time") {
     // jl::clamped_cast<std::chrono::nanoseconds>(std::chrono::duration<int64_t, std::pico>::min());
   }
 
+  TEST_CASE("realtime") {
+    jl::realtimer timer;
+
+    auto y2k38 = std::chrono::sys_seconds(std::chrono::seconds(1L << 31));
+
+    timer.start(y2k38);
+    timer.stop(y2k38 + std::chrono::seconds(42));
+    CHECK(timer.elapsed == std::chrono::seconds(42));
+  }
+  TEST_CASE("usertime") {
+    jl::usertimer timer;
+
+    timer.start(42);
+    timer.stop(52);
+    CHECK(timer.elapsed == 10);
+  }
+
+  TEST_CASE("scoped_timer") {
+    jl::realtimer timer;
+    {
+      jl::scoped_timer _(timer);
+    }
+    CHECK(timer.elapsed > std::chrono::nanoseconds(0));
+  }
+
+  TEST_CASE("elapsed") {
+    jl::elapsed timer;
+    timer.start();
+    timer.stop();
+
+    auto real = timer.real.elapsed;
+    auto user = timer.user.elapsed;
+    CHECK(real > std::chrono::nanoseconds(0));
+    CHECK(user > 0);
+
+    {
+      auto _ = timer.time_rest_of_scope();
+    }
+    CHECK(timer.real.elapsed > real);
+    CHECK(timer.user.elapsed > user);
+  }
+
   TEST_CASE("clock conversion") {
     using namespace std::chrono;
     auto last_leap = utc_clock::from_sys(sys_days(January / 1 / 2017)) - 1s;
