@@ -5,6 +5,7 @@
 #include <charconv>
 #include <chrono>
 #include <climits>
+#include <cmath>
 #include <cstring>
 #include <format>
 #include <future>
@@ -721,5 +722,60 @@ class reservable_rows : public dynamic_rows<Rs...> {
 
 template <typename... Ts>
 using vectors = reservable_rows<std::vector<Ts>...>;
+
+struct istat {
+  size_t n = 0;
+  double mean = 0.0;
+
+  double add(double x) {
+    double delta = x - mean;
+
+    ++n;
+    mean += delta / static_cast<double>(n);
+    sum_square_delta_mean += delta * (x - mean);
+    return x;
+  }
+  auto &&add(std::ranges::range auto &&r) {
+    for (const auto &x : r) add(static_cast<double>(x));
+    return std::forward<decltype(r)>(r);
+  }
+
+  double variance() { return sum_square_delta_mean / static_cast<double>(n); }
+  double stddev() { return std::sqrt(variance()); }
+
+ private:
+  double sum_square_delta_mean = 0.0;
+};
+
+double mean(std::ranges::sized_range auto &&r) {
+  double n = r.size();
+  return std::ranges::fold_left(r, 0.0, std::plus{}) / n;
+}
+double variance(std::ranges::sized_range auto &&r) {
+  auto square_delta_mean = [mu = mean(r)](double sum, double x) { return sum + std::pow(x - mu, 2); };
+  return std::ranges::fold_left(r, 0.0, square_delta_mean) / static_cast<double>(r.size());
+}
+double stddev(std::ranges::sized_range auto &&r) {
+  return std::sqrt(variance(std::forward<decltype(r)>(r)));
+}
+
+template <typename T>
+struct peaks {
+  T _min = std::numeric_limits<T>::max();
+  T _max = std::numeric_limits<T>::min();
+
+  T add(T x) {
+    _min = std::min(_min, x);
+    _max = std::max(_max, x);
+    return x;
+  }
+  auto &&add(std::ranges::range auto &&r) {
+    for (const auto &x : r) add(static_cast<double>(x));
+    return std::forward<decltype(r)>(r);
+  }
+
+  std::optional<T> min() { return _min < _max ? std::optional(_min) : std::nullopt; }
+  std::optional<T> max() { return _min < _max ? std::optional(_max) : std::nullopt; }
+};
 
 }  // namespace jl

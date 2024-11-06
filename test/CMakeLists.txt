@@ -8,6 +8,7 @@ add_executable(
   rows_test.cpp
   rw_loop_test.cpp
   span_test.cpp
+  stats_test.cpp
   strings_test.cpp
   synchronization_test.cpp
   time_test.cpp
