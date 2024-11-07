@@ -24,6 +24,40 @@ TEST_SUITE("stat") {
     CHECK(one_to_hundred_stat.stddev() == stddev_1_100);
     CHECK(jl::stddev(one_to_hundred) == stddev_1_100);
   }
+
+  TEST_CASE("combine istats") {
+    jl::istat one_by_one, group_by_group;
+    for (auto i : std::views::iota(1, 101)) {
+      auto upto_i = std::views::iota(1, i);
+      one_by_one.add(upto_i);
+
+      jl::istat group;
+      group.add(upto_i);
+      group_by_group.add(group);
+    }
+    CHECK(one_by_one.n == group_by_group.n);
+    CHECK(group_by_group.mean == doctest::Approx(one_by_one.mean));
+    CHECK(group_by_group.stddev() == doctest::Approx(one_by_one.stddev()));
+  }
+  TEST_CASE("combine istats special cases") {
+    jl::istat empty;
+    empty.add(std::array{empty, empty});
+    CHECK(empty.n == 0);
+    CHECK(empty.mean == 0.0);
+
+    jl::istat stat;
+    stat.add(42.0);
+    stat.add(empty);
+    CHECK(stat.n == 1);
+    CHECK(stat.mean == 42.0);
+    CHECK(stat.stddev() == 0.0);
+
+    empty.add(stat);
+    CHECK(stat.n == 1);
+    CHECK(stat.mean == 42.0);
+    CHECK(stat.stddev() == 0.0);
+  }
+
   TEST_CASE("peaks") {
     auto one_to_hundred = std::views::iota(1, 101);
 

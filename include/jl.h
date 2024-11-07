@@ -791,8 +791,29 @@ struct istat {
     return x;
   }
   auto &&add(std::ranges::range auto &&r) {
-    for (const auto &x : r) add(static_cast<double>(x));
+    for (const auto &x : r) add(x);
     return std::forward<decltype(r)>(r);
+  }
+
+  void add(const istat &other) {
+    if (other.n == 0) return;
+    if (n == 0) {
+      *this = other;
+      return;
+    }
+
+    // for the math behind this see e.g. https://math.stackexchange.com/a/4567292 , https://en.wikipedia.org/wiki/Pooled_variance
+
+    double combined_mean = (static_cast<double>(n) * mean + static_cast<double>(other.n) * other.mean) / static_cast<double>(n + other.n);
+
+    // sum of "variances":
+    sum_square_delta_mean += other.sum_square_delta_mean;
+    // + "variance" of means:
+    sum_square_delta_mean += static_cast<double>(n) * mean * mean + static_cast<double>(other.n) * other.mean * other.mean;
+    sum_square_delta_mean -= static_cast<double>(n + other.n) * combined_mean * combined_mean;
+
+    mean = combined_mean;
+    n += other.n;
   }
 
   double variance() { return sum_square_delta_mean / static_cast<double>(n); }
