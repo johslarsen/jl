@@ -206,6 +206,39 @@ template <numeric T>
   }
 }
 
+/// a descriptive version of std::format_to_n_result
+template <class OutputIt>
+struct format_to_n_error : std::runtime_error {
+  OutputIt before;
+  std::format_to_n_result<OutputIt> result;
+
+  format_to_n_error(OutputIt before, std::format_to_n_result<OutputIt> result)
+      : std::runtime_error("truncated format_to_n"), before(before), result(result) {}
+};
+/// same as std::format_to_n, but with a descriptive error if it truncated the result
+template <class OutputIt, class... Args>
+[[nodiscard]] std::expected<OutputIt, format_to_n_error<OutputIt>> format_to_n(OutputIt out, std::iter_difference_t<OutputIt> n, std::format_string<Args...> fmt, Args &&...args) {
+  auto result = std::format_to_n(out, n, fmt, std::forward<Args>(args)...);
+  if (result.out - out < result.size) return std::unexpected(format_to_n_error(out, result));
+  return result.out;
+}
+
+/// @returns rest of output after the formatted text have been appended
+template <class... Args>
+[[nodiscard]] std::expected<std::span<char>, format_to_n_error<std::span<char>::iterator>> format_into(std::span<char> buf, std::format_string<Args...> fmt, Args &&...args) {
+  return jl::format_to_n(buf.begin(), buf.size(), fmt, std::forward<Args>(args)...)
+      .transform([buf](auto after) { return buf.subspan(after - buf.begin()); });
+}
+
+/// @returns rest of output after the formatted text have been appended
+template <class... Args>
+std::span<char> truncate_into(std::span<char> buf, std::format_string<Args...> fmt, Args &&...args) {
+  if (buf.empty()) return buf;  // do not bother calculating the size to format
+
+  auto result = std::format_to_n(buf.begin(), buf.size(), fmt, std::forward<Args...>(args)...);
+  return buf.subspan(result.out - buf.begin());
+}
+
 /// @returns index of the first unescaped ch or std::string::npos.
 /// @returns size-1 if that happens to be an incomplete escape sequence
 [[nodiscard]] inline size_t find_unescaped(std::string_view haystack, char ch, size_t pos = 0, char escape = '\\') {  // NOLINT(*-swappable-parameters)

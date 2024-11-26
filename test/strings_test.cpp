@@ -90,6 +90,36 @@ TEST_SUITE("strings") {
     CHECK_MESSAGE(!jl::from_str<int>("abc").has_value(), "Integers starts with digits, not characters");
   }
 
+  TEST_CASE("format_into") {
+    SUBCASE("format_to_n_error") {
+      std::string buffer = "???";
+      auto rest = jl::format_into(buffer, "foobar");
+      CHECK(!rest.has_value());
+
+      CHECK(buffer == "foo");
+    }
+
+    SUBCASE("span") {
+      std::string buffer(10, '?');
+      auto rest = jl::unwrap(jl::format_into(buffer, "foo"));
+      rest = jl::unwrap(jl::format_into(rest, "{}bar", 42));
+
+      CHECK(rest.size() == 2);
+      CHECK(buffer == "foo42bar??");
+    }
+
+    SUBCASE("silently truncate_into") {
+      std::string buffer = "?????";
+
+      auto rest = jl::truncate_into(buffer, "foo");
+      rest = jl::truncate_into(rest, "bar");
+      rest = jl::truncate_into(rest, "baz");
+
+      CHECK(rest.size() == 0);
+      CHECK(buffer == "fooba");
+    }
+  }
+
   TEST_CASE("line_eol") {
     SUBCASE("at end of input") {
       auto [standard_line, nl] = jl::line_eol::find_first_in("foo\n");
