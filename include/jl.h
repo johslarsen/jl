@@ -7,6 +7,7 @@
 #include <climits>
 #include <cmath>
 #include <cstring>
+#include <expected>
 #include <format>
 #include <future>
 #include <optional>
@@ -16,20 +17,6 @@
 #include <system_error>
 #include <utility>
 #include <vector>
-
-#if __cpp_concepts >= 202002L
-#include <expected>
-#elif __clang_major__ >= 17
-#define jl_save__cpp_concepts
-#pragma clang diagnostic ignored "-Wbuiltin-macro-redefined"
-#define __cpp_concepts 202002L  // this is probably stupid, but I really want std::expected
-
-#include <expected>
-
-#pragma clang diagnostic ignored "-Wmacro-redefined"
-#define __cpp_concepts jl_save__cpp_concepts
-#undef jl_save__cpp_concepts
-#endif
 
 // BTW, see e.g. https://stackoverflow.com/a/52158819 about pairwise sharing in newer Intel CPUs
 #ifdef __cpp_lib_hardware_interference_size
