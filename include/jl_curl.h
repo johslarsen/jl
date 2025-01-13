@@ -433,7 +433,7 @@ class url : public std::expected<unique_url, std::system_error> {
   }
 
   [[nodiscard]] std::expected<uint16_t, std::system_error> port(int flags = 0) const {
-    return get(CURLUPART_PORT, flags).and_then([](auto s) { return jl::from_str<uint16_t>(s); });
+    return get(CURLUPART_PORT, flags).and_then([](const auto& s) { return jl::from_str<uint16_t>(s); });
   }
 
   [[nodiscard]] std::expected<std::string, std::system_error> get(CURLUPart part, int flags = 0) const {
