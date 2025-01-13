@@ -4,6 +4,27 @@
 #include <deque>
 #include <valarray>
 
+TEST_SUITE("idx_iter") {
+  TEST_CASE("random_access") {
+    std::array<char, 4> array{"foo"};
+    jl::idx_iter iter{._range = &array, ._i = 0};
+
+    iter += 1;
+    iter = iter + 1;
+    iter = 1 + iter;
+    iter -= 1;
+    iter = iter - 1;
+    CHECK(iter - iter == 0);
+    CHECK(iter[0] == 'o');  // NOTE: +3-2 = 1 above, i.e. array[1]
+
+    CHECK(iter < (iter + 1));
+    CHECK((iter + 1) > iter);
+
+    CHECK(iter >= iter);
+    CHECK(iter <= iter);
+  }
+}
+
 TEST_SUITE("columns") {
   TEST_CASE("arrays") {
     jl::arrays<0, int, float> empty;
