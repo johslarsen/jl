@@ -165,7 +165,7 @@ template <typename T, size_t Size = sizeof(T)>
 }
 
 [[nodiscard]] std::expected<struct stat, std::system_error> inline stat(int fd) {
-  struct stat buf {};
+  struct stat buf{};
   return zero_or_errno(fstat(fd, &buf), "fstat({})", fd).transform([&] { return std::move(buf); });
 }
 
@@ -289,13 +289,13 @@ struct host_port {
     switch (addr->sa_family) {
       case AF_INET: {
         const auto *v4 = reinterpret_cast<const sockaddr_in *>(addr);  // NOLINT(*reinterpret-cast) from type-erased C-struct
-        return {str_or_empty(inet_ntop(addr->sa_family, &v4->sin_addr, buf.data(), sizeof(buf))),
-                ntohs(v4->sin_port)};
+        return {.host = str_or_empty(inet_ntop(addr->sa_family, &v4->sin_addr, buf.data(), sizeof(buf))),
+                .port = ntohs(v4->sin_port)};
       }
       case AF_INET6: {
         const auto *v6 = reinterpret_cast<const sockaddr_in6 *>(addr);  // NOLINT(*reinterpret-cast) from type-erased C-struct
-        return {str_or_empty(inet_ntop(addr->sa_family, &v6->sin6_addr, buf.data(), sizeof(buf))),
-                ntohs(v6->sin6_port)};
+        return {.host = str_or_empty(inet_ntop(addr->sa_family, &v6->sin6_addr, buf.data(), sizeof(buf))),
+                .port = ntohs(v6->sin6_port)};
       }
       default:
         return {};

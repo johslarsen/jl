@@ -314,11 +314,11 @@ struct line_eol {
 
   static line_eol find_first_in(std::string_view s) {
     auto eol = s.find_first_of("\r\n");
-    if (eol == std::string::npos) return {s, s.substr(s.size())};
+    if (eol == std::string::npos) return {.line = s, .eol = s.substr(s.size())};
 
     auto line = s.substr(0, eol);
     size_t n = s[eol] == '\r' && s.size() > eol + 1 && s[eol + 1] == '\n' ? 2 : 1;
-    return {line, s.substr(eol, n)};
+    return {.line = line, .eol = s.substr(eol, n)};
   }
 };
 
