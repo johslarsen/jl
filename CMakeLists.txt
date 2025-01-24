@@ -9,6 +9,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(JL_ENABLE_TESTING "Enable testing of the jl library." ON)
 
+add_definitions(-Wall -Wextra -Wno-unknown-warning-option -march=native)
+
 add_library(jl INTERFACE include/jl.h)
 target_include_directories(jl INTERFACE include/)
 target_compile_features(jl INTERFACE cxx_std_23)
@@ -22,7 +24,16 @@ if (${CURL_FOUND})
   target_link_libraries(jl_curl INTERFACE jl curl)
 endif()
 
-add_definitions(-Wall -Wextra -Wno-unknown-warning-option -march=native)
+find_package(SQLite3)
+find_package(PostgreSQL)
+add_library(jl_db INTERFACE include/jl_db.h)
+if (${SQLite3_FOUND})
+  target_compile_definitions(jl_db INTERFACE -DJL_HAS_SQLITE=1)
+endif()
+if (${PostgreSQL_FOUND})
+  target_compile_definitions(jl_db INTERFACE -DJL_HAS_PSQL=1)
+endif()
+target_link_libraries(jl_db INTERFACE jl ${PostgreSQL_LIBRARIES} ${SQLite3_LIBRARIES})
 
 set(BENCHMARK_ENABLE_TESTING OFF)
 if(JL_ENABLE_TESTING AND EXISTS
