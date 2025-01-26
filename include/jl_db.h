@@ -6,19 +6,32 @@
 
 namespace jl::db {
 
+static constexpr auto null = std::monostate{};
+using param = std::variant<std::monostate, int32_t, int64_t, double, std::string, std::string_view, const char *, std::span<const std::byte>>;
+
+/// An engine agnostic database wrapper around a database connection, basic usage:
+///
+///     auto db = jl::db::open("file:///db.sqlite3?mode=memory");
+///     for (auto& row : db->exec("SELECT NULL;")) {
+///       row[0].i32().value_or(42);
+///     }
 struct connection {
   virtual ~connection() = default;
   connection(const connection &) = delete;
   connection &operator=(const connection &) = delete;
 
+  /// An engine agnostic cursor into a database result
   class result {
    public:
     struct sentinel {};
     struct impl {
       virtual ~impl() = default;
 
-      virtual bool operator==(sentinel) = 0;
+      virtual bool operator==(sentinel) const = 0;
       virtual void operator++() = 0;
+
+      // NOTE: most of the following methods should probably be const, but
+      // functions using sqlite3_stmt takes it as a non-const pointer
 
       virtual int ncolumn() = 0;
       virtual std::string_view column_name(int col) = 0;
@@ -51,15 +64,14 @@ struct connection {
     input_iter begin() { return input_iter(*this); }
     sentinel end() { return {}; }
 
-    struct field {
-      impl &result;
-      int col;
+    class field {
+      impl &_result;
+      int _col;
 
-      [[nodiscard]] int32_t raw_i32() { return result.i32(col); }
-      [[nodiscard]] int64_t raw_i64() { return result.i64(col); }
-      [[nodiscard]] double raw_f64() { return result.f64(col); }
-      [[nodiscard]] std::string_view raw_str() { return result.str(col); }
-      [[nodiscard]] std::span<const std::byte> raw_blob() { return result.blob(col); }
+     public:
+      field(impl &result, int col) : _result(result), _col(col) {}
+
+      // accessors mappings mapping NULL-able values as optional:
 
       [[nodiscard]] std::optional<int32_t> i32() { return isnull() ? std::nullopt : std::optional(raw_i32()); }
       [[nodiscard]] std::optional<int64_t> i64() { return isnull() ? std::nullopt : std::optional(raw_i64()); }
@@ -67,10 +79,19 @@ struct connection {
       [[nodiscard]] std::optional<std::string_view> str() { return isnull() ? std::nullopt : std::optional(raw_str()); }
       [[nodiscard]] std::optional<std::span<const std::byte>> blob() { return isnull() ? std::nullopt : std::optional(raw_blob()); }
 
-      [[nodiscard]] std::string_view name() { return result.column_name(col); }
-      [[nodiscard]] bool isnull() { return result.isnull(col); }
+      // direct value accessors for fields known to be NOT NULL:
+
+      [[nodiscard]] int32_t raw_i32() { return _result.i32(_col); }
+      [[nodiscard]] int64_t raw_i64() { return _result.i64(_col); }
+      [[nodiscard]] double raw_f64() { return _result.f64(_col); }
+      [[nodiscard]] std::string_view raw_str() { return _result.str(_col); }
+      [[nodiscard]] std::span<const std::byte> raw_blob() { return _result.blob(_col); }
+
+      [[nodiscard]] std::string_view name() { return _result.column_name(_col); }
+      [[nodiscard]] bool isnull() { return _result.isnull(_col); }
     };
-    [[nodiscard]] field operator[](int col) { return {.result = *_pimpl, .col = col}; };
+    /// Access the field at column in the current row
+    [[nodiscard]] field operator[](int column) { return {*_pimpl, column}; };
 
     [[nodiscard]] int ncolumn() { return _pimpl->ncolumn(); }
     [[nodiscard]] bool empty() { return *_pimpl == end(); }
@@ -79,15 +100,18 @@ struct connection {
     std::unique_ptr<impl> _pimpl;
   };
 
-  using param = std::variant<std::monostate, int32_t, int64_t, double, std::string, std::string_view, std::span<const std::byte>>;
-  virtual result exec(const std::string &sql, std::span<const param> params) = 0;
-
-  template <std::convertible_to<param>... Params>
-  result exec(const std::string &sql, Params... params) { return exec(sql, {params...}); }
+  /// Execute a prepared SQL statement like:
+  ///     exec("SELECT $1, $2", "foo", 42);
+  result exec(const std::string &sql, auto... params) {
+    return execv(sql, std::initializer_list<param>{params...});
+  }
+  /// WARN: make sure std::string_view, const char*, and std::span in params do not dangle
+  virtual result execv(const std::string &sql, std::span<const param> params) = 0;
 
   connection() = default;
 };
 
+/// A database that mocks or intercepts results
 class mock final : public connection {
   std::move_only_function<connection::result(const std::string &, std::span<const param>)> _exec;
 
@@ -116,7 +140,7 @@ class mock final : public connection {
     result(result &&) = default;
     result &operator=(result &&) = default;
 
-    bool operator==(connection::result::sentinel /*unused*/) override {
+    bool operator==(connection::result::sentinel /*unused*/) const override {
       return _rows.size() == _i;
     }
     void operator++() override {
@@ -156,11 +180,12 @@ class mock final : public connection {
     return connection::result(std::make_unique<result>(std::move(rows), std::move(column_names)));
   }
 
-  connection::result exec(const std::string &sql, std::span<const param> params) override { return _exec(sql, params); }
+  connection::result execv(const std::string &sql, std::span<const param> params) override { return _exec(sql, params); }
 };
 
 #ifdef JL_HAS_SQLITE
 #include <sqlite3.h>
+/// A wrapper around the SQLite3 C library
 class sqlite final : public connection {
   std::unique_ptr<sqlite3, jl::deleter<sqlite3_close>> _db;
 
@@ -200,7 +225,7 @@ class sqlite final : public connection {
     }
 
    protected:
-    bool operator==(connection::result::sentinel /*unused*/) override { return _stmt == nullptr; }
+    bool operator==(connection::result::sentinel /*unused*/) const override { return _stmt == nullptr; }
 
     int ncolumn() override { return sqlite3_column_count(_stmt.get()); }
     std::string_view column_name(int col) override { return sqlite3_column_name(_stmt.get(), col); }
@@ -220,7 +245,7 @@ class sqlite final : public connection {
     [[nodiscard]] size_t nbyte(int col) { return sqlite3_column_bytes(_stmt.get(), col); }
   };
 
-  connection::result exec(const std::string &sql, std::span<const param> params) override {
+  connection::result execv(const std::string &sql, std::span<const param> params) override {
     sqlite3_stmt *stmt = nullptr;
     auto status = sqlite3_prepare_v3(_db.get(), sql.data(), static_cast<int>(sql.size()), 0, &stmt, nullptr);
     if (status != SQLITE_OK) throw error(_db.get(), "sqlite_prepare");
@@ -256,6 +281,7 @@ class sqlite final : public connection {
 
 #ifdef JL_HAS_PSQL
 #include <libpq-fe.h>
+/// A wrapper around the libpq PostgreSQL C library
 class psql final : public connection {
   std::unique_ptr<PGconn, jl::deleter<PQfinish>> _db;
 
@@ -284,7 +310,7 @@ class psql final : public connection {
 
    protected:
     void operator++() override { ++_row; }
-    bool operator==(connection::result::sentinel /*unused*/) override { return _row == _n; }
+    bool operator==(connection::result::sentinel /*unused*/) const override { return _row == _n; }
 
     int ncolumn() override { return PQnfields(_result.get()); }
     std::string_view column_name(int col) override { return PQfname(_result.get(), col); }
@@ -302,7 +328,7 @@ class psql final : public connection {
    private:
     [[nodiscard]] const char *c_str(int col) const { return PQgetvalue(_result.get(), _row, col); }
   };
-  connection::result exec(const std::string &sql, std::span<const param> params) override {
+  connection::result execv(const std::string &sql, std::span<const param> params) override {
     constexpr int values_as_text = 0;
 
     std::vector<const char *> c_strs(params.size());
@@ -351,6 +377,9 @@ class psql final : public connection {
 };
 #endif /*JL_HAS_PSQL*/
 
+/// Connect to a database at uri using one of these schemes:
+/// * SQLite3:    file://
+/// * PostgreSQL: postgres:// , postrgresql://
 inline std::unique_ptr<connection> open(const std::string &uri) {
 #ifdef JL_HAS_SQLITE
   if (uri.starts_with("file://")) return sqlite::open(uri);
