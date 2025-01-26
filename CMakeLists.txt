@@ -16,8 +16,11 @@ target_compile_features(jl INTERFACE cxx_std_23)
 add_library(jl_posix INTERFACE include/jl_posix.h)
 target_link_libraries(jl_posix INTERFACE jl)
 
-add_library(jl_curl INTERFACE include/jl_curl.h)
-target_link_libraries(jl_curl INTERFACE jl curl)
+find_package(CURL)
+if (${CURL_FOUND})
+  add_library(jl_curl INTERFACE include/jl_curl.h)
+  target_link_libraries(jl_curl INTERFACE jl curl)
+endif()
 
 add_definitions(-Wall -Wextra -Wno-unknown-warning-option -march=native)
 

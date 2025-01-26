@@ -28,6 +28,8 @@ add_executable(
 target_link_libraries(jl_posix_test jl_posix doctest)
 add_test(jl_posix_test jl_posix_test)
 
-add_executable(jl_curl_test curl/curl_test.cpp test.cpp)
-target_link_libraries(jl_curl_test jl_curl jl_posix doctest)
-add_test(jl_curl_test jl_curl_test)
+if (${CURL_FOUND})
+  add_executable(jl_curl_test curl/curl_test.cpp test.cpp)
+  target_link_libraries(jl_curl_test jl_curl jl_posix doctest)
+  add_test(jl_curl_test jl_curl_test)
+endif()
