@@ -1,8 +1,6 @@
 #include <doctest/doctest.h>
 #include <jl_db.h>
 
-using namespace std::string_literals;
-
 using query_params_expected = std::tuple<std::string, std::vector<jl::db::param>, std::vector<std::vector<jl::db::param>>, std::vector<std::string>>;
 
 inline std::vector<query_params_expected> test_table_create_insert_select_drop(std::string_view blob_type = "BLOB") {
@@ -11,10 +9,10 @@ inline std::vector<query_params_expected> test_table_create_insert_select_drop(s
       {"DROP TABLE IF EXISTS jl_db_test;", {}, {}, {}},
       {std::format("CREATE TABLE jl_db_test(i32 INTEGER, i64 BIGINT, f64 DOUBLE PRECISION, str TEXT, blob {});", blob_type), {}, {}, {}},
       {"SELECT * FROM jl_db_test;", {}, {}, {}},
-      {"INSERT INTO jl_db_test VALUES ($1, $2, $3, $4, $5);", {{42, 0x0123456789abcdef, M_PI, "foo"s, std::as_bytes(std::span("bar"))}}, {}, {}},
+      {"INSERT INTO jl_db_test VALUES ($1, $2, $3, $4, $5);", {{42, 0x0123456789abcdef, M_PI, "foo", std::as_bytes(std::span("bar"))}}, {}, {}},
       {"INSERT INTO jl_db_test VALUES ($1, $2, $3, $4, $5);", {{null, null, null, null, null}}, {}, {}},
       {"SELECT * FROM jl_db_test;", {}, {
-                                            {{42, 0x0123456789abcdef, M_PI, "foo"s, std::as_bytes(std::span("bar"))}},
+                                            {{42, 0x0123456789abcdef, M_PI, "foo", std::as_bytes(std::span("bar"))}},
                                             {{null, null, null, null, null}},
                                         },
        {"i32", "i64", "f64", "str", "blob"}},

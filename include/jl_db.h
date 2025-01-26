@@ -25,23 +25,23 @@ struct connection {
    public:
     struct sentinel {};
     struct impl {
-      virtual ~impl() = default;
+      constexpr virtual ~impl() = default;
 
-      virtual bool operator==(sentinel) const = 0;
-      virtual void operator++() = 0;
+      [[nodiscard]] constexpr virtual bool operator==(sentinel) const = 0;
+      constexpr virtual void operator++() = 0;
 
       // NOTE: most of the following methods should probably be const, but
       // functions using sqlite3_stmt takes it as a non-const pointer
 
-      virtual int ncolumn() = 0;
-      virtual std::string_view column_name(int col) = 0;
-      virtual bool isnull(int col) = 0;
+      [[nodiscard]] constexpr virtual int ncolumn() = 0;
+      [[nodiscard]] constexpr virtual std::string_view column_name(int col) = 0;
+      [[nodiscard]] constexpr virtual bool isnull(int col) = 0;
 
-      virtual int32_t i32(int col) = 0;
-      virtual int64_t i64(int col) = 0;
-      virtual double f64(int col) = 0;
-      virtual std::string_view str(int col) = 0;
-      virtual std::span<const std::byte> blob(int col) = 0;
+      [[nodiscard]] constexpr virtual int32_t i32(int col) = 0;
+      [[nodiscard]] constexpr virtual int64_t i64(int col) = 0;
+      [[nodiscard]] constexpr virtual double f64(int col) = 0;
+      [[nodiscard]] constexpr virtual std::string_view str(int col) = 0;
+      [[nodiscard]] constexpr virtual std::span<const std::byte> blob(int col) = 0;
 
      protected:
       impl() = default;
@@ -50,51 +50,55 @@ struct connection {
       impl(impl &&) = default;
       impl &operator=(impl &&) = default;
     };
-    explicit result(std::unique_ptr<impl> pimpl) : _pimpl(std::move(pimpl)) {}
+    constexpr explicit result(std::unique_ptr<impl> pimpl) : _pimpl(std::move(pimpl)) {}
 
     class input_iter {
       result &_result;
 
      public:
-      explicit input_iter(result &result) : _result(result) {}
-      result &operator*() { return _result; }
-      void operator++() { ++(*_result._pimpl); }
-      bool operator==(sentinel /*unused*/) { return (*_result._pimpl) == sentinel{}; }
+      constexpr explicit input_iter(result &result) : _result(result) {}
+      [[nodiscard]] constexpr result &operator*() { return _result; }
+      constexpr void operator++() { ++(*_result._pimpl); }
+      [[nodiscard]] constexpr bool operator==(sentinel /*unused*/) { return (*_result._pimpl) == sentinel{}; }
     };
-    input_iter begin() { return input_iter(*this); }
-    sentinel end() { return {}; }
+    [[nodiscard]] constexpr input_iter begin() { return input_iter(*this); }
+    [[nodiscard]] constexpr sentinel end() const { return {}; }
 
     class field {
       impl &_result;
       int _col;
 
+      [[nodiscard]] constexpr auto nullable(auto f) {
+        return isnull() ? std::nullopt : std::optional(std::invoke(f, this));
+      }
+
      public:
-      field(impl &result, int col) : _result(result), _col(col) {}
+      constexpr field(impl &result, int col) : _result(result), _col(col) {}
 
       // accessors mappings mapping NULL-able values as optional:
 
-      [[nodiscard]] std::optional<int32_t> i32() { return isnull() ? std::nullopt : std::optional(raw_i32()); }
-      [[nodiscard]] std::optional<int64_t> i64() { return isnull() ? std::nullopt : std::optional(raw_i64()); }
-      [[nodiscard]] std::optional<double> f64() { return isnull() ? std::nullopt : std::optional(raw_f64()); }
-      [[nodiscard]] std::optional<std::string_view> str() { return isnull() ? std::nullopt : std::optional(raw_str()); }
-      [[nodiscard]] std::optional<std::span<const std::byte>> blob() { return isnull() ? std::nullopt : std::optional(raw_blob()); }
+      [[nodiscard]] constexpr std::optional<int32_t> i32() { return nullable(&field::raw_i32); }
+      [[nodiscard]] constexpr std::optional<int64_t> i64() { return nullable(&field::raw_i64); }
+      [[nodiscard]] constexpr std::optional<double> f64() { return nullable(&field::raw_f64); }
+      [[nodiscard]] constexpr std::optional<std::string_view> str() { return nullable(&field::raw_str); }
+      [[nodiscard]] constexpr std::optional<std::span<const std::byte>> blob() { return nullable(&field::raw_blob); }
 
       // direct value accessors for fields known to be NOT NULL:
 
-      [[nodiscard]] int32_t raw_i32() { return _result.i32(_col); }
-      [[nodiscard]] int64_t raw_i64() { return _result.i64(_col); }
-      [[nodiscard]] double raw_f64() { return _result.f64(_col); }
-      [[nodiscard]] std::string_view raw_str() { return _result.str(_col); }
-      [[nodiscard]] std::span<const std::byte> raw_blob() { return _result.blob(_col); }
+      [[nodiscard]] constexpr int32_t raw_i32() { return _result.i32(_col); }
+      [[nodiscard]] constexpr int64_t raw_i64() { return _result.i64(_col); }
+      [[nodiscard]] constexpr double raw_f64() { return _result.f64(_col); }
+      [[nodiscard]] constexpr std::string_view raw_str() { return _result.str(_col); }
+      [[nodiscard]] constexpr std::span<const std::byte> raw_blob() { return _result.blob(_col); }
 
-      [[nodiscard]] std::string_view name() { return _result.column_name(_col); }
-      [[nodiscard]] bool isnull() { return _result.isnull(_col); }
+      [[nodiscard]] constexpr std::string_view name() { return _result.column_name(_col); }
+      [[nodiscard]] constexpr bool isnull() { return _result.isnull(_col); }
     };
     /// Access the field at column in the current row
-    [[nodiscard]] field operator[](int column) { return {*_pimpl, column}; };
+    [[nodiscard]] constexpr field operator[](int column) { return {*_pimpl, column}; };
 
-    [[nodiscard]] int ncolumn() { return _pimpl->ncolumn(); }
-    [[nodiscard]] bool empty() { return *_pimpl == end(); }
+    [[nodiscard]] constexpr int ncolumn() { return _pimpl->ncolumn(); }
+    [[nodiscard]] constexpr bool empty() { return *_pimpl == end(); }
 
    private:
     std::unique_ptr<impl> _pimpl;
@@ -102,11 +106,11 @@ struct connection {
 
   /// Execute a prepared SQL statement like:
   ///     exec("SELECT $1, $2", "foo", 42);
-  result exec(const std::string &sql, auto... params) {
+  constexpr result exec(const std::string &sql, auto... params) {
     return execv(sql, std::initializer_list<param>{params...});
   }
   /// WARN: make sure std::string_view, const char*, and std::span in params do not dangle
-  virtual result execv(const std::string &sql, std::span<const param> params) = 0;
+  constexpr virtual result execv(const std::string &sql, std::span<const param> params) = 0;
 
   connection() = default;
 };
@@ -116,7 +120,7 @@ class mock final : public connection {
   std::move_only_function<connection::result(const std::string &, std::span<const param>)> _exec;
 
  public:
-  explicit mock(decltype(_exec) exec) : _exec(std::move(exec)) {}
+  constexpr explicit mock(decltype(_exec) exec) : _exec(std::move(exec)) {}
   ~mock() override = default;
   mock(const mock &) = delete;
   mock &operator=(const mock &) = delete;
@@ -126,8 +130,13 @@ class mock final : public connection {
     std::vector<std::string> _column_names;
     size_t _i = 0;
 
+    [[nodiscard]] constexpr const auto &at(size_t row, int col) {
+      return _rows.at(row).at(col);
+    }
+
    public:
-    explicit result(std::vector<std::vector<param>> rows, std::vector<std::string> column_names = {}) : _rows(std::move(rows)), _column_names(std::move(column_names)) {
+    constexpr explicit result(std::vector<std::vector<param>> rows, std::vector<std::string> column_names = {})
+        : _rows(std::move(rows)), _column_names(std::move(column_names)) {
       if (_column_names.empty() && !_rows.empty()) {
         _column_names = std::vector<std::string>(_rows.front().size(), "unknown");
       }
@@ -140,47 +149,42 @@ class mock final : public connection {
     result(result &&) = default;
     result &operator=(result &&) = default;
 
-    bool operator==(connection::result::sentinel /*unused*/) const override {
+    constexpr bool operator==(connection::result::sentinel /*unused*/) const override {
       return _rows.size() == _i;
     }
-    void operator++() override {
+    constexpr void operator++() override {
       assert(_i < _rows.size());
       ++_i;
     }
 
-    int ncolumn() override {
+    constexpr int ncolumn() override {
       return static_cast<int>(_rows.at(0).size());
     }
-    std::string_view column_name(int col) override {
-      return _column_names.at(col);
-    };
-    bool isnull(int col) override {
+    constexpr std::string_view column_name(int col) override { return _column_names.at(col); };
+    constexpr bool isnull(int col) override {
       return std::holds_alternative<std::monostate>(_rows.at(_i).at(col));
     }
 
-    int32_t i32(int col) override {
-      return std::get<int32_t>(_rows.at(_i).at(col));
+    constexpr int32_t i32(int col) override { return std::get<int32_t>(at(_i, col)); }
+    constexpr int64_t i64(int col) override { return std::get<int64_t>(at(_i, col)); }
+    constexpr double f64(int col) override { return std::get<double>(at(_i, col)); }
+    constexpr std::string_view str(int col) override {
+      if (const auto *s = std::get_if<std::string>(&at(_i, col)); s) return *s;
+      if (const auto *s = std::get_if<std::string_view>(&at(_i, col)); s) return *s;
+      return std::get<const char *>(at(_i, col));
     }
-    int64_t i64(int col) override {
-      return std::get<int64_t>(_rows.at(_i).at(col));
-    }
-    double f64(int col) override {
-      return std::get<double>(_rows.at(_i).at(col));
-    }
-    std::string_view str(int col) override {
-      if (const auto *s = std::get_if<std::string>(&_rows.at(_i).at(col)); s) return *s;
-      return std::get<std::string_view>(_rows.at(_i).at(col));
-    }
-    std::span<const std::byte> blob(int col) override {
-      return std::get<std::span<const std::byte>>(_rows.at(_i).at(col));
+    constexpr std::span<const std::byte> blob(int col) override {
+      return std::get<std::span<const std::byte>>(at(_i, col));
     }
   };
   /// A fixed table result. Note that getters here are more strictly type checked than regular database APIs.
-  [[nodiscard]] static connection::result table(std::vector<std::vector<param>> rows, std::vector<std::string> column_names = {}) {
+  [[nodiscard]] constexpr static connection::result table(std::vector<std::vector<param>> rows, std::vector<std::string> column_names = {}) {
     return connection::result(std::make_unique<result>(std::move(rows), std::move(column_names)));
   }
 
-  connection::result execv(const std::string &sql, std::span<const param> params) override { return _exec(sql, params); }
+  constexpr connection::result execv(const std::string &sql, std::span<const param> params) override {
+    return _exec(sql, params);
+  }
 };
 
 #ifdef JL_HAS_SQLITE
@@ -213,23 +217,24 @@ class sqlite final : public connection {
     explicit result(sqlite3_stmt *stmt) : _stmt(stmt) {}
 
     void operator++() override {
-      switch (sqlite3_step(_stmt.get())) {
-        case SQLITE_DONE:
-          _stmt.reset();
-          break;
-        case SQLITE_ROW:
-          break;
-        default:
-          throw error(sqlite3_db_handle(_stmt.get()), "sqlite3_step");
+      if (auto status = sqlite3_step(_stmt.get()); status == SQLITE_DONE) {
+        _stmt.reset();
+      } else if (status == SQLITE_ROW) {  // i.e. now _stmt points to a new row
+      } else {
+        throw error(sqlite3_db_handle(_stmt.get()), "sqlite3_step");
       }
     }
 
    protected:
-    bool operator==(connection::result::sentinel /*unused*/) const override { return _stmt == nullptr; }
+    bool operator==(connection::result::sentinel /*unused*/) const override {
+      return _stmt == nullptr;
+    }
 
     int ncolumn() override { return sqlite3_column_count(_stmt.get()); }
     std::string_view column_name(int col) override { return sqlite3_column_name(_stmt.get(), col); }
-    bool isnull(int col) override { return sqlite3_column_type(_stmt.get(), col) == SQLITE_NULL; }
+    bool isnull(int col) override {
+      return sqlite3_column_type(_stmt.get(), col) == SQLITE_NULL;
+    }
 
     int32_t i32(int col) override { return sqlite3_column_int(_stmt.get(), col); }
     int64_t i64(int col) override { return sqlite3_column_int64(_stmt.get(), col); }
@@ -306,11 +311,14 @@ class psql final : public connection {
 
    public:
     result() = default;
-    explicit result(decltype(_result) result) : _result(std::move(result)), _blobs(ncolumn()), _n(PQntuples(_result.get())) {}
+    explicit result(decltype(_result) result)
+        : _result(std::move(result)), _blobs(ncolumn()), _n(PQntuples(_result.get())) {}
 
    protected:
     void operator++() override { ++_row; }
-    bool operator==(connection::result::sentinel /*unused*/) const override { return _row == _n; }
+    bool operator==(connection::result::sentinel /*unused*/) const override {
+      return _row == _n;
+    }
 
     int ncolumn() override { return PQnfields(_result.get()); }
     std::string_view column_name(int col) override { return PQfname(_result.get(), col); }
@@ -341,12 +349,12 @@ class psql final : public connection {
           jl::overload{
               [](std::monostate) { return std::string_view{}; },
               [&formats, i](std::string_view s) {
-                formats[i] = 1; /* i.e. binary, otherwise it ignores size and requires it null-terminated */
+                formats[i] = 1;  // i.e. binary, otherwise PQexecParams ignores size and requires it null-terminated
                 return s;
               },
               [](const std::string &s) { return std::string_view(s); },
               [&formats, i](std::span<const std::byte> s) {
-                formats[i] = 1; /* i.e. binary */
+                formats[i] = 1;  // i.e. binary
                 return std::string_view(reinterpret_cast<const char *>(s.data()), s.size());
               },
               [&tmps](auto v) { return std::string_view(tmps.emplace_back(std::format("{}", v))); }},

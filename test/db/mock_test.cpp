@@ -23,20 +23,20 @@ TEST_SUITE("mock db") {
         CHECK(jl::to_xdigits(std::get<std::span<const std::byte>>(params[12])) == jl::to_xdigits(std::span<const std::byte>{}));
         CHECK(jl::to_xdigits(std::get<std::span<const std::byte>>(params[13])) == "666f6f00");  // i.e. foo\0
 
-        CHECK(std::get<std::monostate>(params[14]) == std::monostate{}); // i.e. NULL
-        CHECK(std::get<std::monostate>(params[15]) == std::monostate{}); // i.e. NULL
-        CHECK(std::get<std::monostate>(params[16]) == std::monostate{}); // i.e. NULL
+        CHECK(std::get<std::monostate>(params[14]) == std::monostate{});  // i.e. NULL
+        CHECK(std::get<std::monostate>(params[15]) == std::monostate{});  // i.e. NULL
+        CHECK(std::get<std::monostate>(params[16]) == std::monostate{});  // i.e. NULL
       }
       return jl::db::mock::table({});
     });
     db.exec("");  // no prepared parameters
     db.exec("",
-            42, -1, true, false,  // i32
-            0L, 0xf00ba4ba2L,     // i64
-            M_PIf, M_PI,          // f64
-            "", "foo", std::string("bar"), std::string_view("baz"),
-            std::span<const std::byte>{}, std::as_bytes(std::span("foo")),
-            jl::db::null, std::monostate{}, jl::db::param{}  // i.e. NULL
+            42, -1, true, false,                                            // i32
+            0L, 0xf00ba4ba2L,                                               // i64
+            M_PIf, M_PI,                                                    // f64
+            "", "foo", std::string("bar"), std::string_view("baz"),         // text
+            std::span<const std::byte>{}, std::as_bytes(std::span("foo")),  // blob
+            jl::db::null, std::monostate{}, jl::db::param{}                 // NULL
     );
   }
   TEST_CASE("field accessors") {
@@ -45,24 +45,26 @@ TEST_SUITE("mock db") {
         int32_t(42),
         int64_t(0xdeadbeef),
         M_PI,
-        "foo"s,
+        std::string("foo"),
         std::string_view("bar"),
+        "baz",
         blob,
-        {},  // i.e. NULL
+        jl::db::null,
 
     }});
-    CHECK(table.ncolumn() == 7);
+    CHECK(table.ncolumn() == 8);
 
     CHECK(table[0].i32() == 42);
     CHECK(table[1].i64() == 0xdeadbeef);
     CHECK(table[2].f64() == M_PI);
     CHECK(table[3].str() == "foo");
     CHECK(table[4].str() == "bar");
-    CHECK(jl::to_xdigits(table[5].blob().value()) == jl::to_xdigits(blob));
+    CHECK(table[5].str() == "baz");
+    CHECK(jl::to_xdigits(table[6].blob().value()) == jl::to_xdigits(blob));
 
     CHECK(!table[0].isnull());
-    CHECK(table[6].isnull());
-    CHECK(table[6].str() == std::nullopt);
+    CHECK(table[7].isnull());
+    CHECK(table[7].str() == std::nullopt);
   }
 
   TEST_CASE("table create insert select drop") {
