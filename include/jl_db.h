@@ -53,14 +53,26 @@ struct connection {
     constexpr explicit result(std::unique_ptr<impl> pimpl) : _pimpl(std::move(pimpl)) {}
 
     class input_iter {
-      result &_result;
+      result *_result;
 
      public:
-      constexpr explicit input_iter(result &result) : _result(result) {}
-      [[nodiscard]] constexpr result &operator*() { return _result; }
-      constexpr void operator++() { ++(*_result._pimpl); }
-      [[nodiscard]] constexpr bool operator==(sentinel /*unused*/) { return (*_result._pimpl) == sentinel{}; }
+      using difference_type = ptrdiff_t;
+      using value_type = result;
+
+      constexpr explicit input_iter(result &result) : _result(&result) {}
+
+      constexpr input_iter &operator++() {
+        ++(*_result->_pimpl);
+        return *this;
+      }
+      constexpr void operator++(int) { ++(*_result->_pimpl); }
+
+      [[nodiscard]] constexpr result &operator*() const { return *_result; }
+      [[nodiscard]] constexpr bool operator==(const sentinel &s) const { return (*_result->_pimpl) == s; }
     };
+    static_assert(std::input_iterator<input_iter>);
+    static_assert(std::sentinel_for<sentinel, input_iter>);
+
     [[nodiscard]] constexpr input_iter begin() { return input_iter(*this); }
     [[nodiscard]] constexpr sentinel end() const { return {}; }
 
@@ -103,6 +115,7 @@ struct connection {
    private:
     std::unique_ptr<impl> _pimpl;
   };
+  static_assert(std::ranges::input_range<result>);
 
   /// Execute a prepared SQL statement like:
   ///     exec("SELECT $1, $2", "foo", 42);

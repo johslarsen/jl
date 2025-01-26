@@ -75,4 +75,12 @@ TEST_SUITE("mock db") {
     });
     verify_queries(std::move(db), results);
   }
+
+  TEST_CASE("result is ranges compatible") {
+    auto db = std::make_unique<jl::db::mock>([](const auto& /*sql*/, const auto& /*params*/) {
+      return jl::db::mock::table({{1}, {2}, {3}});
+    });
+    auto as_ints = std::views::transform(db->exec("ignored"), [](auto& r) { return r[0].i32().value_or(0); });
+    CHECK(std::ranges::fold_left(as_ints, 0, std::plus{}) == 1 + 2 + 3);
+  }
 }
