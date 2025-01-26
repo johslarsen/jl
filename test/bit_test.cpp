@@ -6,6 +6,10 @@
 constexpr bool is_mixed_endian = std::endian::native != std::endian::little &&
                                  std::endian::native != std::endian::big;
 
+static inline std::vector<std::byte> bvec(auto... bytes) {
+  return {std::byte(bytes)...};
+};
+
 TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
   TEST_CASE("endian conversion has no effect on 1byte integers") {
     CHECK(jl::be('0') == jl::le('0'));
@@ -62,5 +66,20 @@ TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
     static_assert(jl::bitcastable_to<uint8_t, signed char>);
     static_assert(jl::bitcastable_to<uint8_t, unsigned char>);
     static_assert(!jl::bitcastable_to<char, uint16_t>);
+  }
+
+  TEST_CASE("from_xdigits") {
+    CHECK(jl::from_xdigits("") == std::vector<std::byte>{});
+    CHECK(jl::from_xdigits("\\x") == std::vector<std::byte>{});
+
+    CHECK(jl::from_xdigits("\\X0123456789abcdef") == bvec(0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef));
+    CHECK(jl::from_xdigits("0xFEDCBA987654321") == bvec(0x0F, 0xED, 0xCB, 0xA9, 0x87, 0x65, 0x43, 0x21));
+  }
+
+  TEST_CASE("to_xdigits") {
+    CHECK(jl::to_xdigits({}) == "");
+
+    CHECK(jl::to_xdigits(bvec(0xde, 0xad, 0xbe, 0xef), "", "0x") == "0xdeadbeef");
+    CHECK(jl::to_xdigits(bvec(0xde, 0xad, 0xbe, 0xef), " ") == "de ad be ef");
   }
 }

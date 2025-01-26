@@ -193,6 +193,43 @@ template <numeric T>
   }
 }
 
+[[nodiscard]] constexpr std::byte from_xdigit(char c) {
+  assert(('0' <= c && c <= '9') || ('a' <= c && c <= 'f') || ('A' <= c && c <= 'F'));
+  return c <= '9' ? std::byte(c - '0') : std::byte(10 + std::tolower(c) - 'a');
+}
+
+[[nodiscard]] inline std::vector<std::byte> from_xdigits(std::string_view hex) noexcept {
+  if (hex.size() >= 2 && std::tolower(hex[1]) == 'x') {
+    assert(hex.starts_with("0x") || hex.starts_with("0X") || hex.starts_with("\\x") || hex.starts_with("\\X"));
+    hex.remove_prefix(2);
+  }
+
+  std::vector<std::byte> bytes;
+  bool odd = hex.size() % 2;
+  bytes.reserve(hex.size() / 2 + odd);
+
+  if (odd) bytes.emplace_back(from_xdigit(hex[0]));
+
+  for (auto [begin, end] : std::views::chunk(hex.substr(odd), 2)) {
+    assert(end - begin == 2);
+    bytes.emplace_back(from_xdigit(begin[0]) << 4 | from_xdigit(begin[1]));
+  }
+
+  return bytes;
+}
+
+[[nodiscard]] inline std::string to_xdigits(std::span<const std::byte> bytes, std::string_view separator = "", std::string_view prefix = "") {
+  if (bytes.empty()) return std::string(prefix);
+
+  std::string xdigits;
+  xdigits.reserve(prefix.size() + 2 * bytes.size() + (bytes.size() - 1) * separator.size());
+
+  std::format_to(std::back_inserter(xdigits), "{}{:02x}", prefix, static_cast<unsigned>(bytes[0]));
+  for (auto b : bytes.subspan(1)) std::format_to(std::back_inserter(xdigits), "{}{:02x}", separator, static_cast<unsigned>(b));
+
+  return xdigits;
+}
+
 /// a descriptive version of std::format_to_n_result
 template <class OutputIt>
 struct format_to_n_error : std::runtime_error {
