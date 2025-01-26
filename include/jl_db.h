@@ -9,6 +9,105 @@ namespace jl::db {
 static constexpr auto null = std::monostate{};
 using param = std::variant<std::monostate, int32_t, int64_t, double, std::string, std::string_view, const char *, std::span<const std::byte>>;
 
+/// An engine agnostic cursor into a database result
+class result {
+ public:
+  struct sentinel {};
+  class iter {
+    result *_result;
+
+   public:
+    using difference_type = ptrdiff_t;
+    using value_type = result;
+
+    constexpr explicit iter(result &result) : _result(&result) {}
+
+    constexpr iter &operator++() {
+      ++(*_result->_pimpl);
+      return *this;
+    }
+    constexpr void operator++(int) { ++(*_result->_pimpl); }
+
+    [[nodiscard]] constexpr result &operator*() const { return *_result; }
+    [[nodiscard]] constexpr bool operator==(const sentinel &s) const { return (*_result->_pimpl) == s; }
+  };
+  static_assert(std::input_iterator<iter>);
+  static_assert(std::sentinel_for<sentinel, iter>);
+
+  [[nodiscard]] constexpr iter begin() { return iter(*this); }
+  [[nodiscard]] constexpr sentinel end() const { return {}; }
+
+  struct impl {
+    constexpr virtual ~impl() = default;
+
+    [[nodiscard]] constexpr virtual bool operator==(sentinel) const = 0;
+    constexpr virtual void operator++() = 0;
+
+    // NOTE: most of the following methods should probably be const, but
+    // functions using sqlite3_stmt takes it as a non-const pointer
+
+    [[nodiscard]] constexpr virtual int ncolumn() = 0;
+    [[nodiscard]] constexpr virtual std::string_view column_name(int col) = 0;
+    [[nodiscard]] constexpr virtual int column_idx(const std::string &name) = 0;
+    [[nodiscard]] constexpr virtual bool isnull(int col) = 0;
+
+    [[nodiscard]] constexpr virtual int32_t i32(int col) = 0;
+    [[nodiscard]] constexpr virtual int64_t i64(int col) = 0;
+    [[nodiscard]] constexpr virtual double f64(int col) = 0;
+    [[nodiscard]] constexpr virtual std::string_view str(int col) = 0;
+    [[nodiscard]] constexpr virtual std::span<const std::byte> blob(int col) = 0;
+
+   protected:
+    impl() = default;
+    impl(const impl &) = default;
+    impl &operator=(const impl &) = default;
+    impl(impl &&) = default;
+    impl &operator=(impl &&) = default;
+  };
+  constexpr explicit result(std::unique_ptr<impl> pimpl) : _pimpl(std::move(pimpl)) {}
+
+  class field {
+    impl &_result;
+    int _col;
+
+    [[nodiscard]] constexpr auto nullable(auto f) {
+      return isnull() ? std::nullopt : std::optional(std::invoke(f, this));
+    }
+
+   public:
+    constexpr field(impl &result, int col) : _result(result), _col(col) {}
+
+    // accessors mappings mapping NULL-able values as optional:
+
+    [[nodiscard]] constexpr std::optional<int32_t> i32() { return nullable(&field::raw_i32); }
+    [[nodiscard]] constexpr std::optional<int64_t> i64() { return nullable(&field::raw_i64); }
+    [[nodiscard]] constexpr std::optional<double> f64() { return nullable(&field::raw_f64); }
+    [[nodiscard]] constexpr std::optional<std::string_view> str() { return nullable(&field::raw_str); }
+    [[nodiscard]] constexpr std::optional<std::span<const std::byte>> blob() { return nullable(&field::raw_blob); }
+
+    // direct value accessors for fields known to be NOT NULL:
+
+    [[nodiscard]] constexpr int32_t raw_i32() { return _result.i32(_col); }
+    [[nodiscard]] constexpr int64_t raw_i64() { return _result.i64(_col); }
+    [[nodiscard]] constexpr double raw_f64() { return _result.f64(_col); }
+    [[nodiscard]] constexpr std::string_view raw_str() { return _result.str(_col); }
+    [[nodiscard]] constexpr std::span<const std::byte> raw_blob() { return _result.blob(_col); }
+
+    [[nodiscard]] constexpr std::string_view name() { return _result.column_name(_col); }
+    [[nodiscard]] constexpr bool isnull() { return _result.isnull(_col); }
+  };
+  /// Access the field in a given column of the current row
+  [[nodiscard]] constexpr field operator[](int column) { return {*_pimpl, column}; };
+  [[nodiscard]] constexpr field operator[](const std::string &name) { return (*this)[_pimpl->column_idx(name)]; }
+
+  [[nodiscard]] constexpr int ncolumn() { return _pimpl->ncolumn(); }
+  [[nodiscard]] constexpr bool empty() { return *_pimpl == end(); }
+
+ private:
+  std::unique_ptr<impl> _pimpl;
+};
+static_assert(std::ranges::input_range<result>);
+
 /// An engine agnostic database wrapper around a database connection, basic usage:
 ///
 ///     auto db = jl::db::open("file:///db.sqlite3?mode=memory");
@@ -19,105 +118,6 @@ struct connection {
   virtual ~connection() = default;
   connection(const connection &) = delete;
   connection &operator=(const connection &) = delete;
-
-  /// An engine agnostic cursor into a database result
-  class result {
-   public:
-    struct sentinel {};
-    struct impl {
-      constexpr virtual ~impl() = default;
-
-      [[nodiscard]] constexpr virtual bool operator==(sentinel) const = 0;
-      constexpr virtual void operator++() = 0;
-
-      // NOTE: most of the following methods should probably be const, but
-      // functions using sqlite3_stmt takes it as a non-const pointer
-
-      [[nodiscard]] constexpr virtual int ncolumn() = 0;
-      [[nodiscard]] constexpr virtual std::string_view column_name(int col) = 0;
-      [[nodiscard]] constexpr virtual int column_idx(const std::string &name) = 0;
-      [[nodiscard]] constexpr virtual bool isnull(int col) = 0;
-
-      [[nodiscard]] constexpr virtual int32_t i32(int col) = 0;
-      [[nodiscard]] constexpr virtual int64_t i64(int col) = 0;
-      [[nodiscard]] constexpr virtual double f64(int col) = 0;
-      [[nodiscard]] constexpr virtual std::string_view str(int col) = 0;
-      [[nodiscard]] constexpr virtual std::span<const std::byte> blob(int col) = 0;
-
-     protected:
-      impl() = default;
-      impl(const impl &) = default;
-      impl &operator=(const impl &) = default;
-      impl(impl &&) = default;
-      impl &operator=(impl &&) = default;
-    };
-    constexpr explicit result(std::unique_ptr<impl> pimpl) : _pimpl(std::move(pimpl)) {}
-
-    class input_iter {
-      result *_result;
-
-     public:
-      using difference_type = ptrdiff_t;
-      using value_type = result;
-
-      constexpr explicit input_iter(result &result) : _result(&result) {}
-
-      constexpr input_iter &operator++() {
-        ++(*_result->_pimpl);
-        return *this;
-      }
-      constexpr void operator++(int) { ++(*_result->_pimpl); }
-
-      [[nodiscard]] constexpr result &operator*() const { return *_result; }
-      [[nodiscard]] constexpr bool operator==(const sentinel &s) const { return (*_result->_pimpl) == s; }
-    };
-    static_assert(std::input_iterator<input_iter>);
-    static_assert(std::sentinel_for<sentinel, input_iter>);
-
-    [[nodiscard]] constexpr input_iter begin() { return input_iter(*this); }
-    [[nodiscard]] constexpr sentinel end() const { return {}; }
-
-    class field {
-      impl &_result;
-      int _col;
-
-      [[nodiscard]] constexpr auto nullable(auto f) {
-        return isnull() ? std::nullopt : std::optional(std::invoke(f, this));
-      }
-
-     public:
-      constexpr field(impl &result, int col) : _result(result), _col(col) {}
-
-      // accessors mappings mapping NULL-able values as optional:
-
-      [[nodiscard]] constexpr std::optional<int32_t> i32() { return nullable(&field::raw_i32); }
-      [[nodiscard]] constexpr std::optional<int64_t> i64() { return nullable(&field::raw_i64); }
-      [[nodiscard]] constexpr std::optional<double> f64() { return nullable(&field::raw_f64); }
-      [[nodiscard]] constexpr std::optional<std::string_view> str() { return nullable(&field::raw_str); }
-      [[nodiscard]] constexpr std::optional<std::span<const std::byte>> blob() { return nullable(&field::raw_blob); }
-
-      // direct value accessors for fields known to be NOT NULL:
-
-      [[nodiscard]] constexpr int32_t raw_i32() { return _result.i32(_col); }
-      [[nodiscard]] constexpr int64_t raw_i64() { return _result.i64(_col); }
-      [[nodiscard]] constexpr double raw_f64() { return _result.f64(_col); }
-      [[nodiscard]] constexpr std::string_view raw_str() { return _result.str(_col); }
-      [[nodiscard]] constexpr std::span<const std::byte> raw_blob() { return _result.blob(_col); }
-
-      [[nodiscard]] constexpr std::string_view name() { return _result.column_name(_col); }
-      [[nodiscard]] constexpr bool isnull() { return _result.isnull(_col); }
-    };
-    /// Access the field at column in the current row
-    [[nodiscard]] constexpr field operator[](int column) { return {*_pimpl, column}; };
-    [[nodiscard]] constexpr field operator[](const std::string &name) { return (*this)[_pimpl->column_idx(name)]; }
-
-    [[nodiscard]] constexpr int ncolumn() { return _pimpl->ncolumn(); }
-    [[nodiscard]] constexpr bool empty() { return *_pimpl == end(); }
-
-   private:
-    std::unique_ptr<impl> _pimpl;
-  };
-  static_assert(std::ranges::input_range<result>);
 
   /// Execute a prepared SQL statement like:
   ///     exec("SELECT $1, $2", "foo", 42);
@@ -137,7 +137,7 @@ struct connection {
 
 /// A database that mocks or intercepts results
 class mock final : public connection {
-  std::move_only_function<connection::result(const std::string &, std::span<const param>)> _exec;
+  std::move_only_function<db::result(const std::string &, std::span<const param>)> _exec;
 
  public:
   constexpr explicit mock(decltype(_exec) exec) : _exec(std::move(exec)) {}
@@ -145,7 +145,7 @@ class mock final : public connection {
   mock(const mock &) = delete;
   mock &operator=(const mock &) = delete;
 
-  class result final : public connection::result::impl {
+  class result final : public db::result::impl {
     std::vector<std::vector<param>> _rows;
     std::vector<std::string> _column_names;
     size_t _i = 0;
@@ -169,7 +169,7 @@ class mock final : public connection {
     result(result &&) = default;
     result &operator=(result &&) = default;
 
-    constexpr bool operator==(connection::result::sentinel /*unused*/) const override {
+    constexpr bool operator==(db::result::sentinel /*unused*/) const override {
       return _rows.size() == _i;
     }
     constexpr void operator++() override {
@@ -200,11 +200,11 @@ class mock final : public connection {
     }
   };
   /// A fixed table result. Note that getters here are more strictly type checked than regular database APIs.
-  [[nodiscard]] constexpr static connection::result table(std::vector<std::vector<param>> rows, std::vector<std::string> column_names = {}) {
-    return connection::result(std::make_unique<result>(std::move(rows), std::move(column_names)));
+  [[nodiscard]] constexpr static db::result table(std::vector<std::vector<param>> rows, std::vector<std::string> column_names = {}) {
+    return db::result(std::make_unique<result>(std::move(rows), std::move(column_names)));
   }
 
-  constexpr connection::result execv(const std::string &sql, std::span<const param> params) override {
+  constexpr db::result execv(const std::string &sql, std::span<const param> params) override {
     return _exec(sql, params);
   }
 };
@@ -232,7 +232,7 @@ class sqlite final : public connection {
     return db;
   };
 
-  class result final : public connection::result::impl {
+  class result final : public db::result::impl {
     std::unique_ptr<sqlite3_stmt, jl::deleter<sqlite3_finalize>> _stmt;
     std::vector<std::string> _column_names;
 
@@ -249,7 +249,7 @@ class sqlite final : public connection {
     }
 
    protected:
-    bool operator==(connection::result::sentinel /*unused*/) const override {
+    bool operator==(db::result::sentinel /*unused*/) const override {
       return _stmt == nullptr;
     }
 
@@ -279,7 +279,7 @@ class sqlite final : public connection {
     [[nodiscard]] size_t nbyte(int col) { return sqlite3_column_bytes(_stmt.get(), col); }
   };
 
-  connection::result execv(const std::string &sql, std::span<const param> params) override {
+  db::result execv(const std::string &sql, std::span<const param> params) override {
     sqlite3_stmt *stmt = nullptr;
     auto status = sqlite3_prepare_v3(_db.get(), sql.data(), static_cast<int>(sql.size()), 0, &stmt, nullptr);
     if (status != SQLITE_OK) throw error(_db.get(), "sqlite_prepare");
@@ -303,7 +303,7 @@ class sqlite final : public connection {
     }
 
     ++(*query);  // i.e. run initial sqlite3_step(...), which execute the query
-    return connection::result(std::move(query));
+    return db::result(std::move(query));
   }
 
  private:
@@ -332,7 +332,7 @@ class psql final : public connection {
     return db;
   };
 
-  class result final : public connection::result::impl {
+  class result final : public db::result::impl {
     std::unique_ptr<PGresult, jl::deleter<PQclear>> _result;
     std::vector<std::vector<std::byte>> _blobs;
     int _n = 0;
@@ -345,7 +345,7 @@ class psql final : public connection {
 
    protected:
     void operator++() override { ++_row; }
-    bool operator==(connection::result::sentinel /*unused*/) const override {
+    bool operator==(db::result::sentinel /*unused*/) const override {
       return _row == _n;
     }
 
@@ -370,7 +370,7 @@ class psql final : public connection {
    private:
     [[nodiscard]] const char *c_str(int col) const { return PQgetvalue(_result.get(), _row, col); }
   };
-  connection::result execv(const std::string &sql, std::span<const param> params) override {
+  db::result execv(const std::string &sql, std::span<const param> params) override {
     constexpr int values_as_text = 0;
 
     std::vector<const char *> c_strs(params.size());
@@ -403,10 +403,10 @@ class psql final : public connection {
         values_as_text));
     switch (PQresultStatus(p.get())) {
       case PGRES_EMPTY_QUERY:
-        return connection::result(std::make_unique<result>(nullptr));
+        return db::result(std::make_unique<result>(nullptr));
       case PGRES_COMMAND_OK:
       case PGRES_TUPLES_OK:
-        return connection::result(std::make_unique<result>(std::move(p)));
+        return db::result(std::make_unique<result>(std::move(p)));
       default:
         throw error("PQexec");
     }
