@@ -35,6 +35,7 @@ struct connection {
 
       [[nodiscard]] constexpr virtual int ncolumn() = 0;
       [[nodiscard]] constexpr virtual std::string_view column_name(int col) = 0;
+      [[nodiscard]] constexpr virtual int column_idx(const std::string &name) = 0;
       [[nodiscard]] constexpr virtual bool isnull(int col) = 0;
 
       [[nodiscard]] constexpr virtual int32_t i32(int col) = 0;
@@ -108,6 +109,7 @@ struct connection {
     };
     /// Access the field at column in the current row
     [[nodiscard]] constexpr field operator[](int column) { return {*_pimpl, column}; };
+    [[nodiscard]] constexpr field operator[](const std::string &name) { return (*this)[_pimpl->column_idx(name)]; }
 
     [[nodiscard]] constexpr int ncolumn() { return _pimpl->ncolumn(); }
     [[nodiscard]] constexpr bool empty() { return *_pimpl == end(); }
@@ -126,6 +128,11 @@ struct connection {
   constexpr virtual result execv(const std::string &sql, std::span<const param> params) = 0;
 
   connection() = default;
+};
+
+[[nodiscard]] constexpr inline int column_idx(const std::vector<std::string> &columns, std::string_view name) {
+  if (auto i = std::ranges::find(columns, name); i != columns.end()) return static_cast<int>(i - columns.begin());
+  throw std::runtime_error(std::format("missing {} column", name));
 };
 
 /// A database that mocks or intercepts results
@@ -174,6 +181,8 @@ class mock final : public connection {
       return static_cast<int>(_rows.at(0).size());
     }
     constexpr std::string_view column_name(int col) override { return _column_names.at(col); };
+    constexpr int column_idx(const std::string &name) override { return db::column_idx(_column_names, name); }
+
     constexpr bool isnull(int col) override {
       return std::holds_alternative<std::monostate>(_rows.at(_i).at(col));
     }
@@ -225,6 +234,7 @@ class sqlite final : public connection {
 
   class result final : public connection::result::impl {
     std::unique_ptr<sqlite3_stmt, jl::deleter<sqlite3_finalize>> _stmt;
+    std::vector<std::string> _column_names;
 
    public:
     explicit result(sqlite3_stmt *stmt) : _stmt(stmt) {}
@@ -245,6 +255,12 @@ class sqlite final : public connection {
 
     int ncolumn() override { return sqlite3_column_count(_stmt.get()); }
     std::string_view column_name(int col) override { return sqlite3_column_name(_stmt.get(), col); }
+    int column_idx(const std::string &name) override {
+      if (_column_names.empty()) {
+        for (int i = 0; i < ncolumn(); ++i) _column_names.emplace_back(column_name(i));
+      }
+      return db::column_idx(_column_names, name);
+    }
     bool isnull(int col) override {
       return sqlite3_column_type(_stmt.get(), col) == SQLITE_NULL;
     }
@@ -335,6 +351,11 @@ class psql final : public connection {
 
     int ncolumn() override { return PQnfields(_result.get()); }
     std::string_view column_name(int col) override { return PQfname(_result.get(), col); }
+    int column_idx(const std::string &name) override {
+      if (auto i = PQfnumber(_result.get(), name.c_str()); i >= 0) return i;
+      throw std::runtime_error(std::format("missing {} column", name));
+    }
+
     bool isnull(int col) override { return PQgetisnull(_result.get(), _row, col); }
     int32_t i32(int col) override { return jl::unwrap(jl::from_str<int32_t>(str(col))); }
     int64_t i64(int col) override { return jl::unwrap(jl::from_str<int64_t>(str(col))); }

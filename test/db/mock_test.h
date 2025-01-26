@@ -36,14 +36,18 @@ inline void verify_queries(std::unique_ptr<jl::db::connection> db, std::span<con
     for (auto& row : result) {
       for (auto [j, field] : std::views::enumerate(expected[nrow++])) {
         INFO("row=", nrow - 1, " col=", j);
+
+        // test lookup via column names if given, otherwise fallback to column index:
+        auto v = expected_columns.empty() ? row[static_cast<int>(j)] : row[expected_columns.at(j)];
+
         std::visit(jl::overload{
-                       [&](std::monostate) { CHECK(row[j].isnull()); },
-                       [&](const std::string_view& s) { CHECK(row[j].str() == s); },
-                       [&](int32_t i) { CHECK(row[j].i32() == i); },
-                       [&](int64_t i) { CHECK(row[j].i64() == i); },
-                       [&](double n) { CHECK(row[j].f64() == n); },
+                       [&](std::monostate) { CHECK(v.isnull()); },
+                       [&](const std::string_view& s) { CHECK(v.str() == s); },
+                       [&](int32_t i) { CHECK(v.i32() == i); },
+                       [&](int64_t i) { CHECK(v.i64() == i); },
+                       [&](double n) { CHECK(v.f64() == n); },
                        [&](std::span<const std::byte> blob) {
-                         CHECK(jl::to_xdigits(row[j].blob().value(), " ") == jl::to_xdigits(blob, " "));
+                         CHECK(jl::to_xdigits(v.blob().value(), " ") == jl::to_xdigits(blob, " "));
                        },
                    },
                    field);

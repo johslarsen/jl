@@ -41,30 +41,31 @@ TEST_SUITE("mock db") {
   }
   TEST_CASE("field accessors") {
     auto blob = jl::from_xdigits("f00ba4");
-    auto table = jl::db::mock::table({{
-        int32_t(42),
-        int64_t(0xdeadbeef),
-        M_PI,
-        std::string("foo"),
-        std::string_view("bar"),
-        "baz",
-        blob,
-        jl::db::null,
-
-    }});
+    auto table = jl::db::mock::table(
+        {{
+            int32_t(42),
+            int64_t(0xdeadbeef),
+            M_PI,
+            std::string("foo"),
+            std::string_view("bar"),
+            "baz",
+            blob,
+            jl::db::null,
+        }},
+        std::vector<std::string>{"i32", "i64", "f64", "str", "sv", "c_str", "blob", "null"});
     CHECK(table.ncolumn() == 8);
 
-    CHECK(table[0].i32() == 42);
-    CHECK(table[1].i64() == 0xdeadbeef);
-    CHECK(table[2].f64() == M_PI);
-    CHECK(table[3].str() == "foo");
-    CHECK(table[4].str() == "bar");
-    CHECK(table[5].str() == "baz");
-    CHECK(jl::to_xdigits(table[6].blob().value()) == jl::to_xdigits(blob));
+    CHECK(table["i32"].i32() == 42);
+    CHECK(table["i64"].i64() == 0xdeadbeef);
+    CHECK(table["f64"].f64() == M_PI);
+    CHECK(table["str"].str() == "foo");
+    CHECK(table["sv"].str() == "bar");
+    CHECK(table["c_str"].str() == "baz");
+    CHECK(jl::to_xdigits(table["blob"].blob().value()) == jl::to_xdigits(blob));
 
     CHECK(!table[0].isnull());
     CHECK(table[7].isnull());
-    CHECK(table[7].str() == std::nullopt);
+    CHECK(table["null"].str() == std::nullopt);
   }
 
   TEST_CASE("table create insert select drop") {
