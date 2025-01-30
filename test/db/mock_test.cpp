@@ -1,5 +1,7 @@
 #include "mock_test.h"
 
+#include <numbers>
+
 TEST_SUITE("mock db") {
   TEST_CASE("exec varargs") {
     jl::db::mock db([](const auto& /*sql*/, const auto& params) {
@@ -12,7 +14,7 @@ TEST_SUITE("mock db") {
         CHECK(std::get<int64_t>(params[4]) == 0);
         CHECK(std::get<int64_t>(params[5]) == 0xf00ba4ba2);
 
-        CHECK(std::get<double>(params[6]) == M_PIf);
+        CHECK(std::get<double>(params[6]) == std::numbers::pi_v<float>);
         CHECK(std::get<double>(params[7]) == M_PI);
 
         CHECK(std::get<const char*>(params[8]) == "");
@@ -33,7 +35,7 @@ TEST_SUITE("mock db") {
     db.exec("",
             42, -1, true, false,                                            // i32
             0L, 0xf00ba4ba2L,                                               // i64
-            M_PIf, M_PI,                                                    // f64
+            std::numbers::pi_v<float>, M_PI,                                // f64
             "", "foo", std::string("bar"), std::string_view("baz"),         // text
             std::span<const std::byte>{}, std::as_bytes(std::span("foo")),  // blob
             jl::db::null, std::monostate{}, jl::db::param{}                 // NULL

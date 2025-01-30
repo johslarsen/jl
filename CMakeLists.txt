@@ -27,14 +27,16 @@ endif()
 find_package(SQLite3)
 find_package(PostgreSQL)
 add_library(jl_db INTERFACE include/jl_db.h)
+target_link_libraries(jl_db INTERFACE jl)
 if(${SQLite3_FOUND})
   target_compile_definitions(jl_db INTERFACE -DJL_HAS_SQLITE=1)
+  target_link_libraries(jl_db INTERFACE ${SQLite3_LIBRARY})
 endif()
 if(${PostgreSQL_FOUND})
   target_compile_definitions(jl_db INTERFACE -DJL_HAS_PSQL=1)
+  target_include_directories(jl_db INTERFACE ${PostgreSQL_INCLUDE_DIR})
+  target_link_libraries(jl_db INTERFACE ${PostgreSQL_LIBRARIES})
 endif()
-target_link_libraries(jl_db INTERFACE jl ${PostgreSQL_LIBRARIES}
-                                      ${SQLite3_LIBRARIES})
 
 set(BENCHMARK_ENABLE_TESTING OFF)
 if(JL_ENABLE_TESTING AND EXISTS
