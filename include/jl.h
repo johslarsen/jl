@@ -414,14 +414,14 @@ template <typename T, typename U = uint_from_size<sizeof(T)>::type>
   requires(!std::integral<T>)
 constexpr T le(T n) noexcept {
   if constexpr (std::endian::native == std::endian::big) {
-    return std::bit_cast<float>(le(std::bit_cast<U>(n)));
+    return std::bit_cast<T>(le(std::bit_cast<U>(n)));
   } else {
     return n;
   }
 }
 
 /// @returns ceil(x/y)
-auto div_ceil(std::unsigned_integral auto x, std::unsigned_integral auto y) {
+constexpr auto div_ceil(std::unsigned_integral auto x, std::unsigned_integral auto y) {
   return x / y + (x % y != 0);
 }
 
