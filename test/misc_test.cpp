@@ -2,10 +2,10 @@
 #include <jl.h>
 
 TEST_SUITE("misc") {
-  TEST_CASE("any_of") {
-    static_assert(jl::any_of<int, int, float>);
-    static_assert(jl::any_of<float, int, float>);
-    static_assert(!jl::any_of<double, int, float>);
+  TEST_CASE("one_of") {
+    static_assert(jl::one_of<int, int, float>);
+    static_assert(jl::one_of<float, int, float>);
+    static_assert(!jl::one_of<double, int, float>);
   }
   TEST_CASE("overloaded") {
     std::vector<std::variant<float, std::string>> matches;
@@ -14,7 +14,7 @@ TEST_SUITE("misc") {
     var n = 3.14F;
 
     auto handler = jl::overload{
-        [&](const jl::any_of<int, float> auto &n) { matches.emplace_back(static_cast<float>(n)); return 43; },
+        [&](const jl::one_of<int, float> auto &n) { matches.emplace_back(static_cast<float>(n)); return 43; },
         [&](const std::string &s) { matches.emplace_back(s);  return 42; },
     };
     std::visit(handler, var{3.14F});
