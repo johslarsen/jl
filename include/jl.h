@@ -9,6 +9,7 @@
 #include <cstring>
 #include <expected>
 #include <format>
+#include <functional>
 #include <future>
 #include <optional>
 #include <ranges>
@@ -124,13 +125,26 @@ class defer {
   F _f;
 
  public:
-  [[nodiscard]] explicit defer(F f) : _f(f) {}
+  [[nodiscard]] explicit defer(F f) : _f(std::move(f)) {}
   ~defer() noexcept { _f(); }
 
   defer(const defer &) = delete;
   defer &operator=(const defer &) = delete;
   defer(defer &&) = delete;
   defer &operator=(defer &&) = delete;
+};
+
+class invocable_counter {
+  size_t _total_calls = 0;
+
+ public:
+  [[nodiscard]] size_t total_calls() const { return _total_calls; }
+  auto wrap(auto f) {
+    return [f = std::move(f), this](auto &&...args) {
+      ++_total_calls;
+      return std::invoke(f, std::forward<decltype(args)>(args)...);
+    };
+  }
 };
 
 static_assert(EAGAIN == EWOULDBLOCK, "Obscure and unsupported platform");
@@ -437,6 +451,17 @@ template <bitcastable_to<char> Char>
 inline std::string_view view_of(std::span<Char> bytes) noexcept {
   const char *data = reinterpret_cast<const char *>(bytes.data());  // NOLINT(*reinterpret-cast) Char template requirement makes this safe
   return {data, bytes.size()};
+}
+
+/// Given a presorted range, insert v into its sorted position
+///
+/// Optimized for mostly sorted input data, since std::vector-like structures
+/// are cheaper to insert into close to the end than close to the beginning.
+template <std::ranges::bidirectional_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
+T &sorted_append(R &range, T v, Compare comp = Compare()) {
+  assert(std::ranges::is_sorted(range));
+  auto [iter, end] = std::ranges::find_last_if(range.begin(), range.end(), [&comp, &v](const auto &c) { return comp(c, v); });
+  return *range.insert(iter == end ? range.begin() : iter + 1, std::move(v));
 }
 
 /// A std::random_access_iterator implemented by keeping an index into a range
