@@ -48,41 +48,55 @@ TEST_SUITE("misc") {
       CHECK(counter.total_calls() == 10);
     }
   }
-  TEST_CASE("sorted_append") {
+  TEST_CASE("sorted_append/inserted") {
     constexpr std::string_view alphabet = "abcdefghijklmnopqrstuvwxyz";
-    jl::invocable_counter comparisons;
+    jl::invocable_counter append_comparisons;
 
-    std::string ordered;
+    std::string appended, inserted;
     SUBCASE("ordered input") {
       for (auto i : std::views::iota('a', 'z' + 1)) {
-        jl::sorted_append(ordered, i, comparisons.wrap(std::less()));
+        jl::sorted_append(appended, i, append_comparisons.wrap(std::less()));
+        jl::sorted_insert(inserted, i);
       }
-      CHECK_MESSAGE(comparisons.total_calls() == alphabet.size() - 1, "linear search base case: O(1)");
+      CHECK(appended == alphabet);
+      CHECK_MESSAGE(append_comparisons.total_calls() == alphabet.size() - 1, "linear search base case: O(1)");
     }
     SUBCASE("reverse ordered input") {
       for (auto i : std::views::iota('a', 'z' + 1) | std::views::reverse) {
-        jl::sorted_append(ordered, i, comparisons.wrap(std::less()));
+        jl::sorted_append(appended, i, append_comparisons.wrap(std::less()));
+        jl::sorted_insert(inserted, i);
       }
-      CHECK_MESSAGE(comparisons.total_calls() == ((alphabet.size() - 1) * alphabet.size()) / 2, "linear search worst case: O(n)");
+      CHECK(appended == alphabet);
+      CHECK_MESSAGE(append_comparisons.total_calls() == ((alphabet.size() - 1) * alphabet.size()) / 2, "linear search worst case: O(n)");
     }
     SUBCASE("random ordered input") {
       auto randomized = std::string(alphabet);
       std::ranges::shuffle(randomized, std::mt19937(std::random_device{}()));
       SUBCASE("into string") {
-        for (auto i : randomized) jl::sorted_append(ordered, i);
+        for (auto i : randomized) {
+          jl::sorted_append(appended, i);
+          jl::sorted_insert(inserted, i);
+        }
+        CHECK(appended == alphabet);
       }
       SUBCASE("into vector") {
-        std::vector<char> chars;
-        for (auto i : randomized) jl::sorted_append(ordered, i);
-        std::ranges::copy(chars, ordered.end());
+        std::vector<char> appended_chars, inserted_chars;
+        for (auto i : randomized) {
+          jl::sorted_append(appended_chars, i);
+          jl::sorted_insert(inserted_chars, i);
+        }
+        CHECK(jl::view_of(std::as_bytes(std::span(appended_chars))) == alphabet);
+        CHECK(jl::view_of(std::as_bytes(std::span(inserted_chars))) == alphabet);
       }
       SUBCASE("into bidirectional list") {
-        std::list<char> chars;
-        for (auto i : randomized) jl::sorted_append(ordered, i);
-        std::ranges::copy(chars, ordered.end());
+        std::list<char> appended_chars;
+        for (auto i : randomized) {
+          jl::sorted_append(appended_chars, i);
+        }
+        std::ranges::copy(appended_chars, std::back_inserter(appended));
+        CHECK(appended == alphabet);
       }
     }
-    CHECK(ordered == alphabet);
   }
   TEST_CASE("idx_iter") {
     static_assert(std::input_or_output_iterator<jl::idx_iter<std::span<int>>>);

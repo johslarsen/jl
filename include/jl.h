@@ -461,7 +461,12 @@ template <std::ranges::bidirectional_range R, typename T = std::ranges::range_va
 T &sorted_append(R &range, T v, Compare comp = Compare()) {
   assert(std::ranges::is_sorted(range));
   auto [iter, end] = std::ranges::find_last_if(range.begin(), range.end(), [&comp, &v](const auto &c) { return comp(c, v); });
-  return *range.insert(iter == end ? range.begin() : iter + 1, std::move(v));
+  return *range.insert(iter == end ? range.begin() : ++iter, std::move(v));
+}
+/// Given a presorted range, binary search for v's sorted location and insert it there
+template <std::ranges::random_access_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
+T &sorted_insert(R &range, T v, Compare comp = Compare()) {
+  return *range.insert(std::ranges::lower_bound(range, v, comp), v);
 }
 
 /// A std::random_access_iterator implemented by keeping an index into a range
