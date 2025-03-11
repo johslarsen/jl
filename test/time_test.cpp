@@ -7,6 +7,7 @@ TEST_SUITE("time") {
     auto zero = jl::as_timespec(0ns);
     auto one_second = jl::as_timespec(1s);
     auto one_ns = jl::as_timespec(1ns);
+    auto minus_one_ns = jl::as_timespec(-1ns);
 
     CHECK(0 == zero.tv_sec);
     CHECK(0 == zero.tv_nsec);
@@ -14,6 +15,8 @@ TEST_SUITE("time") {
     CHECK(0 == one_second.tv_nsec);
     CHECK(0 == one_ns.tv_sec);
     CHECK(1 == one_ns.tv_nsec);
+    CHECK(-1 == minus_one_ns.tv_sec);
+    CHECK(999'999'999 == minus_one_ns.tv_nsec);
   }
 
   TEST_CASE_TEMPLATE("clamped_cast", T, std::chrono::seconds, std::chrono::days, std::chrono::nanoseconds, std::chrono::duration<double>) {

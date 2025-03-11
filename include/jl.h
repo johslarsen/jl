@@ -560,7 +560,7 @@ struct deleter {
 };
 
 inline std::timespec as_timespec(std::chrono::nanoseconds ns) {
-  auto s = std::chrono::duration_cast<std::chrono::seconds>(ns);
+  auto s = std::chrono::floor<std::chrono::seconds>(ns);
   return {.tv_sec = s.count(), .tv_nsec = (ns - s).count()};
 }
 
