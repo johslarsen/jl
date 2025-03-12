@@ -48,6 +48,28 @@ TEST_SUITE("misc") {
       CHECK(counter.total_calls() == 10);
     }
   }
+
+  TEST_CASE("insert_unique") {
+    std::string set;
+    auto b = jl::insert_unique(set, std::ranges::lower_bound(set, 'b'), 'b');
+    CHECK(set == "b");
+    REQUIRE(b != set.end());
+    CHECK(*b == 'b');
+
+    auto bb = jl::insert_unique(set, b, 'b');
+    CHECK(bb == set.end());
+    CHECK(set == "b");
+
+    jl::insert_unique(set, std::ranges::lower_bound(set, 'a'), 'a');
+    jl::insert_unique(set, std::ranges::lower_bound(set, 'c'), 'c');
+    CHECK(set == "abc");
+
+    CHECK(*std::ranges::lower_bound(set, 'b') == 'b');
+    bb = jl::insert_unique(set, std::ranges::lower_bound(set, 'b'), 'b');
+    CHECK(bb == set.end());
+    CHECK(set == "abc");
+  }
+
   TEST_CASE("sorted_append/inserted") {
     constexpr std::string_view alphabet = "abcdefghijklmnopqrstuvwxyz";
     jl::invocable_counter append_comparisons;

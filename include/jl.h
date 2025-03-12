@@ -453,20 +453,36 @@ inline std::string_view view_of(std::span<Char> bytes) noexcept {
   return {data, bytes.size()};
 }
 
-/// Given a presorted range, insert v into its sorted position
+/// Given a presorted range, find the lower_bound using a linear search from the end
 ///
 /// Optimized for mostly sorted input data, since std::vector-like structures
 /// are cheaper to insert into close to the end than close to the beginning.
 template <std::ranges::bidirectional_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
-T &sorted_append(R &range, T v, Compare comp = Compare()) {
+std::ranges::borrowed_iterator_t<R> rsearch_lower_bound(R &&range, const T &v, Compare comp = {}) {
   assert(std::ranges::is_sorted(range));
   auto [iter, end] = std::ranges::find_last_if(range.begin(), range.end(), [&comp, &v](const auto &c) { return comp(c, v); });
-  return *range.insert(iter == end ? range.begin() : ++iter, std::move(v));
+  return iter == end ? range.begin() : ++iter;
+}
+
+/// Insert v only if it is not equal to the value at lower_bound
+///
+/// @param lower_bound must point to either something == v, if it is exists; something >= v or end of the range
+/// @returns iterator to the inserted v or end
+template <std::ranges::range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
+auto insert_unique(R &range, std::ranges::iterator_t<R> lower_bound, T &&v, Compare comp = {}) {
+  if (auto end = std::ranges::end(range); lower_bound != end && !comp(v, *lower_bound)) return end;
+  return range.insert(lower_bound, std::forward<T>(v));
+}
+
+/// Given a presorted range, linear reverse search for v's sorted location and insert it there
+template <std::ranges::bidirectional_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
+T &sorted_append(R &range, T v, Compare comp = Compare()) {
+  return *range.insert(rsearch_lower_bound(range, v, comp), std::move(v));
 }
 /// Given a presorted range, binary search for v's sorted location and insert it there
 template <std::ranges::random_access_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
 T &sorted_insert(R &range, T v, Compare comp = Compare()) {
-  return *range.insert(std::ranges::lower_bound(range, v, comp), v);
+  return *range.insert(std::ranges::lower_bound(range, v, comp), std::move(v));
 }
 
 /// A std::random_access_iterator implemented by keeping an index into a range
