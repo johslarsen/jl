@@ -564,6 +564,30 @@ inline std::timespec as_timespec(std::chrono::nanoseconds ns) {
   return {.tv_sec = s.count(), .tv_nsec = (ns - s).count()};
 }
 
+template <typename Duration>
+constexpr std::pair<std::chrono::year_month_day, std::chrono::hh_mm_ss<Duration>> ymdhms(std::chrono::sys_time<Duration> t) {
+  auto days = std::chrono::floor<std::chrono::days>(t);
+  return {std::chrono::year_month_day(days), std::chrono::hh_mm_ss(t - days)};
+};
+
+/// https://en.wikipedia.org/wiki/International_Atomic_Time
+constexpr std::chrono::sys_days tai_epoch = []() {
+  using namespace std::chrono;
+  return sys_days(1958y / January / 1);
+}();
+constexpr std::chrono::sys_days gps_epoch = []() {
+  using namespace std::chrono;
+  return sys_days(1980y / January / 6);
+}();
+
+/// https://en.wikipedia.org/wiki/Terrestrial_Time
+constexpr std::chrono::tai_time terrestrial_time(std::chrono::milliseconds(-32184));
+/// https://en.wikipedia.org/wiki/Epoch_(astronomy)#Julian_years_and_J2000
+constexpr std::chrono::tai_time j2000_tt = []() {
+  using namespace std::chrono;
+  return terrestrial_time + (sys_days(2000y / January / 1) - tai_epoch) + 12h;
+}();
+
 /// std::chrono::duration_cast, but safely clamped close to ToDur::min/max when the input duration have a larger range
 template <typename ToDur, typename Rep, typename Period>
 ToDur clamped_cast(const std::chrono::duration<Rep, Period> &t) {

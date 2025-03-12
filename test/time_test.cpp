@@ -19,6 +19,45 @@ TEST_SUITE("time") {
     CHECK(999'999'999 == minus_one_ns.tv_nsec);
   }
 
+  TEST_CASE("ymdhms") {
+    using namespace std::chrono;
+    SUBCASE("system_clock") {
+      auto [ymd, hms] = jl::ymdhms(sys_time<nanoseconds>(seconds(1UL << 31) + 42ns));
+      CHECK(ymd == 2038y / January / 19d);
+      CHECK(hms.hours() == 3h);
+      CHECK(hms.minutes() == 14min);
+      CHECK(hms.seconds() == 8s);
+      CHECK(hms.subseconds() == 42ns);
+    }
+    SUBCASE("j2000_tt in various clocks") {
+      auto [ymd, hms] = jl::ymdhms(jl::tai_epoch + jl::j2000_tt.time_since_epoch());
+      CHECK("2000-01-01 11:59:27.816" == std::format("{}", jl::j2000_tt));
+      CHECK(ymd == 2000y / January / 1d);
+      CHECK(hms.hours() == 11h);
+      CHECK(hms.minutes() == 59min);
+      CHECK(hms.seconds() == 27s);
+      CHECK(hms.subseconds() == 816ms);
+
+      auto j2000_tt_utc = std::chrono::clock_cast<std::chrono::system_clock>(jl::j2000_tt);
+      auto [uymd, uhms] = jl::ymdhms(j2000_tt_utc);
+      CHECK("2000-01-01 11:58:55.816" == std::format("{}", j2000_tt_utc));
+      CHECK(uymd == 2000y / January / 1d);
+      CHECK(uhms.hours() == 11h);
+      CHECK(uhms.minutes() == 58min);
+      CHECK(uhms.seconds() == 55s);
+      CHECK(uhms.subseconds() == 816ms);
+
+      auto j2000_tt_gps = std::chrono::clock_cast<std::chrono::gps_clock>(jl::j2000_tt);
+      auto [gymd, ghms] = jl::ymdhms(jl::gps_epoch + j2000_tt_gps.time_since_epoch());
+      CHECK("2000-01-01 11:59:08.816" == std::format("{}", j2000_tt_gps));
+      CHECK(gymd == 2000y / January / 1d);
+      CHECK(ghms.hours() == 11h);
+      CHECK(ghms.minutes() == 59min);
+      CHECK(ghms.seconds() == 8s);
+      CHECK(ghms.subseconds() == 816ms);
+    }
+  }
+
   TEST_CASE_TEMPLATE("clamped_cast", T, std::chrono::seconds, std::chrono::days, std::chrono::nanoseconds, std::chrono::duration<double>) {
     using namespace std::chrono;
     CHECK(jl::clamped_cast<nanoseconds>(T::min()) <= nanoseconds::min() + duration_cast<nanoseconds>(T(1)));
