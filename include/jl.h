@@ -434,6 +434,77 @@ constexpr T le(T n) noexcept {
   }
 }
 
+[[nodiscard]] constexpr std::byte bitswap(std::byte b) {
+  /// https://graphics.stanford.edu/~seander/bithacks.html#ReverseByteWith64Bits
+  return static_cast<std::byte>(((static_cast<uint64_t>(b) * 0x80200802UL) & 0x0884422110UL) * 0x0101010101UL >> 32);
+}
+[[nodiscard]] constexpr auto bitswap(std::integral auto n) {
+  auto bytes = std::bit_cast<std::array<std::byte, sizeof(n)>>(n);
+  for (auto &b : bytes) b = bitswap(b);
+  return std::byteswap(std::bit_cast<decltype(n)>(bytes));
+}
+
+/// A generic Cyclic Redundancy Check calculator for byte-aligned CRC lengths
+///
+/// NOTE: The CRC catalogs specifies reflected input and output separately, but
+/// combined here since none of the common schemes have them set differently.
+template <std::unsigned_integral T, T Poly, T Init, bool Reflected, T XorOut>
+struct crc {
+  template <size_t Extent>
+  [[nodiscard]] static constexpr T compute(std::span<const std::byte, Extent> bytes) {
+    // for more information see https://www.sunshine2k.de/articles/coding/crc/understanding_crc.html
+    //
+    // CRC bytewise shifts out its MSB and applies a polynomial division of it
+    // combined with the input stream. the actual polynomial division is
+    // precomputed and applied via a from a static lookup table.
+    //
+    // a common CRC variant is to apply the calculation to a reflected input
+    // and/or return a reflected output. instead of bitswapping each input byte
+    // this implementation instead bitswaps the polynomial in the
+    // precomputations and reverses the CRC shifts, which should be equivalent.
+    static constexpr T msb_shift = 8 * (sizeof(T) - 1);
+    static constexpr std::array<T, 256> lut = []() {
+      std::array<T, 256> lut{};
+      for (size_t dividend = 0; dividend < lut.size(); ++dividend) {
+        T crc = Reflected ? dividend : dividend << msb_shift;
+        for (size_t bit = 0; bit < 8; ++bit) {
+          // "shift out" the least/most significant bit, and apply the
+          // polynomial if the bit was set (* ... below):
+          if constexpr (Reflected) {
+            crc = (crc >> 1) ^ (bitswap(Poly) * (crc & 0x1));
+          } else {
+            crc = (crc << 1) ^ (Poly * (crc >> (msb_shift + 7)));
+          }
+        }
+        lut[dividend] = crc;
+      }
+      return lut;
+    }();
+
+    T crc = Init;
+    for (auto b : bytes) {
+      // "shift out" the least/most significant CRC byte,
+      // and combine with precomputed division:
+      if constexpr (Reflected) {
+        crc = (crc >> 8) ^ lut[static_cast<uint8_t>(b) ^ (crc & 0xff)];
+      } else {
+        crc = (crc << 8) ^ lut[static_cast<uint8_t>(b) ^ (crc >> msb_shift)];
+      }
+    }
+
+    // NOTE: Reflected above could probably be replaced by RefIn, and bitswap
+    // crc before XorOut if RefIn != RefOut, but the catalog have no examples
+    // with a check value for any byte-aligned CRCs with RefIn != RefOut
+    return crc ^ XorOut;
+  }
+  [[nodiscard]] static constexpr T compute(std::string_view bytes) {
+    return compute(std::as_bytes(std::span(bytes)));
+  }
+};
+struct crc16_ccitt : crc<uint16_t, 0x1021, 0x0000, true, 0x0000> {};
+struct crc32c : crc<uint32_t, 0x1edc'6f41, 0xffff'ffff, true, 0xffff'ffff> {};
+// for more CRC variants see https://reveng.sourceforge.io/crc-catalogue/
+
 /// @returns ceil(x/y)
 constexpr auto div_ceil(std::unsigned_integral auto x, std::unsigned_integral auto y) {
   return x / y + (x % y != 0);

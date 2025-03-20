@@ -21,6 +21,9 @@ target_link_libraries(unique_socket jl_posix benchmark)
 add_executable(copy copy.cpp)
 target_link_libraries(copy jl_posix benchmark)
 
+add_executable(crc crc.cpp)
+target_link_libraries(crc jl benchmark)
+
 add_executable(mmap mmap.cpp)
 target_link_libraries(mmap jl_posix benchmark)
 
