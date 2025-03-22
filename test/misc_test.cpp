@@ -17,8 +17,8 @@ TEST_SUITE("misc") {
     var n = 3.14F;
 
     auto handler = jl::overload{
-        [&](const jl::one_of<int, float> auto &n) { matches.emplace_back(static_cast<float>(n)); return 43; },
-        [&](const std::string &s) { matches.emplace_back(s);  return 42; },
+        [&](const jl::one_of<int, float> auto& n) { matches.emplace_back(static_cast<float>(n)); return 43; },
+        [&](const std::string& s) { matches.emplace_back(s);  return 42; },
     };
     std::visit(handler, var{3.14F});
     std::visit(handler, var{42});
@@ -126,5 +126,15 @@ TEST_SUITE("misc") {
     static_assert(std::forward_iterator<jl::idx_iter<std::span<int>>>);
     static_assert(std::bidirectional_iterator<jl::idx_iter<std::span<int>>>);
     static_assert(std::random_access_iterator<jl::idx_iter<std::span<int>>>);
+  }
+
+  TEST_CASE("urandom") {
+    auto fixed_seeded = jl::urandom<uint32_t>(42, std::mt19937(42));
+    auto random_seeded = jl::urandom(42);
+    CHECK(fixed_seeded.size() == 42);
+    CHECK(random_seeded.size() == 42);
+
+    CHECK(jl::to_xdigits(std::as_bytes(std::span(fixed_seeded))) == "66dce15fb33deacb5c0362f30e95f52e6af463bb47d499c7bcae4199142ccb9866d6f02779182272d241");
+    CHECK(fixed_seeded != random_seeded);
   }
 }

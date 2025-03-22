@@ -38,3 +38,6 @@ target_link_libraries(splice jl_posix benchmark)
 
 add_executable(time time.cpp)
 target_link_libraries(time jl benchmark)
+
+add_executable(random random.cpp)
+target_link_libraries(random jl benchmark)

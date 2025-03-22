@@ -12,6 +12,7 @@
 #include <functional>
 #include <future>
 #include <optional>
+#include <random>
 #include <ranges>
 #include <span>
 #include <stdexcept>
@@ -275,6 +276,32 @@ std::span<char> truncate_into(std::span<char> buf, std::format_string<Args...> f
 
   auto result = std::format_to_n(buf.begin(), buf.size(), fmt, std::forward<Args...>(args)...);
   return buf.subspan(result.out - buf.begin());
+}
+
+/// NOTE: require explicit ResultType, because some generators (e.g. std::mt19937) use fast uints that can be padded
+template <typename ResultType, size_t Extent>
+inline void urandom_into(std::span<std::byte, Extent> buffer, auto &&gen) {
+  for (size_t i = 0; i < buffer.size(); i += sizeof(ResultType)) {
+    ResultType rand = gen();
+    std::memcpy(buffer.data() + i, &rand, std::min(sizeof(ResultType), buffer.size() - i));
+  }
+}
+template <size_t Extent>
+inline void urandom_into(std::span<std::byte, Extent> buffer) {
+  thread_local std::mt19937_64 gen(std::random_device{}());
+  urandom_into<uint64_t>(buffer, gen);
+}
+/// NOTE: require explicit ResultType, because some generators (e.g. std::mt19937) use fast uints that can be padded
+template <typename ResultType>
+inline std::string urandom(size_t total_bytes, auto &&gen) {
+  std::string buffer(total_bytes, 0);
+  urandom_into<ResultType>(std::as_writable_bytes(std::span(buffer)), gen);
+  return buffer;
+}
+inline std::string urandom(size_t total_bytes) {
+  std::string buffer(total_bytes, 0);
+  urandom_into(std::as_writable_bytes(std::span(buffer)));
+  return buffer;
 }
 
 /// @returns index of the first unescaped ch or std::string::npos.
