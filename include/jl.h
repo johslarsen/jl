@@ -567,16 +567,24 @@ template <typename T>
   return span.subspan(offset, std::min(span.size() - offset, count));
 }
 
+/// @returns same as span.subspan(...) or an error of span where it would be ill-formed/UB
+template <size_t Offset, size_t Count, typename T>
+[[nodiscard]] constexpr inline std::expected<std::span<T, Count>, std::invalid_argument> atleast(std::span<T> span) {
+  static_assert(Count != std::dynamic_extent);
+  if (span.size() < Offset + Count) return std::unexpected(std::invalid_argument(std::format("subspan({}, {}) < {}", Offset, Count, span.size())));
+  return span.template subspan<Offset, Count>();
+}
+
 /// @returns same as span.subspan<Offset, Count>(), but throws where it would be ill-formed/UB
 template <size_t Offset, size_t Count, typename T, size_t Extent = std::dynamic_extent>
 [[nodiscard]] constexpr inline std::span<T, Count> subspan(std::span<T, Extent> span) {
   static_assert(Count != std::dynamic_extent);
   if constexpr (Extent == std::dynamic_extent) {
-    if (span.size() < Offset + Count) throw std::invalid_argument(std::format("subspan({}, {}) < {}", Offset, Count, span.size()));
+    return unwrap(atleast<Offset, Count>(span));
   } else {
     static_assert(Offset + Count <= Extent);
+    return span.template subspan<Offset, Count>();
   }
-  return span.template subspan<Offset, Count>();
 }
 
 template <bitcastable_to<char> Char>
