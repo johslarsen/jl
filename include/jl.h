@@ -559,12 +559,24 @@ constexpr auto div_ceil(std::unsigned_integral auto x, std::unsigned_integral au
   return x / y + (x % y != 0);
 }
 
-/// @returns same as span.subspan(...), but empty where it would be ill-formed/UB
-template <typename T, std::size_t Extent = std::dynamic_extent>
-inline std::span<T, Extent> subspan(std::span<T, Extent> span, size_t offset, size_t count = std::dynamic_extent) {
+/// @returns same as span.subspan(...), but truncated/empty where it would be ill-formed/UB
+template <typename T>
+[[nodiscard]] constexpr inline std::span<T> upto(std::span<T> span, size_t offset, size_t count = std::dynamic_extent) {
   if (offset > span.size()) return {};
   if (count == std::dynamic_extent) return span.subspan(offset);
   return span.subspan(offset, std::min(span.size() - offset, count));
+}
+
+/// @returns same as span.subspan<Offset, Count>(), but throws where it would be ill-formed/UB
+template <size_t Offset, size_t Count, typename T, size_t Extent = std::dynamic_extent>
+[[nodiscard]] constexpr inline std::span<T, Count> subspan(std::span<T, Extent> span) {
+  static_assert(Count != std::dynamic_extent);
+  if constexpr (Extent == std::dynamic_extent) {
+    if (span.size() < Offset + Count) throw std::invalid_argument(std::format("subspan({}, {}) < {}", Offset, Count, span.size()));
+  } else {
+    static_assert(Offset + Count <= Extent);
+  }
+  return span.template subspan<Offset, Count>();
 }
 
 template <bitcastable_to<char> Char>
@@ -660,8 +672,8 @@ class chunked {
     iter(std::span<T, Extent> buffer, size_t n, size_t i = 0)  // NOLINT(*-swappable-parameters)
         : _buffer(buffer), _n(n), _i(i) {}
 
-    std::span<T> operator*() const { return subspan(_buffer, _i * _n, _n); }
-    std::span<T> operator[](difference_type n) const { return subspan(_buffer, (_i + n) * _n, _n); }
+    std::span<T> operator*() const { return upto(_buffer, _i * _n, _n); }
+    std::span<T> operator[](difference_type n) const { return upto(_buffer, (_i + n) * _n, _n); }
     iter &operator++() { return ++_i, *this; }
     iter &operator--() { return --_i, *this; }
     iter operator++(int) { return std::exchange(*this, {_buffer, _n, _i + 1}); }
