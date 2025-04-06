@@ -38,6 +38,14 @@ TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
     CHECK(std::byteswap(jl::be(0x1122334455667788UZ)) == jl::le(0x1122334455667788UZ));
   }
 
+  TEST_CASE("copying from std::span<std::byte>") {
+    std::array bytes{std::byte(0xde), std::byte(0xad), std::byte(0xbe), std::byte(0xef)};
+    CHECK(jl::native<uint32_t>(std::span(bytes)) == jl::be(0xdeadbeef));
+    CHECK(jl::native<uint16_t>(std::span(bytes).subspan<1, 2>()) == jl::be(static_cast<uint16_t>(0xadbe)));
+    CHECK(jl::be<uint32_t>(std::span(bytes)) == 0xdeadbeef);
+    CHECK(jl::le<uint32_t>(std::span(bytes)) == 0xefbeadde);
+  }
+
   TEST_CASE("floating point big and little endian swaps on the wrong architecture") {
     if constexpr (std::endian::native == std::endian::big) {
       CHECK(std::numbers::pi == jl::be(std::numbers::pi));
@@ -57,6 +65,7 @@ TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
     static_assert(std::is_same_v<jl::uint_from_size<sizeof(int16_t)>::type, uint16_t>);
     static_assert(std::is_same_v<jl::uint_from_size<sizeof(int32_t)>::type, uint32_t>);
     static_assert(std::is_same_v<jl::uint_from_size<sizeof(int64_t)>::type, uint64_t>);
+    static_assert(std::is_same_v<jl::uint_from_size<sizeof(jl::int128)>::type, jl::uint128>);
   }
 
   TEST_CASE("bitcastable_to") {
