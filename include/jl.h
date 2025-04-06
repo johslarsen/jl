@@ -20,6 +20,9 @@
 #include <utility>
 #include <vector>
 
+/// Johs's <mail@johslarsen.net> Library. Use however you see fit.
+namespace jl {
+
 // BTW, see e.g. https://stackoverflow.com/a/52158819 about pairwise sharing in newer Intel CPUs
 #ifdef __cpp_lib_hardware_interference_size
 #pragma GCC diagnostic push
@@ -31,9 +34,6 @@ constexpr std::size_t hardware_destructive_interference_size = std::hardware_des
 constexpr std::size_t hardware_constructive_interference_size = 64;
 constexpr std::size_t hardware_destructive_interference_size = 64;
 #endif
-
-/// Johs's <mail@johslarsen.net> Library. Use however you see fit.
-namespace jl {
 
 template <typename T>
 concept numeric = std::integral<T> || std::floating_point<T>;
