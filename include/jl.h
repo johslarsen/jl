@@ -427,10 +427,16 @@ template <> struct uint_from_size<16> { using type = uint128; };
 
 template <typename T>
   requires std::is_trivially_copyable_v<T>
-[[nodiscard]] T native(std::span<const std::byte, sizeof(T)> bytes) {
-  T obj;
-  std::memcpy(&obj, bytes.data(), sizeof(T));
-  return obj;
+[[nodiscard]] constexpr T native(std::span<const std::byte, sizeof(T)> bytes) {
+  if constexpr (sizeof(T) < 256) {  // to stay within expression nesting limit
+    return std::bit_cast<T>([bytes]<size_t... Is>(std::index_sequence<Is...>) {
+      return std::array{bytes[Is]...};
+    }(std::make_index_sequence<sizeof(T)>{}));
+  } else {  // fallback to memcpy, which have limited consteval support
+    T obj;
+    std::memcpy(&obj, bytes.data(), sizeof(T));
+    return obj;
+  }
 }
 
 /// @returns returns byteswapped n on little-endian architectures
@@ -438,20 +444,12 @@ template <std::integral Int>
 [[nodiscard]] constexpr Int be(Int n) noexcept {
   static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little,
                 "jl::be only supported on big/little-endian architectures");
-  if constexpr (std::endian::native == std::endian::little) {
-    return std::byteswap(n);
-  } else {
-    return n;
-  }
+  return std::endian::native == std::endian::little ? std::byteswap(n) : n;
 }
 template <typename T, typename U = uint_from_size<sizeof(T)>::type>
   requires(!std::integral<T>)
 [[nodiscard]] constexpr T be(T n) noexcept {
-  if constexpr (std::endian::native == std::endian::little) {
-    return std::bit_cast<T>(be(std::bit_cast<U>(n)));
-  } else {
-    return n;
-  }
+  return std::endian::native == std::endian::little ? std::bit_cast<T>(be(std::bit_cast<U>(n))) : n;
 }
 template <typename T>
 [[nodiscard]] constexpr T be(std::span<const std::byte, sizeof(T)> bytes) {
@@ -463,20 +461,12 @@ template <std::integral Int>
 [[nodiscard]] constexpr Int le(Int n) noexcept {
   static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little,
                 "jl::le only supported on big/little-endian architectures");
-  if constexpr (std::endian::native == std::endian::big) {
-    return std::byteswap(n);
-  } else {
-    return n;
-  }
+  return std::endian::native == std::endian::big ? std::byteswap(n) : n;
 }
 template <typename T, typename U = uint_from_size<sizeof(T)>::type>
   requires(!std::integral<T>)
 [[nodiscard]] constexpr T le(T n) noexcept {
-  if constexpr (std::endian::native == std::endian::big) {
-    return std::bit_cast<T>(le(std::bit_cast<U>(n)));
-  } else {
-    return n;
-  }
+  return std::endian::native == std::endian::big ? std::bit_cast<T>(le(std::bit_cast<U>(n))) : n;
 }
 template <typename T>
 [[nodiscard]] constexpr T le(std::span<const std::byte, sizeof(T)> bytes) {

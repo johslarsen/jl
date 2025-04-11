@@ -12,7 +12,7 @@ static inline std::vector<std::byte> bvec(auto... bytes) {
 
 TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
   TEST_CASE("endian conversion has no effect on 1byte integers") {
-    CHECK(jl::be('0') == jl::le('0'));
+    static_assert(jl::be('0') == jl::le('0'));
     CHECK(jl::be(static_cast<uint8_t>(0xac)) == jl::le(static_cast<uint8_t>(0xac)));
   }
 
@@ -26,24 +26,16 @@ TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
     }
 
     // And test that it they are implemented for all the integer types
-    CHECK(std::byteswap(jl::be(static_cast<int16_t>(0x1122))) == jl::le(static_cast<int16_t>(0x1122)));
-    CHECK(std::byteswap(jl::be(static_cast<uint16_t>(0x1122))) == jl::le(static_cast<uint16_t>(0x1122)));
-    CHECK(std::byteswap(jl::be(0x11223344)) == jl::le(0x11223344));
-    CHECK(std::byteswap(jl::be(0x11223344U)) == jl::le(0x11223344U));
-    CHECK(std::byteswap(jl::be(0x1122334455667788L)) == jl::le(0x1122334455667788L));
-    CHECK(std::byteswap(jl::be(0x1122334455667788UL)) == jl::le(0x1122334455667788UL));
-    CHECK(std::byteswap(jl::be(0x1122334455667788LL)) == jl::le(0x1122334455667788LL));
-    CHECK(std::byteswap(jl::be(0x1122334455667788ULL)) == jl::le(0x1122334455667788ULL));
-    CHECK(std::byteswap(jl::be(0x1122334455667788Z)) == jl::le(0x1122334455667788Z));
-    CHECK(std::byteswap(jl::be(0x1122334455667788UZ)) == jl::le(0x1122334455667788UZ));
-  }
-
-  TEST_CASE("copying from std::span<std::byte>") {
-    std::array bytes{std::byte(0xde), std::byte(0xad), std::byte(0xbe), std::byte(0xef)};
-    CHECK(jl::native<uint32_t>(std::span(bytes)) == jl::be(0xdeadbeef));
-    CHECK(jl::native<uint16_t>(std::span(bytes).subspan<1, 2>()) == jl::be(static_cast<uint16_t>(0xadbe)));
-    CHECK(jl::be<uint32_t>(std::span(bytes)) == 0xdeadbeef);
-    CHECK(jl::le<uint32_t>(std::span(bytes)) == 0xefbeadde);
+    static_assert(std::byteswap(jl::be(static_cast<int16_t>(0x1122))) == jl::le(static_cast<int16_t>(0x1122)));
+    static_assert(std::byteswap(jl::be(static_cast<uint16_t>(0x1122))) == jl::le(static_cast<uint16_t>(0x1122)));
+    static_assert(std::byteswap(jl::be(0x11223344)) == jl::le(0x11223344));
+    static_assert(std::byteswap(jl::be(0x11223344U)) == jl::le(0x11223344U));
+    static_assert(std::byteswap(jl::be(0x1122334455667788L)) == jl::le(0x1122334455667788L));
+    static_assert(std::byteswap(jl::be(0x1122334455667788UL)) == jl::le(0x1122334455667788UL));
+    static_assert(std::byteswap(jl::be(0x1122334455667788LL)) == jl::le(0x1122334455667788LL));
+    static_assert(std::byteswap(jl::be(0x1122334455667788ULL)) == jl::le(0x1122334455667788ULL));
+    static_assert(std::byteswap(jl::be(0x1122334455667788Z)) == jl::le(0x1122334455667788Z));
+    static_assert(std::byteswap(jl::be(0x1122334455667788UZ)) == jl::le(0x1122334455667788UZ));
   }
 
   TEST_CASE("floating point big and little endian swaps on the wrong architecture") {
@@ -58,6 +50,19 @@ TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
       CHECK(std::numbers::pi_v<float> == jl::le(std::numbers::pi_v<float>));
       CHECK(std::numbers::pi_v<float> != jl::be(std::numbers::pi_v<float>));
     }
+    static_assert(jl::be(std::numbers::pi) != jl::le(std::numbers::pi));
+  }
+
+  TEST_CASE("copying from std::span<std::byte>") {
+    constexpr std::array deadbeef{std::byte(0xde), std::byte(0xad), std::byte(0xbe), std::byte(0xef)};
+    CHECK(jl::native<uint32_t>(std::span(deadbeef)) == jl::be(0xdeadbeef));
+    CHECK(jl::native<uint16_t>(std::span(deadbeef).subspan<1, 2>()) == jl::be(static_cast<uint16_t>(0xadbe)));
+    CHECK(jl::be<uint32_t>(std::span(deadbeef)) == 0xdeadbeef);
+    CHECK(jl::le<uint32_t>(std::span(deadbeef)) == 0xefbeadde);
+    static_assert(jl::native<uint32_t>(deadbeef) == jl::be(0xdeadbeef));
+
+    // falling back to memcpy when object is too large for constant evaluation:
+    std::ignore = jl::native<std::array<int16_t, 500>>(std::array<std::byte, 1000>{});
   }
 
   TEST_CASE("uint_from_size") {
