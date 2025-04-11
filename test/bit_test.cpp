@@ -65,6 +65,35 @@ TEST_SUITE("bit" * doctest::skip(is_mixed_endian)) {
     std::ignore = jl::native<std::array<int16_t, 500>>(std::array<std::byte, 1000>{});
   }
 
+  TEST_CASE("extract bits from ints") {
+    static_assert(jl::bits<uint16_t, 4, 8>(static_cast<uint16_t>(0xfaaf)) == 0xaa);
+    static_assert(jl::bits<uint16_t, 12, 8>(static_cast<uint32_t>(0xfffaafff)) == 0xaa);
+
+    static_assert(jl::bits<uint64_t, 0, 64>(static_cast<uint64_t>(0x8000'0000'0000'0001U)) == 0x8000'0000'0000'0001U);
+    static_assert(jl::bits<uint16_t, 0, 0>(static_cast<uint16_t>(0xffff)) == 0);
+    static_assert(jl::bits<uint16_t, 0, 1>(static_cast<uint16_t>(0x8000)) == 0x1);
+    static_assert(jl::bits<uint16_t, 15, 1>(static_cast<uint16_t>(0x0001)) == 0x1);
+
+    // proper sign extension:
+    static_assert(jl::bits<int16_t, 0, 16>(static_cast<uint32_t>(0x00020000)) == 2);
+    static_assert(jl::bits<int16_t, 14, 16>(static_cast<uint32_t>(0x00020000)) == INT16_MIN);
+    static_assert(jl::bits<int16_t, 14, 2>(static_cast<uint32_t>(0x00020000)) == -2);
+    static_assert(jl::bits<int16_t, 13, 2>(static_cast<uint32_t>(0x00020000)) == 1);
+
+    // static_assert(jl::bits<uint8_t, 0, 9>(-1)); // Count > sizeof(uint8_t)
+    // static_assert(jl::bits<uint8_t, 57, 8>(static_cast<uint64_t>(-1))); // Count + Offset > sizeof(uint64_t)
+    // static_assert(jl::bits<uint16_t, 0,0>(static_cast<uint8_t>(-1)); // sizeof(uint16_t) > sizeof(uint8_t)
+  }
+
+  TEST_CASE("extract bits from std::span<const byte>") {
+    constexpr std::array deadbeef{std::byte(0xde), std::byte(0xad), std::byte(0xbe), std::byte(0xef)};
+    static_assert(jl::be_bits<uint16_t, 12, 8>(std::span(deadbeef)) == 0xdb);
+    CHECK(jl::le_bits<uint16_t, 12, 8>(std::span(deadbeef)) == 0xea);
+
+    // jl::bits<uint16_t, 17, 16>(std::span(deadbeef)); // Count + Offset > Extent
+    // jl::bits<uint16_t, 15, 16>(std::span(deadbeef)); // no uint16_t byte-aligned window covering the bits
+  }
+
   TEST_CASE("uint_from_size") {
     static_assert(std::is_same_v<jl::uint_from_size<sizeof(int8_t)>::type, uint8_t>);
     static_assert(std::is_same_v<jl::uint_from_size<sizeof(int16_t)>::type, uint16_t>);

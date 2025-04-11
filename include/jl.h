@@ -49,6 +49,11 @@ struct overload : Ts... {
   using Ts::operator()...;
 };
 
+/// @returns ceil(x/y)
+constexpr auto div_ceil(std::unsigned_integral auto x, std::unsigned_integral auto y) {
+  return x / y + (x % y != 0);
+}
+
 /// @returns expected value or throw its error
 /// Like: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap
 template <typename T, typename E>
@@ -473,6 +478,40 @@ template <typename T>
   return le(native<T>(bytes));
 }
 
+template <std::integral T, size_t Offset, size_t Count>
+[[nodiscard]] constexpr inline T bits(std::integral auto n) {
+  static_assert(Offset + Count <= 8 * sizeof(n));
+  static_assert(Count <= 8 * sizeof(T));
+  static_assert(sizeof(T) <= sizeof(n));
+  T at_msb = static_cast<T>((n << Offset) >> (8 * (sizeof(n) - sizeof(T))));
+  return at_msb >> (8 * sizeof(T) - Count);
+}
+template <std::integral T, size_t Offset, size_t Count, size_t Extent, bool Byteswap = false>
+[[nodiscard]] constexpr inline T bits(std::span<const std::byte, Extent> bytes) {
+  static_assert(Extent != std::dynamic_extent);
+  static_assert(Offset + Count <= 8 * Extent);
+  static_assert(sizeof(T) <= Extent);
+
+  constexpr size_t end = Offset + Count;
+  constexpr size_t nth_byte = div_ceil(end - std::min(8 * sizeof(T), end), 8UZ);
+  static_assert(Offset >= 8 * nth_byte, "no byte-aligned T window fits over the bits to extract");
+
+  T n = native<T>(bytes.template subspan<nth_byte, sizeof(T)>());
+  return bits<T, Offset - 8 * nth_byte, Count>(Byteswap ? std::byteswap(n) : n);
+}
+template <std::integral T, size_t Offset, size_t Count, size_t Extent>
+[[nodiscard]] constexpr inline T be_bits(std::span<const std::byte, Extent> bytes) {
+  static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little,
+                "jl::be_bits only supported on big/little-endian architectures");
+  return bits < T, Offset, Count, Extent, std::endian::native == std::endian::little > (bytes);
+}
+template <std::integral T, size_t Offset, size_t Count, size_t Extent>
+[[nodiscard]] constexpr inline T le_bits(std::span<const std::byte, Extent> bytes) {
+  static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little,
+                "jl::le_bits only supported on big/little-endian architectures");
+  return bits < T, Offset, Count, Extent, std::endian::native == std::endian::big > (bytes);
+}
+
 [[nodiscard]] constexpr std::byte bitswap(std::byte b) {
   /// https://graphics.stanford.edu/~seander/bithacks.html#ReverseByteWith64Bits
   return static_cast<std::byte>(((static_cast<uint64_t>(b) * 0x80200802UL) & 0x0884422110UL) * 0x0101010101UL >> 32);
@@ -543,11 +582,6 @@ struct crc {
 struct crc16_ccitt : crc<uint16_t, 0x1021, 0x0000, true, 0x0000> {};
 struct crc32c : crc<uint32_t, 0x1edc'6f41, 0xffff'ffff, true, 0xffff'ffff> {};
 // for more CRC variants see https://reveng.sourceforge.io/crc-catalogue/
-
-/// @returns ceil(x/y)
-constexpr auto div_ceil(std::unsigned_integral auto x, std::unsigned_integral auto y) {
-  return x / y + (x % y != 0);
-}
 
 /// @returns same as span.subspan(...), but truncated/empty where it would be ill-formed/UB
 template <typename T>
