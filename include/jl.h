@@ -813,6 +813,13 @@ struct usertimer {
     elapsed += now;
   }
 };
+struct elapsed {
+  realtimer<std::chrono::system_clock> real;
+  usertimer user;
+
+  void start() { real.start(), user.start(); }
+  void stop() { real.stop(), user.stop(); }
+};
 
 /// Start the given timer at construction and stop it on destruction
 template <typename Timer>
@@ -824,19 +831,6 @@ class scoped_timer {
   ~scoped_timer() { _timer.stop(); }
   scoped_timer(const scoped_timer &) = delete;
   scoped_timer &operator=(const scoped_timer &) = delete;
-};
-
-struct elapsed {
-  realtimer<std::chrono::system_clock> real;
-  usertimer user;
-
-  void start() { real.start(), user.start(); }
-  void stop() { real.stop(), user.stop(); }
-
-  [[nodiscard]] auto
-  time_rest_of_scope() {
-    return std::forward_as_tuple(scoped_timer(real), scoped_timer(user));
-  }
 };
 
 [[nodiscard]] inline std::string uri_host(const std::string &host) {

@@ -94,8 +94,17 @@ TEST_SUITE("time") {
   }
 
   TEST_CASE("elapsed") {
+    using namespace std::chrono;
+    auto waste = [](system_clock::duration t) {
+      auto deadline = system_clock::now() + t;
+      for (std::atomic<int> i; system_clock::now() < deadline; ++i) {
+        std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+      }
+    };
+
     jl::elapsed timer;
     timer.start();
+    waste(1ms);
     timer.stop();
 
     auto real = timer.real.elapsed;
@@ -104,7 +113,8 @@ TEST_SUITE("time") {
     CHECK(user > 0);
 
     {
-      auto _ = timer.time_rest_of_scope();
+      jl::scoped_timer _(timer);
+      waste(1ms);
     }
     CHECK(timer.real.elapsed > real);
     CHECK(timer.user.elapsed > user);
