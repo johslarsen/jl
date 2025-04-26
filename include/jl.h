@@ -93,6 +93,16 @@ template <typename T, std::invocable F>
   return std::unexpected(error());
 }
 
+template <typename E, class F, class... Args>
+constexpr std::expected<std::invoke_result_t<F, Args...>, E> try_catch(F f, Args&&... args) {
+  try {
+    return std::invoke(f, std::forward<Args>(args)...);
+  } catch (const E& e) {
+    return std::unexpected(e);
+  }
+}
+
+
 template <class... Args>
 [[nodiscard]] inline std::system_error make_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
   return {std::make_error_code(err), std::format(fmt, std::forward<Args>(args)...)};

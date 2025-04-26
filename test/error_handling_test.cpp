@@ -75,6 +75,18 @@ TEST_SUITE("error handling") {
              error_what(jl::ok_or_errno(-1, "foo")));
   }
 
+  TEST_CASE("try_catch") {
+    SUBCASE("successful") {
+      CHECK(jl::try_catch<std::system_error>([](auto v) { return v; }, true) == true);
+    }
+    SUBCASE("operation throws") {
+      auto error = jl::make_system_error(std::errc::no_link, "");
+      auto result = jl::try_catch<std::system_error>([](const auto& v) -> int { throw v; }, error);
+      CHECK(!result.has_value());
+      CHECK(result.error().code() == error.code());
+    }
+  }
+
   TEST_CASE("defer") {
     size_t calls = 0;
     {
