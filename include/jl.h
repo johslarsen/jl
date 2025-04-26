@@ -94,14 +94,13 @@ template <typename T, std::invocable F>
 }
 
 template <typename E, class F, class... Args>
-constexpr std::expected<std::invoke_result_t<F, Args...>, E> try_catch(F f, Args&&... args) {
+constexpr std::expected<std::invoke_result_t<F, Args...>, E> try_catch(F f, Args &&...args) {
   try {
     return std::invoke(f, std::forward<Args>(args)...);
-  } catch (const E& e) {
+  } catch (const E &e) {
     return std::unexpected(e);
   }
 }
-
 
 template <class... Args>
 [[nodiscard]] inline std::system_error make_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
@@ -163,15 +162,19 @@ struct deadline {
   }
 
   [[nodiscard]] std::optional<std::chrono::system_clock::duration> remaining(decltype(deadline) now = std::chrono::system_clock::now()) const {
-    if (now > deadline) return std::nullopt;
+    if (now >= deadline) return std::nullopt;
     return deadline - now;
   }
-  template <typename Duration = decltype(deadline)::duration>
-  [[nodiscard]] std::optional<Duration> next_delay(decltype(deadline) now = std::chrono::system_clock::now()) {
-    return remaining(now).transform([this](auto r) { return std::min(r, timeout++); });
+  [[nodiscard]] std::optional<std::chrono::system_clock::duration> remaining_after_backing_off(decltype(deadline) now = std::chrono::system_clock::now()) {
+    return remaining(now).transform([this](auto r) {
+      auto delay = std::min(r, timeout++);
+      std::this_thread::sleep_for(delay);
+      return r - delay;
+    });
   }
-  [[nodiscard]] std::optional<std::chrono::system_clock::time_point> next_attempt(decltype(deadline) now = std::chrono::system_clock::now()) {
-    return next_delay(now).transform([now](auto t) { return now + t; });
+  template <typename Duration = decltype(deadline)::duration>
+  [[nodiscard]] std::optional<Duration> backoff_duration(decltype(deadline) now = std::chrono::system_clock::now()) {
+    return remaining(now).transform([this](auto r) { return std::chrono::duration_cast<Duration>(std::min(r, timeout++)); });
   }
 };
 
@@ -181,12 +184,7 @@ template <class Monadic, class... Args>
 [[nodiscard]] std::invoke_result_t<Monadic, Args...> retry_until(deadline deadline, Monadic f, Args... args) {
   while (true) {
     auto result = std::invoke(f, args...);
-    if (result) return result;
-    if (auto backoff = deadline.next_delay(); backoff) {
-      std::this_thread::sleep_for(*backoff);
-    } else {
-      return result;
-    }
+    if (result || !deadline.remaining_after_backing_off()) return result;
   }
 }
 template <class Monadic, class... Args>

@@ -137,6 +137,24 @@ TEST_SUITE("error handling") {
       CHECK(100ms == interval++);
     }
   }
+  TEST_CASE("deadline") {
+    using namespace std::chrono;
+    sys_seconds now(seconds(1 << 31));
+    auto deadline = jl::deadline::after(1min, {.init = 1s, .base = 10}, now);
+
+    auto simulate_backoff = [&now, &deadline]() -> std::string {
+      if (auto t = deadline.backoff_duration<seconds>(now); t) {
+        now += *t;
+        return std::format("{}", *t);
+      }
+      return "nullopt";
+    };
+
+    CHECK(simulate_backoff() == "1s");
+    CHECK(simulate_backoff() == "10s");
+    CHECK(simulate_backoff() == "49s");  // time left to 1min instead of 100s
+    CHECK(simulate_backoff() == "nullopt");
+  }
   TEST_CASE("retry_until") {
     using namespace std::chrono;
 
