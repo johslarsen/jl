@@ -88,20 +88,20 @@ TEST_SUITE("error handling") {
     CHECK(1 == calls);
   }
 
-  TEST_CASE("retry") {
+  TEST_CASE("eagain") {
     auto two_eagain = [attempts = 3] mutable {
       errno = EAGAIN;
       return --attempts > 0 ? -1 : 42;
     };
-    CHECK(42 == jl::retry<3>(two_eagain, "foo"));
+    CHECK(42 == jl::eagain<3>(two_eagain, "foo"));
     CHECK_EQ(what(jl::make_system_error(std::errc(EAGAIN), "foo")),
-             error_what(jl::retry<2>(two_eagain, "foo")));
+             error_what(jl::eagain<2>(two_eagain, "foo")));
 
     auto serious_error_only_on_first_attempt = [attempts = 2] mutable {
       errno = ETIMEDOUT;
       return --attempts > 0 ? -1 : 42;
     };
     CHECK_EQ(what(jl::make_system_error(std::errc::timed_out, "foo")),
-             error_what(jl::retry<2>(serious_error_only_on_first_attempt, "foo")));
+             error_what(jl::eagain<2>(serious_error_only_on_first_attempt, "foo")));
   }
 }

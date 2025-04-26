@@ -170,7 +170,7 @@ T check_rw_error(T n, std::format_string<Args...> fmt, Args &&...args) {
 /// @returns the non-negative successful result or the error that occurred.
 template <int64_t Attempts = 3, std::invocable F, class... Args>
   requires std::integral<std::invoke_result_t<F>>
-std::expected<std::invoke_result_t<F>, std::system_error> retry(F f, std::format_string<Args...> fmt, Args &&...args) {
+std::expected<std::invoke_result_t<F>, std::system_error> eagain(F f, std::format_string<Args...> fmt, Args &&...args) {
   for (int64_t attempts = Attempts; attempts != 0; --attempts) {
     if (auto result = f(); result >= 0) return result;  // successful, so exit early
     if (errno != EAGAIN) break;
@@ -185,7 +185,7 @@ template <int64_t Attempts = 3, std::invocable<size_t, off_t> F, class... Args>
 std::expected<size_t, std::system_error> rw_loop(F f, size_t length, std::format_string<Args...> fmt, Args &&...args) {
   size_t offset = 0;
   for (size_t count = -1; offset < length && count != 0; offset += count) {
-    auto result = jl::retry<Attempts>([&] { return f(length - offset, offset); }, fmt, std::forward<Args>(args)...);
+    auto result = jl::eagain<Attempts>([&] { return f(length - offset, offset); }, fmt, std::forward<Args>(args)...);
     if (!result.has_value()) return std::unexpected(result.error());
 
     count = *result;
