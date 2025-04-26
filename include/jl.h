@@ -124,6 +124,66 @@ std::expected<void, std::system_error> zero_or_errno(T n, std::format_string<Arg
   return unexpected_errno(fmt, std::forward<Args>(args)...);
 }
 
+/// The state of a retry interval function that can be configured to back off
+struct backoff {
+  std::chrono::nanoseconds init;
+  uint_fast16_t base;  ///< 1: fixed interval, 2: exponential 2^n backoff, ...
+
+  [[nodiscard]] static backoff exp_1ms() { return {.init = std::chrono::milliseconds(1), .base = 10}; }
+
+  [[nodiscard]] backoff next() const {
+    assert(base > 0);
+    return {.init = init * base, .base = base};
+  }
+  [[nodiscard]] std::chrono::nanoseconds operator++(int) {
+    return std::exchange(*this, next()).init;
+  }
+};
+
+/// When an operation should give up and the timeout strategy to use until then
+struct deadline {
+  std::chrono::system_clock::time_point deadline;
+  backoff timeout = backoff::exp_1ms();
+
+  [[nodiscard]] static struct deadline after(
+      std::chrono::system_clock::duration total_time,
+      backoff timeout = backoff::exp_1ms(),
+      decltype(deadline) now = std::chrono::system_clock::now()) {
+    return {.deadline = now + total_time, .timeout = timeout};
+  }
+
+  [[nodiscard]] std::optional<std::chrono::system_clock::duration> remaining(decltype(deadline) now = std::chrono::system_clock::now()) const {
+    if (now > deadline) return std::nullopt;
+    return deadline - now;
+  }
+  template <typename Duration = decltype(deadline)::duration>
+  [[nodiscard]] std::optional<Duration> next_delay(decltype(deadline) now = std::chrono::system_clock::now()) {
+    return remaining(now).transform([this](auto r) { return std::min(r, timeout++); });
+  }
+  [[nodiscard]] std::optional<std::chrono::system_clock::time_point> next_attempt(decltype(deadline) now = std::chrono::system_clock::now()) {
+    return next_delay(now).transform([now](auto t) { return now + t; });
+  }
+};
+
+// Retry f(...) until it returns true-ish or it exceeds the given deadline
+// @returns the true-ish result or the false-ish error
+template <class Monadic, class... Args>
+[[nodiscard]] std::invoke_result_t<Monadic, Args...> retry_until(deadline deadline, Monadic f, Args... args) {
+  while (true) {
+    auto result = std::invoke(f, args...);
+    if (result) return result;
+    if (auto backoff = deadline.next_delay(); backoff) {
+      std::this_thread::sleep_for(*backoff);
+    } else {
+      return result;
+    }
+  }
+}
+template <class Monadic, class... Args>
+[[nodiscard]] std::invoke_result_t<Monadic, Args...> retry_for(std::chrono::nanoseconds timeout, Monadic f, Args... args) {
+  return retry_until(deadline::after(timeout), std::move(f), std::move(args)...);
+}
+
 /// Utility to run a method at the end of the scope like a defer statement in Go
 template <std::invocable F>
   requires std::is_void_v<std::invoke_result_t<F>>

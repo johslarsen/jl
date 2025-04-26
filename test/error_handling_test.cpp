@@ -104,4 +104,80 @@ TEST_SUITE("error handling") {
     CHECK_EQ(what(jl::make_system_error(std::errc::timed_out, "foo")),
              error_what(jl::eagain<2>(serious_error_only_on_first_attempt, "foo")));
   }
+
+  TEST_CASE("backoff") {
+    using namespace std::chrono;
+    SUBCASE("fixed interval") {
+      jl::backoff interval{.init = 1s, .base = 1};
+      CHECK(1s == interval++);
+      CHECK(1s == interval++);
+    }
+    SUBCASE("binary exponential") {
+      jl::backoff interval{.init = 1s, .base = 2};
+      CHECK(1s == interval++);
+      CHECK(2s == interval++);
+      CHECK(4s == interval++);
+    }
+    SUBCASE("power-of-10 exponential") {
+      auto interval = jl::backoff::exp_1ms();
+      CHECK(1ms == interval++);
+      CHECK(10ms == interval++);
+      CHECK(100ms == interval++);
+    }
+  }
+  TEST_CASE("retry_until") {
+    using namespace std::chrono;
+
+    std::vector<system_clock::time_point> calls;
+    calls.reserve(11);
+
+    auto only = [&calls](auto v) {
+      calls.emplace_back(system_clock::now());
+      return v;
+    };
+
+    auto deadline = jl::deadline::after(1ms, {.init = 1us, .base = 2});
+    SUBCASE("deadline") {
+      CHECK(jl::retry_until(deadline, only, false) == false);
+      CHECK(calls.size() > 4);
+      CHECK(calls.size() <= 11);
+
+      auto first_delay = calls[1] - calls[0];
+      auto last_full_delay = calls[calls.size() - 2] - calls[calls.size() - 3];
+      // NOTE: last delay is whatever is left until the deadline
+      CHECK(last_full_delay > first_delay);
+    }
+    SUBCASE("eventual success") {
+      auto result = jl::retry_until(deadline, [&calls]() {
+        calls.emplace_back(std::chrono::system_clock::now());
+        return calls.size() == 3;
+      });
+      CHECK(result == true);
+      CHECK(calls.size() == 3);
+    }
+
+    SUBCASE("with optional result") {
+      CHECK(jl::retry_until(deadline, only, std::make_optional(42)) == 42);
+      CHECK(calls.size() == 1);
+    }
+    SUBCASE("without optional result") {
+      CHECK(jl::retry_until(deadline, only, std::optional<int>(std::nullopt)) == std::nullopt);
+      CHECK(calls.size() > 1);
+    }
+
+    SUBCASE("with expected result") {
+      CHECK(jl::retry_until(deadline, only, std::expected<int, std::system_error>(42)) == 42);
+      CHECK(calls.size() == 1);
+    }
+    SUBCASE("without expected result") {
+      std::expected<int, std::errc> error = std::unexpected(std::errc::no_link);
+      CHECK(jl::retry_until(deadline, only, error) == error);
+      CHECK(calls.size() > 1);
+    }
+  }
+  TEST_CASE("retry_for") {
+    using namespace std::chrono;
+    CHECK(jl::retry_for(1us, []() { return true; }) == true);
+    CHECK(jl::retry_for(1us, [](auto v) { return v; }, false) == false);
+  }
 }
