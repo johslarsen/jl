@@ -446,15 +446,19 @@ inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted<Blacklist> &
   return os << mq._str;
 }
 
-template <typename R>
-  requires std::ranges::input_range<R> && std::constructible_from<std::string, std::ranges::range_value_t<R>>
-inline std::string join(const R &&words, const std::string &delimiter = ",") {
-  if (std::ranges::empty(words)) return "";
+template <std::ranges::viewable_range R, class Pattern, class C = std::string>
+inline C join(R &&r, Pattern&& pattern) {
+  return std::ranges::to<std::string>(r | std::views::join_with(std::forward<Pattern>(pattern)));
+}
 
-  std::string first(*std::ranges::begin(words));
-  return std::ranges::fold_left(words | std::views::drop(1), std::move(first), [delimiter](std::string s, const auto &w) {
-    return s += delimiter + w;
-  });
+struct to_s {
+  template<class T>
+  std::string operator()(T&& arg) {
+    return std::format("{}", std::forward<T>(arg));
+  }
+};
+constexpr inline auto map_to_s() {
+  return std::views::transform(to_s{});
 }
 
 struct line_eol {
