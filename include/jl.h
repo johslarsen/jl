@@ -307,15 +307,9 @@ template <numeric T>
 }
 
 [[nodiscard]] inline std::string to_xdigits(std::span<const std::byte> bytes, std::string_view separator = "", std::string_view prefix = "") {
-  if (bytes.empty()) return std::string(prefix);
-
-  std::string xdigits;
-  xdigits.reserve(prefix.size() + 2 * bytes.size() + (bytes.size() - 1) * separator.size());
-
-  std::format_to(std::back_inserter(xdigits), "{}{:02x}", prefix, static_cast<unsigned>(bytes[0]));
-  for (auto b : bytes.subspan(1)) std::format_to(std::back_inserter(xdigits), "{}{:02x}", separator, static_cast<unsigned>(b));
-
-  return xdigits;
+  constexpr auto to_xdigit = [](std::byte b) { return std::format("{:02x}", static_cast<unsigned>(b)); };
+  auto xdigits = bytes | std::views::transform(to_xdigit) | std::views::join_with(separator);
+  return std::ranges::to<std::string>(xdigits, prefix);
 }
 
 /// a descriptive version of std::format_to_n_result
@@ -354,6 +348,7 @@ std::span<char> truncate_into(std::span<char> buf, std::format_string<Args...> f
 /// NOTE: require explicit ResultType, because some generators (e.g. std::mt19937) use fast uints that can be padded
 template <typename ResultType, size_t Extent>
 inline void urandom_into(std::span<std::byte, Extent> buffer, auto &&gen) {
+  /// TODO: use C++26 std::ranges::generate_random
   for (size_t i = 0; i < buffer.size(); i += sizeof(ResultType)) {
     ResultType rand = gen();
     std::memcpy(buffer.data() + i, &rand, std::min(sizeof(ResultType), buffer.size() - i));
@@ -447,13 +442,13 @@ inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted<Blacklist> &
 }
 
 template <std::ranges::viewable_range R, class Pattern, class C = std::string>
-inline C join(R &&r, Pattern&& pattern) {
+inline C join(R &&r, Pattern &&pattern) {
   return std::ranges::to<std::string>(r | std::views::join_with(std::forward<Pattern>(pattern)));
 }
 
 struct to_s {
-  template<class T>
-  std::string operator()(T&& arg) {
+  template <class T>
+  std::string operator()(T &&arg) {
     return std::format("{}", std::forward<T>(arg));
   }
 };
@@ -502,6 +497,7 @@ template <> struct uint_from_size<16> { using type = uint128; };
 #endif
 // clang-format on
 
+/// @return T constructed from the given bytes
 template <typename T>
   requires std::is_trivially_copyable_v<T>
 [[nodiscard]] constexpr T native(std::span<const std::byte, sizeof(T)> bytes) {
