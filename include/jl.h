@@ -501,15 +501,11 @@ template <> struct uint_from_size<16> { using type = uint128; };
 template <typename T>
   requires std::is_trivially_copyable_v<T>
 [[nodiscard]] constexpr T native(std::span<const std::byte, sizeof(T)> bytes) {
-  if constexpr (sizeof(T) < 256) {  // to stay within expression nesting limit
-    return std::bit_cast<T>([bytes]<size_t... Is>(std::index_sequence<Is...>) {
-      return std::array{bytes[Is]...};
-    }(std::make_index_sequence<sizeof(T)>{}));
-  } else {  // fallback to memcpy, which have limited consteval support
-    T obj;
-    std::memcpy(&obj, bytes.data(), sizeof(T));
-    return obj;
-  }
+  return std::bit_cast<T>([bytes]() {
+    std::array<std::byte, sizeof(T)> copy;
+    std::ranges::copy(bytes, copy.begin());
+    return copy;
+  }());
 }
 
 /// @returns returns byteswapped n on little-endian architectures
