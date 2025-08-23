@@ -4,6 +4,7 @@
 #include <poll.h>
 
 #include <future>
+#include <generator>
 #include <unordered_map>
 
 #include "jl.h"
@@ -80,11 +81,9 @@ class unique_slist {
   }
 
   [[nodiscard]] std::vector<std::string_view> dump() const {
-    std::vector<std::string_view> result;
-    for (const auto* p = _list.get(); p != nullptr; p = p->next) {
-      result.emplace_back(p->data);
-    }
-    return result;
+    return std::ranges::to<std::vector>([](const auto* p) -> std::generator<std::string_view> {
+      for (; p != nullptr; p = p->next) co_yield p->data;
+    }(_list.get()));
   }
 };
 

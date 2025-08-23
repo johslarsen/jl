@@ -83,6 +83,8 @@ TEST_SUITE("synchronize easy API") {
 
     jl::curl::easy curl;
     curl.setopt(CURLOPT_HTTPHEADER, *headers);
+
+    CHECK(std::vector<std::string_view>{"Content-Type: text/plain", "Connection: keep-alive"} == headers.dump());
   }
 }
 
