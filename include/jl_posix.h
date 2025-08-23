@@ -24,11 +24,16 @@ std::expected<T *, std::system_error> ok_mmap(void *p, std::format_string<Args..
   return reinterpret_cast<T *>(p);
 }
 
-template <typename ListOfSpanable>
-inline std::vector<iovec> as_iovecs(ListOfSpanable &&spans) noexcept {
-  std::vector<iovec> iovecs(spans.size());
-  for (size_t i = 0; auto &span : spans) iovecs[i++] = {span.data(), span.size()};
-  return iovecs;
+template <std::ranges::contiguous_range R, class T = std::ranges::range_value_t<R>>
+  requires std::is_trivially_copyable_v<T>
+inline constexpr iovec as_iovec(R &span) {
+  return iovec{.iov_base = std::ranges::data(span), .iov_len = sizeof(T) * std::ranges::size(span)};
+}
+
+template <std::ranges::viewable_range R, std::ranges::contiguous_range T = std::ranges::range_value_t<R>>
+  requires std::is_trivially_copyable_v<std::ranges::range_value_t<T>>
+inline std::vector<iovec> as_iovecs(R &&spans) noexcept {
+  return std::ranges::to<std::vector>(spans | std::views::transform(as_iovec<T>));
 }
 
 template <typename T>
@@ -42,9 +47,7 @@ inline std::span<T> as_span(auto &&src) noexcept {
 
 template <typename T>
 inline std::vector<std::span<T>> as_spans(std::span<iovec> iovecs) noexcept {
-  std::vector<std::span<T>> spans(iovecs.size());
-  for (size_t i = 0; auto &iovec : iovecs) spans[i++] = as_span<T>(iovec);
-  return spans;
+  return std::ranges::to<std::vector>(iovecs | std::views::transform([](auto r) { return as_span<T>(r); }));
 }
 
 /// Copy the concatenation of list of input buffers (e.g. iovecs)
@@ -476,33 +479,35 @@ class mmsg_socket {
   }
 
   /// Receives message into buffers off through off + count. Returned spans are
-  /// valid until further operations on those same message slots.
+  /// valid until further operations on those same message slots
   [[nodiscard]] std::span<std::span<T>> recvmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
     int msgs = check_rw_error(::recvmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags, nullptr), "recvmmsg");
-    if (static_cast<int>(_received.size()) < msgs) {
-      _received.resize(_msgs.size());
-    }
-    for (int i = 0; i < msgs; ++i) {
+    _received.resize(msgs);
+    auto available_as_span = [](mmsghdr &msg) {
       // NOLINTNEXTLINE(*reinterpret-cast) is safe because iov_base originate from std::span<T>.data()
-      T *base = reinterpret_cast<T *>(_iovecs[i].iov_base);
-      _received[i] = {base, base + _msgs[i].msg_len / sizeof(T)};
-    }
-    return {_received.begin(), _received.begin() + msgs};
+      T *base = reinterpret_cast<T *>(msg.msg_hdr.msg_iov->iov_base);
+      return std::span{base, base + msg.msg_len / sizeof(T)};
+    };
+    std::ranges::copy(_msgs | std::views::take(msgs) | std::views::transform(available_as_span), _received.begin());
+    return _received;
   }
 
   [[nodiscard]] unique_socket &fd() noexcept { return _fd; }
 
-  template <std::ranges::sized_range R>
-    requires std::same_as<typename R::value_type, std::span<T>>
-  void reset(const R &buffers) {
-    _msgs.resize(std::ranges::size(buffers));
+  template <std::ranges::sized_range RR, std::ranges::contiguous_range R = std::ranges::range_value_t<RR>>
+    requires std::same_as<T, std::ranges::range_value_t<R>>
+  void reset(RR &&buffers) {
     _iovecs.resize(std::ranges::size(buffers));
-    for (size_t i = 0; const auto &buffer : buffers) {
-      _iovecs[i].iov_base = buffer.data();
-      _iovecs[i].iov_len = sizeof(T) * buffer.size();
-      _msgs[i].msg_hdr.msg_iov = &_iovecs[i];
-      _msgs[i++].msg_hdr.msg_iovlen = 1;
-    }
+    std::ranges::copy(buffers | std::views::transform([](auto &&s) { return as_iovec(s); }), _iovecs.begin());
+
+    _msgs.resize(std::ranges::size(buffers));
+    auto mmsghdr_to = [](iovec &iovec) {
+      mmsghdr msg{};
+      msg.msg_hdr.msg_iov = &iovec;
+      msg.msg_hdr.msg_iovlen = 1;
+      return msg;
+    };
+    std::ranges::copy(_iovecs | std::views::transform(mmsghdr_to), _msgs.begin());
   }
 
   ~mmsg_socket() = default;
