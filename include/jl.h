@@ -93,6 +93,18 @@ template <typename T, std::invocable F>
   return std::unexpected(error());
 }
 
+/// @returns a tuple of the values or the errors joined to one std::runtime_error
+template <class... T, std::derived_from<std::exception>... E>
+[[nodiscard]] inline std::expected<std::tuple<T...>, std::runtime_error>
+ok_or_join_with(const std::string &separator, std::expected<T, E> &&...args) {
+  if (((args.has_value()) && ...)) {
+    return std::tuple{*std::forward<std::expected<T, E>>(args)...};
+  }
+  auto err = ((args.has_value() ? std::string("") : (std::string(args.error().what()) + separator)) + ...);
+  err.resize(err.size() - 1);  // strip final separator
+  return std::unexpected(std::runtime_error(err));
+}
+
 template <typename E, class F, class... Args>
 [[nodiscard]] constexpr std::expected<std::invoke_result_t<F, Args...>, E> try_catch(F f, Args &&...args) {
   try {

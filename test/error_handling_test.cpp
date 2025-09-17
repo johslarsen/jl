@@ -34,6 +34,23 @@ TEST_SUITE("error handling") {
     CHECK(std::string_view(e.what()) == "foo bar: Input/output error");
   }
 
+  TEST_CASE("ok_or_join_with tuple") {
+    auto truish = []<class T>(T v) -> std::expected<T, std::runtime_error> {
+      if (v) return v;
+      return std::unexpected(std::runtime_error(std::format("falsish {}", v)));
+    };
+    auto ok = jl::ok_or_join_with("\n", truish(true), truish(42));
+    CHECK(ok.has_value());
+    CHECK(*ok == std::tuple{true, 42});
+
+    auto one_error = jl::ok_or_join_with("\n", truish(false));
+    CHECK(!one_error.has_value());
+    CHECK(std::string_view(one_error.error().what()) == "falsish false");
+
+    auto some_errors = jl::ok_or_join_with("\n", truish(false), truish(true), truish(0));
+    CHECK(std::string_view(some_errors.error().what()) == "falsish false\nfalsish 0");
+  }
+
   TEST_CASE("errno_as_error") {
     SUBCASE("success") {
       errno = 0;
