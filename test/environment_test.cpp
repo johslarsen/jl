@@ -5,26 +5,36 @@
 #include <stdexcept>
 
 TEST_SUITE("environment") {
-  TEST_CASE("optenv") {
-    setenv("JL_TEST_ENV_STRING", "foo", 1);                    // NOLINT(*mt-unsafe)
-    CHECK("foo" == jl::optenv("JL_TEST_ENV_STRING").value());  // NOLINT(*unchecked*)
+  TEST_CASE("example with checked and defaults options") {
+    auto read_options_from_env = [] {
+      return jl::ok_or_join_with("\n",
+                                 jl::env("JL_TEST_ENV_STRING"),
+                                 jl::env_as<float>("JL_TEST_ENV_FLOAT"),
+                                 jl::env_or<int>("JL_TEST_ENV_INT", 42));
+    };
 
-    CHECK(std::nullopt == jl::optenv("DONT_SET_THIS"));
-    CHECK("foo" == jl::optenv("DONT_SET_THIS").value_or("foo"));
-    CHECK(42 == std::stoi(jl::optenv("DONT_SET_THIS").value_or("42")));
-  }
-
-  TEST_CASE("reqenv") {
     setenv("JL_TEST_ENV_STRING", "foo", 1);  // NOLINT(*mt-unsafe)
-    CHECK("foo" == jl::reqenv("JL_TEST_ENV_STRING"));
+    setenv("JL_TEST_ENV_FLOAT", "13", 1);    // NOLINT(*mt-unsafe)
+    unsetenv("JL_TEST_ENV_INT");             // NOLINT(*mt-unsafe)
+    auto all_ok = read_options_from_env();
+    CHECK_MESSAGE(all_ok, all_ok.error().what());
+    CHECK(all_ok == std::tuple(std::string("foo"), 13, 42));
 
-    CHECK_THROWS_AS(std::ignore = jl::reqenv("DONT_SET_THIS"), std::runtime_error);
+    unsetenv("JL_TEST_ENV_STRING");       // NOLINT(*mt-unsafe)
+    unsetenv("JL_TEST_ENV_FLOAT");        // NOLINT(*mt-unsafe)
+    setenv("JL_TEST_ENV_INT", "NaN", 1);  // NOLINT(*mt-unsafe)
+    auto none_ok = read_options_from_env();
+    CHECK(!none_ok);
+    CHECK(std::string_view(none_ok.error().what()) ==
+          R"(environment JL_TEST_ENV_STRING: Invalid argument
+environment JL_TEST_ENV_FLOAT: Invalid argument
+environment JL_TEST_ENV_INT failed to parse "NaN": Invalid argument)");
   }
 
   TEST_CASE("env_as distinguishes missing from parsing error") {
     setenv("JL_TEST_ENV_NAN", "NaN", 1);  // NOLINT(*mt-unsafe)
-    CHECK(std::errc::invalid_argument == jl::env_as<int>("JL_TEST_ENV_NAN").error().code());
-    CHECK(std::errc{} == jl::env_as<int>("DONT_SET_THIS").error().code());
+    CHECK("environment DONT_SET_THIS: Invalid argument" == std::string_view(jl::env_as<int>("DONT_SET_THIS").error().what()));
+    CHECK(R"(environment JL_TEST_ENV_NAN failed to parse "NaN": Invalid argument)" == std::string_view(jl::env_as<int>("JL_TEST_ENV_NAN").error().what()));
   }
 
   TEST_CASE("env_or") {
@@ -49,8 +59,8 @@ TEST_SUITE("environment") {
 
     SUBCASE("invalid number") {
       setenv("JL_TEST_ENV_NAN", "NaN", 1);  // NOLINT(*mt-unsafe)
-      CHECK(42 == jl::env_or("JL_TEST_ENV_NAN", 42));
-      CHECK(std::isnan(jl::env_or("JL_TEST_ENV_NAN", 3.14)));
+      CHECK(!jl::env_as<int>("JL_TEST_ENV_NAN"));
+      CHECK(std::isnan(jl::env_as<float>("JL_TEST_ENV_NAN").value()));
     }
   }
 }

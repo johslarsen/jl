@@ -317,7 +317,7 @@ template <numeric T>
   if (auto res = std::from_chars(s.begin(), s.end(), *parsed); res.ec == std::errc()) {
     return parsed;
   } else {
-    return unexpected_system_error(res.ec, "Failed to parse \"{}\"", s);
+    return unexpected_system_error(res.ec, "failed to parse {:?}", s);
   }
 }
 
@@ -1038,31 +1038,30 @@ class Ring {
   }
 };
 
-[[nodiscard]] inline std::optional<std::string> optenv(const char *name) noexcept {
+[[nodiscard]] inline std::expected<std::string, error> env(const char *name) noexcept {
   const char *value = std::getenv(name);  // NOLINT(*mt-unsafe)
-  if (value == nullptr) return std::nullopt;
+  if (value == nullptr) return std::unexpected(error(std::errc::invalid_argument, "environment {}", name));
   return value;
 }
 
 template <numeric T>
 [[nodiscard]] inline std::expected<T, error> env_as(const char *name) {
-  return ok_or_else(optenv(name), [name] { return make_system_error({}, "Missing {} environment value", name); })
-      .and_then(from_str<T>);
+  return env(name).and_then([name](const std::string &v) {
+    return from_str<T>(v)
+        .transform_error([name](const error &e) { return e.prefixed("environment {} ", name); });
+  });
 }
 
 template <numeric T>
-[[nodiscard]] inline T env_or(const char *name, T fallback) noexcept {
-  return env_as<T>(name).value_or(fallback);
+[[nodiscard]] inline std::expected<T, error> env_or(const char *name, T fallback) noexcept {
+  if (auto v = env(name)) {
+    return from_str<T>(*v)
+        .transform_error([name](const error &e) { return e.prefixed("environment {} ", name); });
+  }
+  return fallback;
 }
 [[nodiscard]] inline std::string env_or(const char *name, const std::string &fallback) noexcept {
-  return optenv(name).value_or(fallback);
-}
-
-/// @throws std::runtime_error if there is no environment variable with this name.
-[[nodiscard]] inline std::string reqenv(const char *name) {
-  const char *value = std::getenv(name);  // NOLINT(*mt-unsafe)
-  if (value == nullptr) throw std::runtime_error(std::format("Missing {} environment variable", name));
-  return value;
+  return env(name).value_or(fallback);
 }
 
 /// A tuple of array-like structures acting like a array-like structure of tuples

@@ -1,6 +1,6 @@
 #include "mock_test.h"
 
-static auto psql_uri = jl::optenv("POSTGRES_URL");
+static auto psql_uri = jl::env("POSTGRES_URL");
 
 TEST_SUITE("psql" * doctest::skip(!psql_uri.has_value())) {
   TEST_CASE("table create insert select drop") {
