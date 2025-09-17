@@ -62,7 +62,7 @@ TEST_SUITE("synchronize easy API") {
     jl::curl::easy curl;
     curl.setopt(CURLOPT_TIMEOUT, 1);
 
-    CHECK_THROWS_AS(curl.setopt(CURLOPT_POSTFIELDSIZE, -42L), std::system_error);
+    CHECK_THROWS_AS(curl.setopt(CURLOPT_POSTFIELDSIZE, -42L), jl::error);
   }
 
   TEST_CASE("info") {
@@ -74,7 +74,7 @@ TEST_SUITE("synchronize easy API") {
 
     // from https://github.com/curl/curl/blob/master/lib/getinfo.c it seems like
     // this is the only kind of error it returns, and UBSAN whines about that cast:
-    // CHECK_THROWS_AS(curl.info<long>(static_cast<CURLINFO>(0xdeadbeef)), std::system_error);
+    // CHECK_THROWS_AS(curl.info<long>(static_cast<CURLINFO>(0xdeadbeef)), jl::error);
   }
 
   TEST_CASE("unique_slist") {

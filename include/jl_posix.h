@@ -19,7 +19,7 @@
 namespace jl {
 
 template <typename T = void, class... Args>
-std::expected<T *, std::system_error> ok_mmap(void *p, std::format_string<Args...> fmt, Args &&...args) {
+std::expected<T *, error> ok_mmap(void *p, std::format_string<Args...> fmt, Args &&...args) {
   if (p == MAP_FAILED) return unexpected_errno(fmt, std::forward<Args>(args)...);
   return reinterpret_cast<T *>(p);
 }
@@ -73,7 +73,7 @@ struct ofd {
 
 /// Copy up to len bytes from in to out (see `man 2 sendfile` for details).
 /// NOTE: The system call requires that at most one of the file descriptors is a pipe.
-std::expected<size_t, std::system_error> inline sendfileall(int fd_out, ofd in, size_t len) {
+std::expected<size_t, error> inline sendfileall(int fd_out, ofd in, size_t len) {
   return rw_loop([fd_out, in_fd = in.fd, in_off = nullable(in.offset)](size_t remaining, off_t) {
     return ::sendfile(fd_out, in_fd, in_off, remaining);
   },
@@ -82,7 +82,7 @@ std::expected<size_t, std::system_error> inline sendfileall(int fd_out, ofd in, 
 
 /// Copy up to len bytes from in to out (see `man 2 splice` for details).
 /// NOTE: The system call requires that at least one of the file descriptors is a pipe.
-std::expected<size_t, std::system_error> inline spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {  // NOLINT(*swappable-parameters), to mimic ::splice
+std::expected<size_t, error> inline spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {  // NOLINT(*swappable-parameters), to mimic ::splice
   return rw_loop([flags, in = in.fd, in_off = nullable(in.offset), out = out.fd, out_off = nullable(out.offset)](size_t remaining, off_t) {
     return ::splice(in, in_off, out, out_off, remaining, flags);
   },
@@ -95,7 +95,7 @@ class unique_fd {
   int _fd;
 
  public:
-  /// @throws std::system_error with errno and errmsg if it fails.
+  /// @throws error with errno and errmsg if it fails.
   explicit unique_fd(int fd, const std::string &errmsg = "unique_fd(-1)") : _fd(fd) {
     if (_fd < 0) throw errno_as_error("{}", errmsg);
   }
@@ -139,7 +139,7 @@ template <typename C>
 
 template <typename C, size_t Size = sizeof(typename C::value_type)>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
-[[nodiscard]] std::expected<size_t, std::system_error> writeall(int fd, const C &data) {
+[[nodiscard]] std::expected<size_t, error> writeall(int fd, const C &data) {
   return rw_loop([fd, buf = data.data()](size_t remaining, off_t offset) { return ::write(fd, buf + offset / Size, remaining); },
                  Size * data.size(), "write({})", fd)
       .transform([](size_t bytes_written) { return bytes_written / Size; });
@@ -161,18 +161,18 @@ template <typename C>
 }
 
 template <typename T, size_t Size = sizeof(T)>
-[[nodiscard]] std::expected<std::span<T>, std::system_error> readall(int fd, std::span<T> buffer) {
+[[nodiscard]] std::expected<std::span<T>, error> readall(int fd, std::span<T> buffer) {
   return rw_loop([fd, buf = buffer.data()](size_t remaining, off_t offset) { return ::read(fd, buf + offset / Size, remaining); },
                  Size * buffer.size(), "read({})", fd)
       .transform([buffer](size_t bytes_read) { return buffer.subspan(0, bytes_read / Size); });
 }
 
-[[nodiscard]] std::expected<struct stat, std::system_error> inline stat(int fd) {
+[[nodiscard]] std::expected<struct stat, error> inline stat(int fd) {
   struct stat buf{};
   return zero_or_errno(fstat(fd, &buf), "fstat({})", fd).transform([&] { return std::move(buf); });
 }
 
-[[nodiscard]] std::expected<void, std::system_error> inline truncate(int fd, off_t length) {
+[[nodiscard]] std::expected<void, error> inline truncate(int fd, off_t length) {
   return zero_or_errno(ftruncate(fd, length), "ftruncate({}, {})", fd, length);
 }
 
@@ -314,12 +314,12 @@ struct host_port {
 };
 
 template <typename T>
-[[nodiscard]] std::expected<void, std::system_error> setsockopt(int fd, int level, int option_name, const T &value) {
+[[nodiscard]] std::expected<void, error> setsockopt(int fd, int level, int option_name, const T &value) {
   return zero_or_errno(::setsockopt(fd, level, option_name, &value, sizeof(value)),
                        "setsockopt({}, {}, {})", fd, level, option_name);
 }
 
-[[nodiscard]] std::expected<void, std::system_error> inline linger(int fd, std::chrono::seconds timeout) {
+[[nodiscard]] std::expected<void, error> inline linger(int fd, std::chrono::seconds timeout) {
   return setsockopt(fd, SOL_SOCKET, SO_LINGER,
                     ::linger{.l_onoff = 1, .l_linger = static_cast<int>(timeout.count())});
 }
@@ -370,13 +370,13 @@ class unique_socket : public unique_fd {
     });
   }
 
-  std::vector<std::system_error> linger(std::chrono::seconds timeout) && {
-    std::vector<std::system_error> errors;
+  std::vector<error> linger(std::chrono::seconds timeout) && {
+    std::vector<error> errors;
     if (auto status = jl::linger(fd(), timeout); !status) errors.push_back(status.error());
     if (int fd = release(); close(fd) != 0) errors.push_back(errno_as_error("close({})", fd));
     return errors;
   }
-  std::vector<std::system_error> terminate() && {
+  std::vector<error> terminate() && {
     return std::move(*this).linger(std::chrono::seconds(0));
   }
 };
@@ -550,14 +550,14 @@ class unique_mmap {
 
  public:
   /// A common mmap. The count/offset parameters are in counts of T, not bytes.
-  /// @throws std::system_error with errno and errmsg if it fails.
+  /// @throws error with errno and errmsg if it fails.
   explicit unique_mmap(size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap()")
       : unique_mmap(nullptr, count, prot, flags, fd, offset, errmsg) {
   }
 
   /// More advanced constructor for e.g. MAP_FIXED when you need the addr
   /// parameter. The size/offset parameters are in counts of T, not bytes.
-  /// @throws std::system_error with errno and errmsg if it fails.
+  /// @throws error with errno and errmsg if it fails.
   unique_mmap(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap()")
       : _map(unwrap(ok_mmap<T>(mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T)), "{}", errmsg)), count) {}
 
@@ -577,8 +577,8 @@ class unique_mmap {
   [[nodiscard]] auto *operator->(this auto &self) noexcept { return &self._map; }
 
   /// The count parameter is in counts of T not bytes.
-  /// @throws std::system_error with errno and errmsg if it fails.
-  [[nodiscard]] std::expected<void, std::system_error> remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap()") {
+  /// @throws error with errno and errmsg if it fails.
+  [[nodiscard]] std::expected<void, error> remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap()") {
     return ok_mmap<T>(mremap(const_cast<std::remove_const_t<T> *>(_map.data()), _map.size() * sizeof(T), count * sizeof(T), flags, addr), "{}", errmsg)
         .transform([count, this](T *p) { _map = {p, count}; });
   }
@@ -617,7 +617,7 @@ class fd_mmap {
 
  public:
   /// A mmap over fd. The count/offset parameters are in counts of T, not bytes.
-  /// @throws std::system_error with errno and errmsg if it fails.
+  /// @throws error with errno and errmsg if it fails.
   explicit fd_mmap(unique_fd fd, int prot = PROT_READ, int flags = MAP_SHARED, off_t offset = 0, std::optional<size_t> count = std::nullopt, const std::string &errmsg = "fd_mmap()")  // NOLINT(*-member-init) false positive: https://github.com/llvm/llvm-project/issues/37250
       : fd_mmap(with_count(std::move(fd), count), prot, flags, offset, count, errmsg) {}
 
@@ -630,8 +630,8 @@ class fd_mmap {
 
   /// The count parameter is in counts of T not bytes. New mapping is relative
   /// to offset from construction.
-  /// @throws std::system_error with errno and errmsg if it fails.
-  [[nodiscard]] std::expected<void, std::system_error> remap(size_t count, int mremap_flags = 0) {
+  /// @throws error with errno and errmsg if it fails.
+  [[nodiscard]] std::expected<void, error> remap(size_t count, int mremap_flags = 0) {
     return _mmap.remap(count, mremap_flags)
         .transform([this] { _map = *_mmap; });
   }
@@ -645,8 +645,8 @@ class fd_mmap {
   /// Truncate the file to this length. Length is in counts of T not bytes.
   /// Length is relative to start of file, but remapping is relative to offset
   /// from construction.
-  /// @throws std::system_error with errno and errmsg if it fails.
-  [[nodiscard]] std::expected<void, std::system_error> truncate(size_t length, int mremap_flags = 0) {
+  /// @throws error with errno and errmsg if it fails.
+  [[nodiscard]] std::expected<void, error> truncate(size_t length, int mremap_flags = 0) {
     return jl::truncate(*_fd, length * sizeof(T))
         .and_then([=, this] { return _mmap.remap(beyond_offset(length), mremap_flags); })
         .transform([=, this] { _map = _offset < static_cast<off_t>(length) ? *_mmap : _mmap->subspan(0, 0); });

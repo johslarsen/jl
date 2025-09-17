@@ -19,7 +19,7 @@ TEST_SUITE("unique_fd") {
   }
 
   TEST_CASE("construction from invalid fdthrows") {
-    CHECK_THROWS_AS(jl::unique_fd(-1, "foo"), std::system_error);
+    CHECK_THROWS_AS(jl::unique_fd(-1, "foo"), jl::error);
   }
 
   TEST_CASE("pipes") {

@@ -131,32 +131,32 @@ class error : public std::system_error {
 };
 
 template <class... Args>
-[[nodiscard]] inline std::system_error make_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
+[[nodiscard]] inline error make_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
   return {std::make_error_code(err), std::format(fmt, std::forward<Args>(args)...)};
 }
 template <class... Args>
-[[nodiscard]] inline std::unexpected<std::system_error> unexpected_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
+[[nodiscard]] inline std::unexpected<error> unexpected_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
   return std::unexpected(make_system_error(err, fmt, std::forward<Args>(args)...));
 }
 
 template <class... Args>
-[[nodiscard]] inline std::system_error errno_as_error(std::format_string<Args...> fmt, Args &&...args) noexcept {
+[[nodiscard]] inline error errno_as_error(std::format_string<Args...> fmt, Args &&...args) noexcept {
   return make_system_error(std::errc(errno), fmt, std::forward<Args>(args)...);
 }
 template <class... Args>
-[[nodiscard]] inline std::unexpected<std::system_error> unexpected_errno(std::format_string<Args...> fmt, Args &&...args) noexcept {
+[[nodiscard]] inline std::unexpected<error> unexpected_errno(std::format_string<Args...> fmt, Args &&...args) noexcept {
   return std::unexpected(errno_as_error(fmt, std::forward<Args>(args)...));
 }
 /// @returns non-negative n, 0 for EAGAIN or unexpected_errno(...)
 template <std::integral T, class... Args>
-std::expected<T, std::system_error> ok_or_errno(T n, std::format_string<Args...> fmt, Args &&...args) {
+std::expected<T, error> ok_or_errno(T n, std::format_string<Args...> fmt, Args &&...args) {
   if (n >= 0) return n;
   if (errno == EAGAIN) return 0;
   return unexpected_errno(fmt, std::forward<Args>(args)...);
 }
 
 template <std::integral T, class... Args>
-std::expected<void, std::system_error> zero_or_errno(T n, std::format_string<Args...> fmt, Args &&...args) {
+std::expected<void, error> zero_or_errno(T n, std::format_string<Args...> fmt, Args &&...args) {
   if (n == 0) return {};
   return unexpected_errno(fmt, std::forward<Args>(args)...);
 }
@@ -252,7 +252,7 @@ class invocable_counter {
 static_assert(EAGAIN == EWOULDBLOCK, "Obscure and unsupported platform");
 
 /// @returns n usually or 0 for EAGAIN
-/// @throws std::system_error on other errors
+/// @throws error on other errors
 template <std::integral T, class... Args>
 T check_rw_error(T n, std::format_string<Args...> fmt, Args &&...args) {
   if (n < 0) {
@@ -266,7 +266,7 @@ T check_rw_error(T n, std::format_string<Args...> fmt, Args &&...args) {
 /// @returns the non-negative successful result or the error that occurred.
 template <int64_t Attempts = 3, std::invocable F, class... Args>
   requires std::integral<std::invoke_result_t<F>>
-std::expected<std::invoke_result_t<F>, std::system_error> eagain(F f, std::format_string<Args...> fmt, Args &&...args) {
+std::expected<std::invoke_result_t<F>, error> eagain(F f, std::format_string<Args...> fmt, Args &&...args) {
   for (int64_t attempts = Attempts; attempts != 0; --attempts) {
     if (auto result = f(); result >= 0) return result;  // successful, so exit early
     if (errno != EAGAIN) break;
@@ -278,7 +278,7 @@ std::expected<std::invoke_result_t<F>, std::system_error> eagain(F f, std::forma
 /// @returns the amount processed. Usually length unless call returns 0 to indicate EOF.
 template <int64_t Attempts = 3, std::invocable<size_t, off_t> F, class... Args>
   requires std::integral<std::invoke_result_t<F, size_t, off_t>>
-std::expected<size_t, std::system_error> rw_loop(F f, size_t length, std::format_string<Args...> fmt, Args &&...args) {
+std::expected<size_t, error> rw_loop(F f, size_t length, std::format_string<Args...> fmt, Args &&...args) {
   size_t offset = 0;
   for (size_t count = -1; offset < length && count != 0; offset += count) {
     auto result = jl::eagain<Attempts>([&] { return f(length - offset, offset); }, fmt, std::forward<Args>(args)...);
@@ -300,8 +300,8 @@ template <typename T>
   return {str == nullptr ? "" : str};
 }
 template <numeric T>
-[[nodiscard]] std::expected<T, std::system_error> from_str(std::string_view s) noexcept {
-  std::expected<T, std::system_error> parsed;
+[[nodiscard]] std::expected<T, error> from_str(std::string_view s) noexcept {
+  std::expected<T, error> parsed;
   if (auto res = std::from_chars(s.begin(), s.end(), *parsed); res.ec == std::errc()) {
     return parsed;
   } else {
@@ -1033,7 +1033,7 @@ class Ring {
 }
 
 template <numeric T>
-[[nodiscard]] inline std::expected<T, std::system_error> env_as(const char *name) {
+[[nodiscard]] inline std::expected<T, error> env_as(const char *name) {
   return ok_or_else(optenv(name), [name] { return make_system_error({}, "Missing {} environment value", name); })
       .and_then(from_str<T>);
 }

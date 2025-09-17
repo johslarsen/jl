@@ -57,20 +57,20 @@ TEST_SUITE("error handling") {
     auto timed_out = jl::make_system_error(std::errc::timed_out, "foo");
 
     SUBCASE("regular type") {
-      CHECK(42 == jl::unwrap(std::expected<int, std::system_error>(42)));
-      CHECK_THROWS_WITH_AS(std::ignore = jl::unwrap(std::expected<int, std::system_error>(std::unexpected(timed_out))),
+      CHECK(42 == jl::unwrap(std::expected<int, jl::error>(42)));
+      CHECK_THROWS_WITH_AS(std::ignore = jl::unwrap(std::expected<int, jl::error>(std::unexpected(timed_out))),
                            timed_out.what(), decltype(timed_out));
     }
 
     SUBCASE("move-only type") {
-      CHECK(nullptr == jl::unwrap(std::expected<std::unique_ptr<int>, std::system_error>(nullptr)));
-      CHECK_THROWS_WITH_AS(std::ignore = jl::unwrap(std::expected<std::unique_ptr<int>, std::system_error>(std::unexpected(timed_out))),
+      CHECK(nullptr == jl::unwrap(std::expected<std::unique_ptr<int>, jl::error>(nullptr)));
+      CHECK_THROWS_WITH_AS(std::ignore = jl::unwrap(std::expected<std::unique_ptr<int>, jl::error>(std::unexpected(timed_out))),
                            timed_out.what(), decltype(timed_out));
     }
 
     SUBCASE("nothing expected, but an error could occur") {
-      jl::unwrap(std::expected<void, std::system_error>());
-      CHECK_THROWS_WITH_AS(jl::unwrap(std::expected<void, std::system_error>(std::unexpected(timed_out))),
+      jl::unwrap(std::expected<void, jl::error>());
+      CHECK_THROWS_WITH_AS(jl::unwrap(std::expected<void, jl::error>(std::unexpected(timed_out))),
                            timed_out.what(), decltype(timed_out));
     }
   }
@@ -100,11 +100,11 @@ TEST_SUITE("error handling") {
 
   TEST_CASE("try_catch") {
     SUBCASE("successful") {
-      CHECK(jl::try_catch<std::system_error>([](auto v) { return v; }, true) == true);
+      CHECK(jl::try_catch<jl::error>([](auto v) { return v; }, true) == true);
     }
     SUBCASE("operation throws") {
       auto error = jl::make_system_error(std::errc::no_link, "");
-      auto result = jl::try_catch<std::system_error>([](const auto& v) -> int { throw v; }, error);
+      auto result = jl::try_catch<jl::error>([](const auto& v) -> int { throw v; }, error);
       CHECK(!result.has_value());
       CHECK(result.error().code() == error.code());
     }
@@ -219,7 +219,7 @@ TEST_SUITE("error handling") {
     }
 
     SUBCASE("with expected result") {
-      CHECK(jl::retry_until(deadline, only, std::expected<int, std::system_error>(42)) == 42);
+      CHECK(jl::retry_until(deadline, only, std::expected<int, jl::error>(42)) == 42);
       CHECK(calls.size() == 1);
     }
     SUBCASE("without expected result") {
