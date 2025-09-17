@@ -94,13 +94,41 @@ template <typename T, std::invocable F>
 }
 
 template <typename E, class F, class... Args>
-constexpr std::expected<std::invoke_result_t<F, Args...>, E> try_catch(F f, Args &&...args) {
+[[nodiscard]] constexpr std::expected<std::invoke_result_t<F, Args...>, E> try_catch(F f, Args &&...args) {
   try {
     return std::invoke(f, std::forward<Args>(args)...);
   } catch (const E &e) {
     return std::unexpected(e);
   }
 }
+
+/// A std::system_error that remembers what was the original what message
+class error : public std::system_error {
+  size_t _msglen;
+
+ public:
+  error(std::error_code ec, const std::string &what) noexcept
+      : std::system_error(ec, what), _msglen(what.size()) {}
+  error(std::error_code ec = {}) noexcept     // NOLINT(*-explicit-conversions) to mimic system_error
+      : std::system_error(ec), _msglen(0) {}  // BTW, needed because empty what results in ": ..." messages
+
+  template <class... Args>
+  error(std::error_code ec, std::format_string<Args...> fmt, Args &&...args)
+      : error(ec, std::format(fmt, std::forward<Args>(args)...)) {}
+  template <class... Args>
+  error(std::errc ec, std::format_string<Args...> fmt, Args &&...args)
+      : error(std::make_error_code(ec), std::format(fmt, std::forward<Args>(args)...)) {}
+
+  /// Original what without e.g. ": Invalid argument" suffix
+  [[nodiscard]] std::string_view msg() const noexcept {
+    return {what(), _msglen};
+  }
+
+  template <class... Args>
+  [[nodiscard]] error prefixed(std::format_string<Args...> fmt, Args &&...args) const noexcept {
+    return {code(), std::format(fmt, std::forward<Args>(args)...) + std::string(msg())};
+  }
+};
 
 template <class... Args>
 [[nodiscard]] inline std::system_error make_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {

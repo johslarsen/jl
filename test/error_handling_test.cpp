@@ -11,6 +11,29 @@ const std::string_view error_what(auto expected) {
 }
 
 TEST_SUITE("error handling") {
+  TEST_CASE("jl::error remembers") {
+    SUBCASE("no what") {
+      CHECK(jl::error().msg() == "");
+      CHECK(std::string_view(jl::error().what()) == "Success");
+    }
+    SUBCASE("empty what") {
+      jl::error e(std::errc::io_error, "");
+      CHECK(e.msg() == "");
+      CHECK(std::string_view(e.what()) == ": Input/output error");
+    }
+    SUBCASE("formatted what") {
+      jl::error e(std::make_error_code(std::errc::timed_out), "{}", 42);
+      CHECK(e.msg() == "42");
+      CHECK(std::string_view(e.what()) == "42: Connection timed out");
+    }
+  }
+  TEST_CASE("jl::error::prefixed") {
+    auto e = jl::error(std::errc::io_error, "bar").prefixed("foo ");
+    CHECK(e.msg() == "foo bar");
+    CHECK(e.code() == std::make_error_code(std::errc::io_error));
+    CHECK(std::string_view(e.what()) == "foo bar: Input/output error");
+  }
+
   TEST_CASE("errno_as_error") {
     SUBCASE("success") {
       errno = 0;
