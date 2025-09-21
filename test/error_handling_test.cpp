@@ -10,6 +10,11 @@ const std::string_view error_what(auto expected) {
   return what(expected.error());
 }
 
+namespace jl {
+using std::error_code;
+
+}  // namespace jl
+
 TEST_SUITE("error handling") {
   TEST_CASE("jl::error remembers") {
     SUBCASE("no what") {
@@ -34,6 +39,17 @@ TEST_SUITE("error handling") {
     CHECK(std::string_view(e.what()) == "foo bar: Input/output error");
   }
 
+  TEST_CASE("jl::error constructed in transform_error") {
+    auto from_errno = std::expected<int, int>(std::unexpected(EIO))
+                          .transform_error([](auto ec) { return jl::error(ec, "foo {}", 42); });
+    auto from_ec = std::expected<int, std::error_code>(std::unexpected(std::make_error_code(std::errc::io_error)))
+                       .transform_error([](auto ec) { return jl::error(ec, "foo {}", 42); });
+
+    std::string expected = std::system_error(jl::as_ec(EIO), "foo 42").what();
+    CHECK(error_what(from_errno) == expected);
+    CHECK(error_what(from_ec) == expected);
+  }
+
   TEST_CASE("ok_or_join_with tuple") {
     auto truish = []<class T>(T v) -> std::expected<T, std::runtime_error> {
       if (v) return v;
@@ -51,27 +67,8 @@ TEST_SUITE("error handling") {
     CHECK(std::string_view(some_errors.error().what()) == "falsish false\nfalsish 0");
   }
 
-  TEST_CASE("errno_as_error") {
-    SUBCASE("success") {
-      errno = 0;
-      CHECK_EQ(what(jl::make_system_error(std::errc{}, "foo")),
-               what(jl::errno_as_error("foo")));
-    }
-    SUBCASE("error") {
-      errno = ETIMEDOUT;
-      CHECK_EQ(what(jl::make_system_error(std::errc::timed_out, "foo")),
-               what(jl::errno_as_error("foo")));
-    }
-  }
-
-  TEST_CASE("unexpected_errno") {
-    errno = ETIMEDOUT;
-    CHECK_EQ(what(jl::make_system_error(std::errc::timed_out, "foo")),
-             what(jl::unexpected_errno("foo").error()));
-  }
-
   TEST_CASE("unwrap") {
-    auto timed_out = jl::make_system_error(std::errc::timed_out, "foo");
+    jl::error timed_out(ETIMEDOUT, "foo");
 
     SUBCASE("regular type") {
       CHECK(42 == jl::unwrap(std::expected<int, jl::error>(42)));
@@ -93,26 +90,43 @@ TEST_SUITE("error handling") {
   }
 
   TEST_CASE("ok_or") {
-    auto timed_out = jl::make_system_error(std::errc::timed_out, "foo");
+    jl::error timed_out(ETIMEDOUT, "foo");
     CHECK(42 == jl::ok_or(std::optional(42), timed_out).value());
     CHECK(what(timed_out) == error_what(jl::ok_or<int>(std::nullopt, timed_out)));
   }
 
   TEST_CASE("ok_or_else") {
-    auto make_timed_out = [] { return jl::make_system_error(std::errc::timed_out, "foo"); };
+    auto make_timed_out = [] { return jl::error(ETIMEDOUT, "foo"); };
     CHECK(42 == jl::ok_or_else(std::optional(42), make_timed_out).value());
     CHECK(what(make_timed_out()) == error_what(jl::ok_or_else<int>(std::nullopt, make_timed_out)));
   }
 
+  TEST_CASE("retryable_as") {
+    static_assert(jl::expected_or_errno<int>(42).or_else(jl::retryable_as<EAGAIN>(0)) == 42);
+    static_assert(jl::expected_or_errno<int>(std::unexpected(EAGAIN)).or_else(jl::retryable_as<EAGAIN>(0)) == 0);
+    static_assert(jl::expected_or_errno<int>(std::unexpected(ETIMEDOUT)).or_else(jl::retryable_as<EAGAIN>(0)).error() == ETIMEDOUT);
+
+    std::expected<int, std::error_code> ok(42);
+    CHECK(ok.or_else(jl::retryable_as<EAGAIN>(0)) == 42);
+    CHECK(ok.or_else(jl::retryable_as(0, jl::as_ec(EAGAIN))) == 42);
+
+    std::expected<int, std::error_code> eagain = std::unexpected(jl::as_ec(EAGAIN));
+    CHECK(eagain.or_else(jl::retryable_as<EAGAIN>(0)) == 0);
+    CHECK(eagain.or_else(jl::retryable_as(0, jl::as_ec(EAGAIN))) == 0);
+
+    std::expected<int, std::error_code> etimedout = std::unexpected(jl::as_ec(ETIMEDOUT));
+    CHECK(etimedout.or_else(jl::retryable_as<EAGAIN>(0)).error() == jl::as_ec(ETIMEDOUT));
+    CHECK(etimedout.or_else(jl::retryable_as(0, jl::as_ec(EAGAIN))).error() == jl::as_ec(ETIMEDOUT));
+  }
+
   TEST_CASE("ok_or_errno") {
-    CHECK(42 == jl::unwrap(jl::ok_or_errno(42, "")));
+    CHECK(42 == jl::unwrap(jl::ok_or_errno(42)));
 
     errno = EAGAIN;
-    CHECK(0 == jl::unwrap(jl::ok_or_errno(-1, "")));
+    CHECK(0 == jl::ok_or_errno(-1).or_else(jl::retryable_as<EAGAIN>(0)));
 
     errno = ETIMEDOUT;
-    CHECK_EQ(what(jl::make_system_error(std::errc::timed_out, "foo")),
-             error_what(jl::ok_or_errno(-1, "foo")));
+    CHECK(ETIMEDOUT == jl::ok_or_errno(-1).or_else(jl::retryable_as<EAGAIN>(0)).error());
   }
 
   TEST_CASE("try_catch") {
@@ -120,7 +134,7 @@ TEST_SUITE("error handling") {
       CHECK(jl::try_catch<jl::error>([](auto v) { return v; }, true) == true);
     }
     SUBCASE("operation throws") {
-      auto error = jl::make_system_error(std::errc::no_link, "");
+      auto error = jl::error(std::make_error_code(std::errc::no_link));
       auto result = jl::try_catch<jl::error>([](const auto& v) -> int { throw v; }, error);
       CHECK(!result.has_value());
       CHECK(result.error().code() == error.code());
@@ -140,21 +154,19 @@ TEST_SUITE("error handling") {
     CHECK(1 == calls);
   }
 
-  TEST_CASE("eagain") {
-    auto two_eagain = [attempts = 3] mutable {
+  TEST_CASE("retry_syscall") {
+    auto two_eagain = [attempts = 2] mutable {
       errno = EAGAIN;
-      return --attempts > 0 ? -1 : 42;
+      return attempts-- ? -1 : 42;
     };
-    CHECK(42 == jl::eagain<3>(two_eagain, "foo"));
-    CHECK_EQ(what(jl::make_system_error(std::errc(EAGAIN), "foo")),
-             error_what(jl::eagain<2>(two_eagain, "foo")));
+    CHECK(42 == jl::retry_syscall<jl::attempts{3}, EAGAIN>(two_eagain));
+    CHECK_EQ(EAGAIN, jl::retry_syscall<jl::attempts{2}, EAGAIN>(two_eagain).error());
 
-    auto serious_error_only_on_first_attempt = [attempts = 2] mutable {
+    auto serious_error_only_on_first_attempt = [attempts = 1] mutable {
       errno = ETIMEDOUT;
-      return --attempts > 0 ? -1 : 42;
+      return --attempts >= 0 ? -1 : 42;
     };
-    CHECK_EQ(what(jl::make_system_error(std::errc::timed_out, "foo")),
-             error_what(jl::eagain<2>(serious_error_only_on_first_attempt, "foo")));
+    CHECK_EQ(ETIMEDOUT, jl::retry_syscall<jl::attempts{3}, EAGAIN>(serious_error_only_on_first_attempt).error());
   }
 
   TEST_CASE("backoff") {

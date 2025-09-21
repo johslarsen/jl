@@ -47,7 +47,7 @@ void BM_sendfile(benchmark::State& state) {
   for (auto _ : state) {
     for (off_t pos = 0; pos < len; pos += stride * block_size) {
       off_t pos_copy = pos;
-      auto size = jl::check_rw_error(sendfile(write.fd(), fd, &pos_copy, block_size), "sendfile failed");
+      auto size = jl::unwrap(jl::ok_or_errno(sendfile(write.fd(), fd, &pos_copy, block_size)));
       bytes_read += size;
     }
   }
@@ -101,7 +101,7 @@ void BM_pread(benchmark::State& state) {
   int fd = read->fd();
   for (auto _ : state) {
     for (off_t pos = 0; pos < len; pos += stride * block_size) {
-      size_t size = jl::check_rw_error(pread(fd, buffer.data(), block_size, pos), "pread failed");
+      size_t size = jl::unwrap(jl::ok_or_errno(pread(fd, buffer.data(), block_size, pos)));
       bytes_read += jl::write(*write, {buffer.data(), size});
     }
   }
@@ -121,7 +121,7 @@ void BM_read(benchmark::State& state) {
     if constexpr (stride == 0) lseek(fd, 0, SEEK_SET);
     for (off_t pos = 0; pos < len; pos += stride * block_size) {
       if constexpr (stride != 0) lseek(fd, pos, SEEK_SET);
-      size_t size = jl::check_rw_error(::read(fd, buffer.data(), block_size), "read failed");
+      size_t size = jl::unwrap(jl::ok_or_errno(::read(fd, buffer.data(), block_size)));
       bytes_read += jl::write(*write, {buffer.data(), size});
     }
   }
@@ -138,9 +138,9 @@ void BM_fread(benchmark::State& state) {
   using unique_file = std::unique_ptr<FILE, decltype([](FILE* fp) { fclose(fp); })>;
 
   unique_file fp(fopen(read.path().c_str(), "re"));
-  if (fp == nullptr) throw jl::errno_as_error("fopen failed");
+  if (fp == nullptr) throw jl::error(errno, "fopen({}) failed", read.path().c_str());
   unique_file null(fopen("/dev/null", "w"));
-  if (null == nullptr) throw jl::errno_as_error("fopen failed");
+  if (null == nullptr) throw jl::error(errno, "fopen(/dev/null) failed");
 
   size_t bytes_read = 0;
   for (auto _ : state) {

@@ -9,7 +9,7 @@ std::vector<ssize_t> block_sizes{1, 1024, 4096, 1 << 14, 1 << 16};  // any large
 
 void BM_readwrite(benchmark::State& state) {
   size_t block_size = state.range(0);
-  auto [in, out] = jl::unique_fd::pipes();
+  auto [in, out] = jl::unwrap(jl::unique_fd::pipes());
   jl::unique_fd devnull(open("/dev/null", O_WRONLY | O_CLOEXEC));
 
   std::vector<char> buffer(block_size);
@@ -29,7 +29,7 @@ void BM_splice(benchmark::State& state) {
   ssize_t block_size = state.range(0);
   auto zero = jl::tmpfd().unlink();
   jl::unwrap(jl::truncate(*zero, block_size));
-  auto [in, out] = jl::unique_fd::pipes();
+  auto [in, out] = jl::unwrap(jl::unique_fd::pipes());
   jl::unique_fd devnull(open("/dev/null", O_WRONLY | O_CLOEXEC));
 
   size_t bytes_copied = 0;

@@ -226,7 +226,7 @@ class sqlite final : public connection {
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_URI;
     auto status = sqlite3_open_v2(uri.c_str(), &handle, flags, nullptr);
     auto db = std::make_unique<sqlite>(handle);
-    if (db->_db == nullptr) throw jl::make_system_error(std::errc::not_enough_memory, "sqlite3_open({})", uri);
+    if (db->_db == nullptr) throw jl::error(std::errc::not_enough_memory, "sqlite3_open({})", uri);
     if (status != SQLITE_OK) throw error(db->_db.get(), std::format("sqlite3_open({})", uri));
 
     return db;
@@ -327,7 +327,7 @@ class psql final : public connection {
 
   static std::unique_ptr<psql> open(const std::string &uri) {
     auto db = std::make_unique<psql>(PQconnectdb(uri.c_str()));
-    if (db->_db == nullptr) throw jl::make_system_error(std::errc::not_enough_memory, "PQconnectdb({})", uri);
+    if (db->_db == nullptr) throw jl::error(std::errc::not_enough_memory, "PQconnectdb({})", uri);
     if (PQstatus(db->_db.get()) != CONNECTION_OK) throw db->error("PQconnectdb({})");
     return db;
   };
@@ -429,7 +429,7 @@ inline std::unique_ptr<connection> open(const std::string &uri) {
 #ifdef JL_HAS_PSQL
   if (uri.starts_with("postgres")) return psql::open(uri);
 #endif /*JL_HAS_PSQL*/
-  throw jl::make_system_error(std::errc::invalid_argument, "Unsupported DB: {}", uri);
+  throw jl::error(std::errc::invalid_argument, "Unsupported DB: {}", uri);
 }
 
 }  // namespace jl::db

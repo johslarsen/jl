@@ -44,7 +44,7 @@ TEST_SUITE("fd_mmap") {
       str.resize(read);
       return str;
     }
-    throw jl::errno_as_error("pread failed");
+    throw jl::error(errno, "pread failed");
   }
 
   TEST_CASE("truncate takes offset into account") {
@@ -68,7 +68,7 @@ TEST_SUITE("fd_mmap") {
     jl::unwrap(map.remap(10));
     CHECK(10 == map->size());
 
-    struct stat buf {};
+    struct stat buf{};
     CHECK(0 == fstat(map.fd(), &buf));
     CHECK(0 == buf.st_size);
   }

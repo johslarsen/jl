@@ -18,9 +18,9 @@
 /// Johs's <mail@johslarsen.net> Library. Use however you see fit.
 namespace jl {
 
-template <typename T = void, class... Args>
-std::expected<T *, error> ok_mmap(void *p, std::format_string<Args...> fmt, Args &&...args) {
-  if (p == MAP_FAILED) return unexpected_errno(fmt, std::forward<Args>(args)...);
+template <typename T = void>
+expected_or_errno<T *> ok_mmap(void *p) {
+  if (p == MAP_FAILED) return std::unexpected(errno);
   return reinterpret_cast<T *>(p);
 }
 
@@ -74,19 +74,19 @@ struct ofd {
 /// Copy up to len bytes from in to out (see `man 2 sendfile` for details).
 /// NOTE: The system call requires that at most one of the file descriptors is a pipe.
 std::expected<size_t, error> inline sendfileall(int fd_out, ofd in, size_t len) {
-  return rw_loop([fd_out, in_fd = in.fd, in_off = nullable(in.offset)](size_t remaining, off_t) {
-    return ::sendfile(fd_out, in_fd, in_off, remaining);
-  },
-                 len, "sendfile({} -> {})", in.fd, fd_out);
+  return rw_loop(len, [fd_out, in_fd = in.fd, in_off = nullable(in.offset)](size_t remaining, off_t) {
+           return ::sendfile(fd_out, in_fd, in_off, remaining);
+         })
+      .transform_error([in, fd_out](auto ec) { return jl::error(ec, "sendfile({} -> {})", in.fd, fd_out); });
 }
 
 /// Copy up to len bytes from in to out (see `man 2 splice` for details).
 /// NOTE: The system call requires that at least one of the file descriptors is a pipe.
 std::expected<size_t, error> inline spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {  // NOLINT(*swappable-parameters), to mimic ::splice
-  return rw_loop([flags, in = in.fd, in_off = nullable(in.offset), out = out.fd, out_off = nullable(out.offset)](size_t remaining, off_t) {
-    return ::splice(in, in_off, out, out_off, remaining, flags);
-  },
-                 len, "splice({} -> {})", in.fd, out.fd);
+  return rw_loop(len, [flags, in = in.fd, in_off = nullable(in.offset), out = out.fd, out_off = nullable(out.offset)](size_t remaining, off_t) {
+           return ::splice(in, in_off, out, out_off, remaining, flags);
+         })
+      .transform_error([in, out](auto ec) { return jl::error(ec, "splice({} -> {})", in.fd, out.fd); });
 }
 
 /// An owned and managed file descriptor.
@@ -97,15 +97,13 @@ class unique_fd {
  public:
   /// @throws error with errno and errmsg if it fails.
   explicit unique_fd(int fd, const std::string &errmsg = "unique_fd(-1)") : _fd(fd) {
-    if (_fd < 0) throw errno_as_error("{}", errmsg);
+    if (_fd < 0) throw error(errno, errmsg);
   }
 
-  [[nodiscard]] static std::pair<unique_fd, unique_fd> pipes(int flags = O_CLOEXEC) {
+  [[nodiscard]] static expected_or_errno<std::pair<unique_fd, unique_fd>> pipes(int flags = O_CLOEXEC) {
     std::array<int, 2> sv{-1, -1};
-    if (pipe2(sv.data(), flags) < 0) {
-      throw errno_as_error("pipe2()");
-    }
-    return {unique_fd(sv[0]), unique_fd(sv[1])};
+    return zero_or_errno(pipe2(sv.data(), flags))
+        .transform([&sv] { return std::make_pair(unique_fd(sv[0]), unique_fd(sv[1])); });
   }
 
   [[nodiscard]] int operator*() const noexcept { return _fd; }
@@ -131,7 +129,7 @@ template <typename C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] size_t write(int fd, const C &data) {
   constexpr size_t size = sizeof(typename C::value_type);
-  return check_rw_error(::write(fd, data.data(), size * data.size()), "write({})", fd) / size;
+  return unwrap(ok_or_errno(::write(fd, data.data(), size * data.size()))) / size;
 }
 [[nodiscard]] size_t inline write(int fd, std::string_view data) {
   return write(fd, std::span(data));
@@ -140,14 +138,16 @@ template <typename C>
 template <typename C, size_t Size = sizeof(typename C::value_type)>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] std::expected<size_t, error> writeall(int fd, const C &data) {
-  return rw_loop([fd, buf = data.data()](size_t remaining, off_t offset) { return ::write(fd, buf + offset / Size, remaining); },
-                 Size * data.size(), "write({})", fd)
-      .transform([](size_t bytes_written) { return bytes_written / Size; });
+  return rw_loop(Size * data.size(), [fd, buf = data.data()](size_t remaining, off_t offset) {
+           return ::write(fd, buf + offset / Size, remaining);
+         })
+      .transform([](size_t bytes_written) { return bytes_written / Size; })
+      .transform_error([fd](auto ec) { return jl::error(ec, "write({})", fd); });
 }
 
 template <typename T>
 [[nodiscard]] std::span<T> read(int fd, std::span<T> buffer) {
-  auto n = check_rw_error(::read(fd, buffer.data(), sizeof(T) * buffer.size()), "read({})", fd);
+  auto n = unwrap(ok_or_errno(::read(fd, buffer.data(), sizeof(T) * buffer.size())));
   return buffer.subspan(0, n / sizeof(T));
 }
 template <typename C>
@@ -162,32 +162,36 @@ template <typename C>
 
 template <typename T, size_t Size = sizeof(T)>
 [[nodiscard]] std::expected<std::span<T>, error> readall(int fd, std::span<T> buffer) {
-  return rw_loop([fd, buf = buffer.data()](size_t remaining, off_t offset) { return ::read(fd, buf + offset / Size, remaining); },
-                 Size * buffer.size(), "read({})", fd)
-      .transform([buffer](size_t bytes_read) { return buffer.subspan(0, bytes_read / Size); });
+  return rw_loop(Size * buffer.size(), [fd, buf = buffer.data()](size_t remaining, off_t offset) {
+           return ::read(fd, buf + offset / Size, remaining);
+         })
+      .transform([buffer](size_t bytes_read) { return buffer.subspan(0, bytes_read / Size); })
+      .transform_error([fd](auto ec) { return jl::error(ec, "write({})", fd); });
 }
 
 [[nodiscard]] std::expected<struct stat, error> inline stat(int fd) {
   struct stat buf{};
-  return zero_or_errno(fstat(fd, &buf), "fstat({})", fd).transform([&] { return std::move(buf); });
+  return zero_or_errno(fstat(fd, &buf))
+      .transform([&] { return std::move(buf); })
+      .transform_error([fd](auto ec) { return jl::error(ec, "fstat({})", fd); });
 }
 
 [[nodiscard]] std::expected<void, error> inline truncate(int fd, off_t length) {
-  return zero_or_errno(ftruncate(fd, length), "ftruncate({}, {})", fd, length);
+  return zero_or_errno(ftruncate(fd, length))
+      .transform_error([=](auto ec) { return jl::error(ec, "ftruncate({}, {})", fd, length); });
 }
 
 /// @returns nfd
-inline int poll(std::span<pollfd> fds, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(0), std::optional<sigset_t> sigset = std::nullopt) {
+inline expected_or_errno<int> poll(std::span<pollfd> fds, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(0), std::optional<sigset_t> sigset = std::nullopt) {
   auto ts = as_timespec(timeout);
-  int nfd = ::ppoll(fds.data(), fds.size(), &ts, nullable(sigset));
-  if (nfd < 0 && errno != EAGAIN) throw errno_as_error("ppoll(#{})", fds.size());
-  return nfd < 0 ? 0 : nfd;  // EAGAIN as if timeout
+  return ok_or_errno(::ppoll(fds.data(), fds.size(), &ts, nullable(sigset)))
+      .or_else(retryable_as<EAGAIN, EINTR>(0));  // i.e. as if timeout
 }
-/// @returns revents (0 on timeout/EAGAIN)
-inline int poll(int fd, short events, std::chrono::nanoseconds timeout = std::chrono::nanoseconds{0}, std::optional<sigset_t> sigset = std::nullopt) {
+/// @returns revents (0 on timeout/EAGAIN/EINTR)
+inline expected_or_errno<int> poll(int fd, short events, std::chrono::nanoseconds timeout = std::chrono::nanoseconds{0}, std::optional<sigset_t> sigset = std::nullopt) {
   pollfd fds{.fd = fd, .events = events, .revents = 0};
-  int nfd = poll(std::span{&fds, 1}, timeout, sigset);
-  return nfd == 1 ? fds.revents : 0;
+  return poll(std::span{&fds, 1}, timeout, sigset)
+      .transform([&fds](int nfd) { return nfd == 1 ? fds.revents : 0; });
 }
 
 /// A named file descriptor that is closed and removed upon destruction.
@@ -252,7 +256,7 @@ class unique_addr {
 
     addrinfo *result = nullptr;
     if (int status = ::getaddrinfo(_host.empty() ? nullptr : _host.c_str(), _port.c_str(), &hints, &result); status != 0) {
-      if (status == EAI_SYSTEM) throw errno_as_error("getaddrinfo({})", string());
+      if (status == EAI_SYSTEM) throw error(errno, "getaddrinfo({})", string());
       throw std::runtime_error(std::format("getaddrinfo({}): {}", string(), gai_strerror(status)));
     }
     _addr.reset(result);
@@ -274,7 +278,7 @@ struct type_erased_sockaddr {
 
   static type_erased_sockaddr from(int fd) {
     type_erased_sockaddr addr;
-    if (getsockname(fd, addr.get(), &addr.length) != 0) throw errno_as_error("getsockname({})", fd);
+    if (getsockname(fd, addr.get(), &addr.length) != 0) throw error(errno, "getsockname({})", fd);
     return addr;
   }
 
@@ -315,8 +319,8 @@ struct host_port {
 
 template <typename T>
 [[nodiscard]] std::expected<void, error> setsockopt(int fd, int level, int option_name, const T &value) {
-  return zero_or_errno(::setsockopt(fd, level, option_name, &value, sizeof(value)),
-                       "setsockopt({}, {}, {})", fd, level, option_name);
+  return zero_or_errno(::setsockopt(fd, level, option_name, &value, sizeof(value)))
+      .transform_error([=](auto ec) { return jl::error(ec, "setsockopt({}, {}, {})", fd, level, option_name); });
 }
 
 [[nodiscard]] std::expected<void, error> inline linger(int fd, std::chrono::seconds timeout) {
@@ -329,15 +333,13 @@ class unique_socket : public unique_fd {
  public:
   explicit unique_socket(int fd) : unique_fd(fd, "unique_socket(-1)") {}
 
-  [[nodiscard]] static std::pair<unique_socket, unique_socket> pipes(int domain = AF_UNIX, int type = SOCK_STREAM) {
+  [[nodiscard]] static expected_or_errno<std::pair<unique_socket, unique_socket>> pipes(int domain = AF_UNIX, int type = SOCK_STREAM) {
     std::array<int, 2> sv{-1, -1};
-    if (socketpair(domain, type, 0, sv.data()) < 0) {
-      throw errno_as_error("socketpair()");
-    }
-    return {unique_socket(sv[0]), unique_socket(sv[1])};
+    return zero_or_errno(socketpair(domain, type, 0, sv.data()))
+        .transform([&sv] { return std::make_pair(unique_socket(sv[0]), unique_socket(sv[1])); });
   }
 
-  [[nodiscard]] static unique_socket bound(
+  [[nodiscard]] static std::expected<unique_socket, error> bound(
       const unique_addr &source = {"::", "0"},
       std::optional<int> domain = {},
       std::optional<int> type = {},
@@ -350,16 +352,16 @@ class unique_socket : public unique_fd {
         if (::bind(fd, p->ai_addr, p->ai_addrlen) == 0) return ufd;
       }
     }
-    throw errno_as_error("socket/bind({})", source.string());
+    return std::unexpected(error(errno, "socket/bind({})", source.string()));
   }
-  [[nodiscard]] static unique_socket udp(
+  [[nodiscard]] static std::expected<unique_socket, error> udp(
       const unique_addr &source = {"::", "0"},
       std::optional<int> domain = {},
       std::optional<int> protocol = IPPROTO_UDP,
       const std::function<void(unique_socket &)> &before_bind = [](auto &) {}) {
     return bound(source, domain, SOCK_DGRAM, protocol, before_bind);
   }
-  [[nodiscard]] static unique_socket tcp(
+  [[nodiscard]] static std::expected<unique_socket, error> tcp(
       const unique_addr &source = {"::", "0"},
       std::optional<int> domain = {},
       std::optional<int> protocol = IPPROTO_TCP,
@@ -373,7 +375,7 @@ class unique_socket : public unique_fd {
   std::vector<error> linger(std::chrono::seconds timeout) && {
     std::vector<error> errors;
     if (auto status = jl::linger(fd(), timeout); !status) errors.push_back(status.error());
-    if (int fd = release(); close(fd) != 0) errors.push_back(errno_as_error("close({})", fd));
+    if (int fd = release(); close(fd) != 0) errors.emplace_back(error(errno, "close({})", fd));  // NOLINT(*-emplace)
     return errors;
   }
   std::vector<error> terminate() && {
@@ -385,7 +387,7 @@ template <typename C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] size_t send(int fd, const C &data, int flags = 0) {
   constexpr size_t size = sizeof(typename C::value_type);
-  return check_rw_error(::send(fd, data.data(), size * data.size(), flags), "send({})", fd) / size;
+  return unwrap(ok_or_errno(::send(fd, data.data(), size * data.size(), flags))) / size;
 }
 [[nodiscard]] size_t inline send(int fd, std::string_view data, int flags = 0) {
   return send(fd, std::span(data), flags);
@@ -393,7 +395,7 @@ template <typename C>
 
 template <typename T>
 [[nodiscard]] std::span<T> recv(int fd, std::span<T> buffer, int flags = 0) {
-  auto n = check_rw_error(::recv(fd, buffer.data(), sizeof(T) * buffer.size(), flags), "recv({})", fd);
+  auto n = unwrap(ok_or_errno(::recv(fd, buffer.data(), sizeof(T) * buffer.size(), flags)));
   return buffer.subspan(0, n / sizeof(T));
 }
 template <typename C>
@@ -409,12 +411,12 @@ void inline bind(int fd, const unique_addr &source = unique_addr("", "0")) {
   for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
     if (::bind(fd, p->ai_addr, p->ai_addrlen) == 0) return;
   }
-  throw errno_as_error("bind({})", source.string());
+  throw error(errno, "bind({})", source.string());
 }
 
 void inline connect(int fd, const type_erased_sockaddr &addr) {
   if (::connect(fd, addr.get(), addr.length) != 0) {
-    throw errno_as_error("connect({})", host_port::from(addr.get()).string());
+    throw error(errno, "connect({})", host_port::from(addr.get()).string());
   }
 }
 
@@ -422,17 +424,17 @@ void inline connect(int fd, const unique_addr &source) {
   for (const auto *p = source.get(); p != nullptr; p = p->ai_next) {
     if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0) return;
   }
-  throw errno_as_error("connect({})", source.string());
+  throw error(errno, "connect({})", source.string());
 }
 
 void inline listen(int fd, int backlog) {
-  check_rw_error(::listen(fd, backlog), "listen({})", fd);
+  std::ignore = unwrap(ok_or_errno(::listen(fd, backlog))
+                           .transform_error([fd](auto ec) { return error(ec, "listen({})", fd); }));
 }
-[[nodiscard]] inline std::optional<std::pair<unique_socket, host_port>> accept(int fd, int flags = 0) {
+[[nodiscard]] inline expected_or_errno<std::pair<unique_socket, host_port>> accept(int fd, int flags = 0) {
   type_erased_sockaddr addr;
-  auto client = check_rw_error(::accept4(fd, addr.get(), &addr.length, flags), "accept({})", fd);
-  if (client < 0) return std::nullopt;
-  return {{unique_socket(client), host_port::from(addr.get())}};
+  return ok_or_errno(::accept4(fd, addr.get(), &addr.length, flags))
+      .transform([&addr](int fd) { return std::make_pair(unique_socket(fd), host_port::from(addr.get())); });
 }
 
 /// An abstraction for managing the POSIX "span" structures required by
@@ -475,13 +477,13 @@ class mmsg_socket {
   /// Sends message buffers off through off + count.
   /// @returns the number of messages sent.
   [[nodiscard]] size_t sendmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
-    return check_rw_error(::sendmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags), "sendmmsg");
+    return unwrap(ok_or_errno(::sendmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags)));
   }
 
   /// Receives message into buffers off through off + count. Returned spans are
   /// valid until further operations on those same message slots
   [[nodiscard]] std::span<std::span<T>> recvmmsg(off_t off = 0, std::optional<size_t> count = std::nullopt, int flags = MSG_WAITFORONE) {
-    int msgs = check_rw_error(::recvmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags, nullptr), "recvmmsg");
+    int msgs = unwrap(ok_or_errno(::recvmmsg(*_fd, &_msgs[off], count.value_or(_msgs.size() - off), flags, nullptr)));
     _received.resize(msgs);
     auto available_as_span = [](mmsghdr &msg) {
       // NOLINTNEXTLINE(*reinterpret-cast) is safe because iov_base originate from std::span<T>.data()
@@ -559,7 +561,9 @@ class unique_mmap {
   /// parameter. The size/offset parameters are in counts of T, not bytes.
   /// @throws error with errno and errmsg if it fails.
   unique_mmap(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap()")
-      : _map(unwrap(ok_mmap<T>(mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T)), "{}", errmsg)), count) {}
+      : _map(unwrap(ok_mmap<T>(mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T)))
+                        .transform_error([&errmsg](auto ec) { return jl::error(ec, errmsg); })),
+             count) {}
 
   static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap") {
     unique_mmap<T> map(count, prot, flags, -1, 0, errmsg);
@@ -571,15 +575,21 @@ class unique_mmap {
     return map;
   }
 
-  [[nodiscard]] auto &operator[](this auto &self, size_t idx) noexcept { return self._map[idx]; }
+  [[nodiscard]] auto &operator[](this auto &self, size_t idx) noexcept {
+    return self._map[idx];
+  }
 
-  [[nodiscard]] auto &operator*(this auto &self) noexcept { return self._map; }
-  [[nodiscard]] auto *operator->(this auto &self) noexcept { return &self._map; }
+  [[nodiscard]] auto &operator*(this auto &self) noexcept {
+    return self._map;
+  }
+  [[nodiscard]] auto *operator->(this auto &self) noexcept {
+    return &self._map;
+  }
 
   /// The count parameter is in counts of T not bytes.
   /// @throws error with errno and errmsg if it fails.
-  [[nodiscard]] std::expected<void, error> remap(size_t count, int flags = 0, void *addr = nullptr, const std::string &errmsg = "mremap()") {
-    return ok_mmap<T>(mremap(const_cast<std::remove_const_t<T> *>(_map.data()), _map.size() * sizeof(T), count * sizeof(T), flags, addr), "{}", errmsg)
+  [[nodiscard]] expected_or_errno<void> remap(size_t count, int flags = 0, void *addr = nullptr) {
+    return ok_mmap<T>(mremap(const_cast<std::remove_const_t<T> *>(_map.data()), _map.size() * sizeof(T), count * sizeof(T), flags, addr))
         .transform([count, this](T *p) { _map = {p, count}; });
   }
 
@@ -591,7 +601,9 @@ class unique_mmap {
   std::span<T> release() noexcept {
     return std::exchange(_map, {});
   }
-  ~unique_mmap() noexcept { reset(); }
+  ~unique_mmap() noexcept {
+    reset();
+  }
   unique_mmap(const unique_mmap &) = delete;
   unique_mmap &operator=(const unique_mmap &) = delete;
   unique_mmap(unique_mmap &&other) noexcept : _map(other.release()) {}
@@ -631,7 +643,7 @@ class fd_mmap {
   /// The count parameter is in counts of T not bytes. New mapping is relative
   /// to offset from construction.
   /// @throws error with errno and errmsg if it fails.
-  [[nodiscard]] std::expected<void, error> remap(size_t count, int mremap_flags = 0) {
+  [[nodiscard]] expected_or_errno<void> remap(size_t count, int mremap_flags = 0) {
     return _mmap.remap(count, mremap_flags)
         .transform([this] { _map = *_mmap; });
   }
@@ -645,10 +657,10 @@ class fd_mmap {
   /// Truncate the file to this length. Length is in counts of T not bytes.
   /// Length is relative to start of file, but remapping is relative to offset
   /// from construction.
-  /// @throws error with errno and errmsg if it fails.
   [[nodiscard]] std::expected<void, error> truncate(size_t length, int mremap_flags = 0) {
     return jl::truncate(*_fd, length * sizeof(T))
-        .and_then([=, this] { return _mmap.remap(beyond_offset(length), mremap_flags); })
+        .and_then([=, this] { return _mmap.remap(beyond_offset(length), mremap_flags)
+                                  .transform_error([=](auto ec) { return error(ec, "mremap({}, {})", length, mremap_flags); }); })
         .transform([=, this] { _map = _offset < static_cast<off_t>(length) ? *_mmap : _mmap->subspan(0, 0); });
   }
 
@@ -701,8 +713,10 @@ class CircularBuffer {
     unique_fd fd = tmpfd().unlink();
     constexpr off_t len = Capacity * sizeof(T);
     auto status = jl::truncate(*fd, len)
-                      .and_then([&] { return ok_mmap(mmap(_data->data(), len, prot, flags, *fd, 0), "mmap(CircularBuffer data)"); })
-                      .and_then([&](auto) { return ok_mmap(mmap(_data->data() + Capacity, len, prot, flags, *fd, 0), "mmap(CircularBuffer shadow)"); });
+                      .and_then([&] { return ok_mmap(mmap(_data->data(), len, prot, flags, *fd, 0))
+                                          .transform_error([](auto ec) { return jl::error(ec, "mmap(CircularBuffer data)"); }); })
+                      .and_then([&](auto) { return ok_mmap(mmap(_data->data() + Capacity, len, prot, flags, *fd, 0))
+                                                .transform_error([](auto ec) { return jl::error(ec, "mmap(CircularBuffer shadow)"); }); });
     if (!status) throw status.error();
   }
 

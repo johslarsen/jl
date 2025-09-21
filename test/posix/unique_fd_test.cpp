@@ -23,7 +23,7 @@ TEST_SUITE("unique_fd") {
   }
 
   TEST_CASE("pipes") {
-    auto [in, out] = jl::unique_fd::pipes();
+    auto [in, out] = jl::unwrap(jl::unique_fd::pipes());
 
     SUBCASE("basic") {
       CHECK(3 == jl::write(*out, std::string_view("foo")));
@@ -33,7 +33,7 @@ TEST_SUITE("unique_fd") {
     }
 
     SUBCASE("spliceall with pipes") {
-      auto [from, to] = jl::unique_fd::pipes();
+      auto [from, to] = jl::unwrap(jl::unique_fd::pipes());
 
       REQUIRE(3 == jl::write(*to, "foo"));
       CHECK(3 == jl::unwrap(jl::spliceall({*from}, {*out}, 3)));
@@ -49,11 +49,11 @@ TEST_SUITE("unique_fd") {
 
       REQUIRE(3 == jl::write(*out, "foo"));
       CHECK(3 == jl::unwrap(jl::spliceall({*in}, {*fd, 0}, 3)));
-      CHECK_MESSAGE(0 == jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"),
+      CHECK_MESSAGE(0 == jl::unwrap(jl::ok_or_errno(lseek(*fd, 0, SEEK_CUR))),
                     "splice at a specific offset was not supposed to change the fd position");
 
       CHECK(3 == jl::unwrap(jl::spliceall({*fd}, {*out}, 3)));
-      CHECK_MESSAGE(3 == jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"),
+      CHECK_MESSAGE(3 == jl::unwrap(jl::ok_or_errno(lseek(*fd, 0, SEEK_CUR))),
                     "splice from/to the fd current position was supposed to change fd position");
 
       std::string buffer = "???";
@@ -66,13 +66,13 @@ TEST_SUITE("unique_fd") {
       CHECK(0 == jl::unwrap(jl::sendfileall(*out, {*fd, 0}, 3)));
 
       REQUIRE(3 == jl::write(*fd, "foo"));
-      jl::check_rw_error(lseek(*fd, 0, SEEK_SET), "lseek failed");
+      std::ignore = jl::unwrap(jl::ok_or_errno(lseek(*fd, 0, SEEK_SET)));
       CHECK(3 == jl::unwrap(jl::sendfileall(*out, {*fd, 0}, 3)));
-      CHECK_MESSAGE(0 == jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"),
+      CHECK_MESSAGE(0 == jl::unwrap(jl::ok_or_errno(lseek(*fd, 0, SEEK_CUR))),
                     "sendfile at a specific offset was not supposed to change the fd position");
 
       CHECK(3 == jl::unwrap(jl::sendfileall(*out, {*fd}, 3)));
-      CHECK_MESSAGE(3 == jl::check_rw_error(lseek(*fd, 0, SEEK_CUR), "lseek failed"),
+      CHECK_MESSAGE(3 == jl::unwrap(jl::ok_or_errno(lseek(*fd, 0, SEEK_CUR))),
                     "sendfile from/to the fd current position was supposed to change fd position");
 
       std::string buffer = "??????";
@@ -92,7 +92,7 @@ TEST_SUITE("tmp_fd") {
     CHECK(3 == jl::write(*fd, string));
     CHECK(3 == jl::write(*fd, int_vector));
 
-    CHECK(0 == jl::check_rw_error(lseek(*fd, 0, SEEK_SET), "lseek failed"));
+    CHECK(0 == jl::unwrap(jl::ok_or_errno(lseek(*fd, 0, SEEK_SET))));
     auto foo = jl::read(*fd, char_vector);
     CHECK("foo" == jl::view_of(foo));
     CHECK("bar" == jl::read(*fd, string));

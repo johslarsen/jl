@@ -110,7 +110,7 @@ TEST_SUITE("asynchronous multi API") {
     auto bf = curlm.send(jl::curl::easy().request("http://localhost:8080/bar", jl::curl::overwrite(b)));
 
     while (curlm.action() != 0) {
-      if (jl::poll(curlm.fds()) == 0) continue;
+      if (jl::unwrap(jl::poll(curlm.fds())) == 0) continue;
       for (const auto& fd : curlm.fds()) {
         if (fd.revents != 0) curlm.action(fd.fd);
       }

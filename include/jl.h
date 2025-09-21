@@ -44,6 +44,22 @@ concept bitcastable_to = requires(T t) { std::bit_cast<U>(t); };
 template <typename T, typename... Us>
 concept one_of = (... || std::same_as<std::remove_cvref_t<T>, Us>);
 
+/// Comparisons with equivalence class where t == u && t2 == u !=> t == t2.
+/// Same as https://en.cppreference.com/w/cpp/concepts/equality_comparable exposition only helper concept
+template <typename T, typename U>
+concept weakly_comparable_with = requires(const std::remove_reference_t<T> &t, const std::remove_reference_t<U> &u) {
+  { t == u } -> std::convertible_to<bool>;
+  { t != u } -> std::convertible_to<bool>;
+  { u == t } -> std::convertible_to<bool>;
+  { u != t } -> std::convertible_to<bool>;
+};
+
+/// @returns true if haystack matches any of the patterns
+template <typename T, weakly_comparable_with<T>... Us>
+[[nodiscard]] constexpr bool among(const T &haystack, const Us &...pattern) {
+  return ((haystack == pattern) || ...);
+}
+
 template <class... Ts>
 struct overload : Ts... {
   using Ts::operator()...;
@@ -54,12 +70,105 @@ constexpr auto div_ceil(std::unsigned_integral auto x, std::unsigned_integral au
   return x / y + (x % y != 0);
 }
 
+/// Converter for expected_or_errno::transform_error to std::error_code
+[[nodiscard]] inline std::error_code as_ec(int posix_errno) {
+  return {posix_errno, std::generic_category()};
+}
+
+/// A std::system_error that remembers what was the original what message
+class error : public std::system_error {
+  size_t _msglen;
+
+ public:
+  error(std::error_code ec, const std::string &what) noexcept
+      : std::system_error(ec, what), _msglen(what.size()) {}
+  error(std::error_code ec = {}) noexcept     // NOLINT(*-explicit-conversions) to mimic system_error
+      : std::system_error(ec), _msglen(0) {}  // BTW, needed because empty what results in ": ..." messages
+
+  template <class... Args>
+  error(std::error_code ec, std::format_string<Args...> fmt, Args &&...args)
+      : error(ec, std::format(fmt, std::forward<Args>(args)...)) {}
+  template <class... Args>
+  error(std::errc ec, std::format_string<Args...> fmt, Args &&...args)
+      : error(std::make_error_code(ec), std::format(fmt, std::forward<Args>(args)...)) {}
+
+  error(int posix_errno, const std::string &what) noexcept : error(as_ec(posix_errno), what) {}
+  explicit error(int posix_errno) noexcept : error(as_ec(posix_errno)) {}
+  template <class... Args>
+  error(int posix_errno, std::format_string<Args...> fmt, Args &&...args)
+      : error(as_ec(posix_errno), std::format(fmt, std::forward<Args>(args)...)) {}
+
+  /// Original what without e.g. ": Invalid argument" suffix
+  [[nodiscard]] std::string_view msg() const noexcept {
+    return {what(), _msglen};
+  }
+
+  template <class... Args>
+  [[nodiscard]] error prefixed(std::format_string<Args...> fmt, Args &&...args) const noexcept {
+    return {code(), std::format(fmt, std::forward<Args>(args)...) + std::string(msg())};
+  }
+};
+
+// NOTE: the std::error_code and std::system_error are nice abstractions for
+// conveying error information, unfortunately the std::error_category they
+// represent is not going to be constexpr anytime soon. For constexpr support
+// raw errno ints are used here as the error type, but the functionality using
+// it tries to be compatible with both int and std::error_code types.
+
+/// Placeholder for `std::expected<T, /*generic*/ std::error_code>` that is constexpr compatible
+template <typename T>
+using expected_or_errno = std::expected<T, int>;
+
+template <std::integral T>
+[[nodiscard]] expected_or_errno<T>
+ok_or_errno(T n) noexcept {
+  if (n >= 0) return n;
+  return std::unexpected(errno);
+}
+template <std::integral T>
+[[nodiscard]] expected_or_errno<void>
+zero_or_errno(T n) noexcept {
+  if (n == 0) return {};
+  return std::unexpected(errno);
+}
+
+/// @returns a lambda for std::expected<T, std::error_code>::or_else that replaces ERRNOs with fallback
+template <int... ERRNOs, typename T>
+[[nodiscard]] constexpr auto retryable_as(T &&fallback) noexcept {
+  return [fallback = std::forward<T>(fallback)]<jl::one_of<std::error_code, int> EC>(EC ec) -> std::expected<T, EC> {
+    if constexpr (std::same_as<std::error_code, EC>) {
+      assert(ec.category() == std::generic_category());
+      if (among(ec, std::error_condition(ERRNOs, std::generic_category())...)) return fallback;
+    } else {
+      if (among(ec, ERRNOs...)) return fallback;
+    }
+    return std::unexpected(ec);
+  };
+  ;
+}
+///// @returns a lambda for std::expected<T, std::error_code>::or_else toreturn replace retryable errors with fallback
+template <std::same_as<std::error_code>... ECs, typename T>
+[[nodiscard]] constexpr auto retryable_as(T &&fallback, ECs... retryable) noexcept {
+  return [fallback = std::forward<T>(fallback), retryable...](std::error_code ec) -> std::expected<T, std::error_code> {
+    if (among(ec, retryable...)) return fallback;
+    return std::unexpected(ec);
+  };
+}
+
 /// @returns expected value or throw its error
 /// Like: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap
-template <typename T, typename E>
-[[nodiscard]] T unwrap(std::expected<T, E> &&expected) {
+template <typename T, std::derived_from<std::exception> E>
+[[nodiscard]] constexpr T unwrap(std::expected<T, E> &&expected) {
   if (!expected.has_value()) throw std::move(expected.error());
   if constexpr (!std::is_void_v<T>) return std::move(*expected);
+}
+template <typename T>
+[[nodiscard]] T unwrap(std::expected<T, std::error_code> &&expected) {
+  return unwrap(expected.transform_error([](std::error_code ec) { return jl::error(ec); }));
+}
+template <typename T>
+[[nodiscard]] T unwrap(expected_or_errno<T> &&expected) {
+  return unwrap(std::move(expected).transform_error([](int posix_errno) { return jl::error(jl::as_ec(posix_errno)); }));
 }
 
 /// @returns promised value now or throw if it is not ready without blocking
@@ -81,14 +190,14 @@ template <typename T>
 /// @returns std::expected with the given value or the given error
 /// Like: https://doc.rust-lang.org/std/option/enum.Option.html#method.ok_or
 template <typename T, typename E>
-[[nodiscard]] std::expected<T, E> ok_or(std::optional<T> opt, E error) noexcept {
+[[nodiscard]] constexpr std::expected<T, E> ok_or(std::optional<T> opt, E error) noexcept {
   if (opt) return *opt;
   return std::unexpected(std::move(error));
 }
 /// @returns std::expected with the given value or the result from calling error
 /// Like: https://doc.rust-lang.org/std/option/enum.Option.html#method.ok_or_else
 template <typename T, std::invocable F>
-[[nodiscard]] std::expected<T, std::invoke_result_t<F>> ok_or_else(std::optional<T> opt, F error) noexcept {
+[[nodiscard]] constexpr std::expected<T, std::invoke_result_t<F>> ok_or_else(std::optional<T> opt, F error) noexcept(std::is_nothrow_invocable_v<F>) {
   if (opt) return *opt;
   return std::unexpected(error());
 }
@@ -113,64 +222,15 @@ template <typename E, class F, class... Args>
     return std::unexpected(e);
   }
 }
-
-/// A std::system_error that remembers what was the original what message
-class error : public std::system_error {
-  size_t _msglen;
-
- public:
-  error(std::error_code ec, const std::string &what) noexcept
-      : std::system_error(ec, what), _msglen(what.size()) {}
-  error(std::error_code ec = {}) noexcept     // NOLINT(*-explicit-conversions) to mimic system_error
-      : std::system_error(ec), _msglen(0) {}  // BTW, needed because empty what results in ": ..." messages
-
-  template <class... Args>
-  error(std::error_code ec, std::format_string<Args...> fmt, Args &&...args)
-      : error(ec, std::format(fmt, std::forward<Args>(args)...)) {}
-  template <class... Args>
-  error(std::errc ec, std::format_string<Args...> fmt, Args &&...args)
-      : error(std::make_error_code(ec), std::format(fmt, std::forward<Args>(args)...)) {}
-
-  /// Original what without e.g. ": Invalid argument" suffix
-  [[nodiscard]] std::string_view msg() const noexcept {
-    return {what(), _msglen};
+template <class F, class... Args>
+[[nodiscard]] constexpr std::expected<std::invoke_result_t<F, Args...>, std::runtime_error> try_catch(F f, Args &&...args) noexcept {
+  try {
+    return std::invoke(f, std::forward<Args>(args)...);
+  } catch (const std::exception &e) {
+    return std::unexpected(std::runtime_error(e.what()));
+  } catch (...) {
+    return std::unexpected(std::runtime_error("unknown exception"));
   }
-
-  template <class... Args>
-  [[nodiscard]] error prefixed(std::format_string<Args...> fmt, Args &&...args) const noexcept {
-    return {code(), std::format(fmt, std::forward<Args>(args)...) + std::string(msg())};
-  }
-};
-
-template <class... Args>
-[[nodiscard]] inline error make_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
-  return {std::make_error_code(err), std::format(fmt, std::forward<Args>(args)...)};
-}
-template <class... Args>
-[[nodiscard]] inline std::unexpected<error> unexpected_system_error(std::errc err, std::format_string<Args...> fmt, Args &&...args) noexcept {
-  return std::unexpected(make_system_error(err, fmt, std::forward<Args>(args)...));
-}
-
-template <class... Args>
-[[nodiscard]] inline error errno_as_error(std::format_string<Args...> fmt, Args &&...args) noexcept {
-  return make_system_error(std::errc(errno), fmt, std::forward<Args>(args)...);
-}
-template <class... Args>
-[[nodiscard]] inline std::unexpected<error> unexpected_errno(std::format_string<Args...> fmt, Args &&...args) noexcept {
-  return std::unexpected(errno_as_error(fmt, std::forward<Args>(args)...));
-}
-/// @returns non-negative n, 0 for EAGAIN or unexpected_errno(...)
-template <std::integral T, class... Args>
-std::expected<T, error> ok_or_errno(T n, std::format_string<Args...> fmt, Args &&...args) {
-  if (n >= 0) return n;
-  if (errno == EAGAIN) return 0;
-  return unexpected_errno(fmt, std::forward<Args>(args)...);
-}
-
-template <std::integral T, class... Args>
-std::expected<void, error> zero_or_errno(T n, std::format_string<Args...> fmt, Args &&...args) {
-  if (n == 0) return {};
-  return unexpected_errno(fmt, std::forward<Args>(args)...);
 }
 
 /// The state of a retry interval function that can be configured to back off
@@ -232,6 +292,41 @@ template <class Monadic, class... Args>
   return retry_until(deadline::after(timeout), std::move(f), std::move(args)...);
 }
 
+static_assert(EAGAIN == EWOULDBLOCK, "Obscure and unsupported platform");
+
+struct attempts {
+  size_t n;
+};
+
+/// Retry the f(args...) system call (or similar) failing with the given ERRNOs.
+/// @returns the non-negative successful result or the error that occurred.
+template <attempts Attempts = attempts{3}, int... ERRNOs, class... Args, std::invocable<Args...> F>
+  requires std::signed_integral<std::invoke_result_t<F, Args...>>
+expected_or_errno<std::invoke_result_t<F, Args...>> retry_syscall(F &&f, Args &&...args) noexcept(std::is_nothrow_invocable_v<F, Args...>) {
+  for (int64_t attempts = Attempts.n; attempts--;) {
+    if (auto result = f(args...); result >= 0) return result;
+    if (!jl::among(errno, ERRNOs...)) break;
+  }
+  return std::unexpected(errno);
+}
+
+/// Repeat f(...) wrapping read/write/... operations until the whole input is processed.
+/// @returns the amount processed. Usually length unless call returns 0 to indicate EOF.
+template <attempts Attempts = attempts{3}, std::invocable<size_t, off_t> F>
+  requires std::integral<std::invoke_result_t<F, size_t, off_t>>
+[[nodiscard]] expected_or_errno<size_t>
+rw_loop(size_t length, F &&f) noexcept(std::is_nothrow_invocable_v<F, size_t, off_t>) {
+  size_t offset = 0;
+  while (offset < length) {
+    auto amount = jl::retry_syscall<Attempts, EAGAIN, EINTR>(f, length - offset, offset);
+    if (!amount) return std::unexpected(amount.error());
+
+    if (*amount == 0) break;  // EOF
+    offset += *amount;
+  }
+  return offset;
+}
+
 /// Utility to run a method at the end of the scope like a defer statement in Go
 template <std::invocable F>
   requires std::is_void_v<std::invoke_result_t<F>>
@@ -261,47 +356,6 @@ class invocable_counter {
   }
 };
 
-static_assert(EAGAIN == EWOULDBLOCK, "Obscure and unsupported platform");
-
-/// @returns n usually or 0 for EAGAIN
-/// @throws error on other errors
-template <std::integral T, class... Args>
-T check_rw_error(T n, std::format_string<Args...> fmt, Args &&...args) {
-  if (n < 0) {
-    if (errno == EAGAIN) return 0;
-    throw errno_as_error(fmt, std::forward<Args>(args)...);
-  }
-  return n;
-}
-
-/// Retry the f(...) wrapping a system call failing with EAGAIN.
-/// @returns the non-negative successful result or the error that occurred.
-template <int64_t Attempts = 3, std::invocable F, class... Args>
-  requires std::integral<std::invoke_result_t<F>>
-std::expected<std::invoke_result_t<F>, error> eagain(F f, std::format_string<Args...> fmt, Args &&...args) {
-  for (int64_t attempts = Attempts; attempts != 0; --attempts) {
-    if (auto result = f(); result >= 0) return result;  // successful, so exit early
-    if (errno != EAGAIN) break;
-  }
-  return unexpected_errno(fmt, std::forward<Args>(args)...);
-}
-
-/// Repeat f(...) wrapping read/write/... operations until the whole input is processed.
-/// @returns the amount processed. Usually length unless call returns 0 to indicate EOF.
-template <int64_t Attempts = 3, std::invocable<size_t, off_t> F, class... Args>
-  requires std::integral<std::invoke_result_t<F, size_t, off_t>>
-std::expected<size_t, error> rw_loop(F f, size_t length, std::format_string<Args...> fmt, Args &&...args) {
-  size_t offset = 0;
-  for (size_t count = -1; offset < length && count != 0; offset += count) {
-    auto result = jl::eagain<Attempts>([&] { return f(length - offset, offset); }, fmt, std::forward<Args>(args)...);
-    if (!result.has_value()) return std::unexpected(result.error());
-
-    count = *result;
-    if (count == 0) break;  // EOF
-  }
-  return offset;
-}
-
 template <typename T>
 [[nodiscard]] inline T *nullable(std::optional<T> &opt) {
   if (opt.has_value()) return &(*opt);
@@ -317,7 +371,7 @@ template <numeric T>
   if (auto res = std::from_chars(s.begin(), s.end(), *parsed); res.ec == std::errc()) {
     return parsed;
   } else {
-    return unexpected_system_error(res.ec, "failed to parse {:?}", s);
+    return std::unexpected(jl::error(res.ec, "failed to parse {:?}", s));
   }
 }
 

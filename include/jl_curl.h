@@ -417,7 +417,7 @@ class url : public std::expected<unique_url, jl::error> {
   using std::expected<unique_url, jl::error>::expected;
   url() : std::expected<unique_url, jl::error>(curl_url()) {
     if (value() == nullptr) {
-      *this = unexpected_system_error(std::errc::not_enough_memory, "curl_url");
+      *this = std::unexpected(jl::error(std::errc::not_enough_memory, "curl_url"));
     }
   }
 

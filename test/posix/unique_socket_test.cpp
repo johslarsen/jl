@@ -11,7 +11,7 @@ TEST_SUITE("unique_socket") {
     CHECK("[::]:0" == jl::host_port::from(ipv6.fd()).string());
   }
   TEST_CASE("pipes") {
-    auto [in, out] = jl::unique_socket::pipes();
+    auto [in, out] = jl::unwrap(jl::unique_socket::pipes());
 
     CHECK(3 == jl::send(*out, std::string_view("foo")));
 
@@ -20,9 +20,9 @@ TEST_SUITE("unique_socket") {
   }
 
   TEST_CASE("UDP") {
-    auto receiver = jl::unique_socket::udp();
+    auto receiver = jl::unwrap(jl::unique_socket::udp());
     auto port = jl::host_port::from(receiver.fd()).port;
-    auto sender = jl::unique_socket::udp();
+    auto sender = jl::unwrap(jl::unique_socket::udp());
     jl::connect(*sender, {"127.0.0.1", std::to_string(port)});
 
     CHECK(3 == jl::send(*sender, "foo"));
@@ -33,9 +33,9 @@ TEST_SUITE("unique_socket") {
   }
 
   TEST_CASE("TCP") {
-    auto server = jl::unique_socket::tcp();
+    auto server = jl::unwrap(jl::unique_socket::tcp());
     jl::listen(*server, 2);
-    auto client = jl::unique_socket::tcp();
+    auto client = jl::unwrap(jl::unique_socket::tcp());
     jl::connect(*client, jl::type_erased_sockaddr::from(server.fd()));
 
     auto accepted = jl::accept(*server);
@@ -59,14 +59,14 @@ TEST_SUITE("unique_socket") {
     }
 
     SUBCASE("poll after FIN") {
-      CHECK(0 == jl::poll(receiver.fd(), POLLIN | POLLRDHUP));
+      CHECK(0 == jl::unwrap(jl::poll(receiver.fd(), POLLIN | POLLRDHUP)));
       client.reset();
-      CHECK((POLLIN | POLLRDHUP) == jl::poll(receiver.fd(), POLLIN | POLLRDHUP));
+      CHECK((POLLIN | POLLRDHUP) == jl::unwrap(jl::poll(receiver.fd(), POLLIN | POLLRDHUP)));
     }
 
     SUBCASE("poll after RST") {
       std::move(client).terminate();
-      CHECK((POLLIN | POLLERR | POLLHUP | POLLRDHUP) == jl::poll(receiver.fd(), POLLIN | POLLRDHUP));
+      CHECK((POLLIN | POLLERR | POLLHUP | POLLRDHUP) == jl::unwrap(jl::poll(receiver.fd(), POLLIN | POLLRDHUP)));
     }
   }
 
@@ -78,7 +78,7 @@ TEST_SUITE("unique_socket") {
   }
 
   TEST_CASE("recv and send works with various inputs") {
-    auto [in, out] = jl::unique_socket::pipes();
+    auto [in, out] = jl::unwrap(jl::unique_socket::pipes());
     std::vector<char> char_vector = {'f', 'o', 'o'};
     std::string string = "bar";
     std::vector<int> int_vector = {1, 2, 3};
@@ -97,7 +97,7 @@ TEST_SUITE("unique_socket") {
 
 TEST_SUITE("mmsg_buffer") {
   TEST_CASE("datagrams") {
-    auto [a, b] = jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM);
+    auto [a, b] = jl::unwrap(jl::unique_socket::pipes(AF_UNIX, SOCK_DGRAM));
     jl::mmsg_buffer<char> sender(std::move(a), 3);
     jl::mmsg_buffer<char> receiver(std::move(b), 3);
 
@@ -112,7 +112,7 @@ TEST_SUITE("mmsg_buffer") {
   }
 
   TEST_CASE("stream") {
-    auto [sender, b] = jl::unique_socket::pipes();
+    auto [sender, b] = jl::unwrap(jl::unique_socket::pipes());
     jl::mmsg_buffer<char> receiver(std::move(b), 3);
 
     CHECK(3 == jl::send(*sender, "foo"));
