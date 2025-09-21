@@ -23,7 +23,7 @@ void BM_ParallelCircularBufferRWFullData(benchmark::State& state) {
   std::jthread writer([&](const std::stop_token& token) {
     while (!token.stop_requested()) {
       auto writeable = buf.peek_back(chunk_size);
-      std::fill(writeable.begin(), writeable.end(), 1);
+      std::ranges::fill(writeable, 1);
       buf.commit_written(std::move(writeable));
     }
   });

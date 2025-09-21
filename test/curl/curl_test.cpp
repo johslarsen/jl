@@ -13,11 +13,11 @@ TEST_SUITE("synchronize easy API") {
       CHECK(content.size() == std::filesystem::file_size(__FILE__));
     }
     SUBCASE("PUT") {
-      jl::tmpfd tmp;
+      auto tmp = jl::unwrap(jl::tmpfd::open());
       auto response = jl::unwrap(jl::curl::PUT(tmp.url().c_str(), "foo"));
       CHECK(response == "");
 
-      jl::fd_mmap<char> content(std::move(tmp).unlink());
+      auto content = jl::unwrap(jl::fd_mmap<char>::map(std::move(tmp).unlink()));
       CHECK(jl::view_of(*content) == "foo");
     }
   }

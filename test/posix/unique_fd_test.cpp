@@ -6,7 +6,7 @@
 TEST_SUITE("unique_fd") {
   TEST_CASE("move and assignment neither double close nor leaks") {
     std::string filename("/tmp/unique_fd_XXXXXX");
-    jl::unique_fd org(mkstemp(filename.data()));
+    auto org = jl::unwrap(jl::unique_fd::from(mkstemp(filename.data())));
     std::filesystem::remove(filename);
 
     CHECK(3 == jl::write(*org, "foo"));
@@ -15,11 +15,12 @@ TEST_SUITE("unique_fd") {
     jl::unique_fd move_assigned = std::move(move_constructed);
     CHECK(3 == jl::write(*move_assigned, "baz"));
 
-    move_assigned = jl::unique_fd(fcntl(1, F_DUPFD_CLOEXEC, 0));
+    move_assigned = jl::unwrap(jl::unique_fd::from(fcntl(1, F_DUPFD_CLOEXEC, 0)));
   }
 
-  TEST_CASE("construction from invalid fdthrows") {
-    CHECK_THROWS_AS(jl::unique_fd(-1, "foo"), jl::error);
+  TEST_CASE("open") {
+    CHECK(jl::unwrap(jl::unique_fd::open("/dev/null", O_WRONLY)).fd() >= 0);
+    CHECK("open(/DO_NOT_CREATE, 0x0)" == jl::unique_fd::open("/DO_NOT_CREATE", O_RDONLY).error().msg());
   }
 
   TEST_CASE("pipes") {
@@ -43,7 +44,7 @@ TEST_SUITE("unique_fd") {
     }
 
     SUBCASE("spliceall with file") {
-      auto fd = jl::tmpfd().unlink();
+      auto fd = jl::unwrap(jl::tmpfd::unlinked());
 
       CHECK(0 == jl::unwrap(jl::spliceall({*fd, 0}, {*out}, 3)));
 
@@ -61,7 +62,7 @@ TEST_SUITE("unique_fd") {
     }
 
     SUBCASE("sendfile") {
-      auto fd = jl::tmpfd().unlink();
+      auto fd = jl::unwrap(jl::tmpfd::unlinked());
 
       CHECK(0 == jl::unwrap(jl::sendfileall(*out, {*fd, 0}, 3)));
 
@@ -83,7 +84,7 @@ TEST_SUITE("unique_fd") {
 
 TEST_SUITE("tmp_fd") {
   TEST_CASE("read and write works with various inputs") {
-    jl::unique_fd fd = jl::tmpfd().unlink();
+    auto fd = jl::unwrap(jl::tmpfd::unlinked());
     std::vector<char> char_vector = {'f', 'o', 'o'};
     std::string string = "bar";
     std::vector<int> int_vector = {1, 2, 3};
@@ -101,10 +102,10 @@ TEST_SUITE("tmp_fd") {
   }
 
   TEST_CASE("move and assignment neither double close nor leaks") {
-    jl::tmpfd org;
+    auto org = jl::unwrap(jl::tmpfd::open());
     jl::tmpfd move_constructed(std::move(org));
     jl::tmpfd move_assigned = std::move(move_constructed);
-    move_assigned = jl::tmpfd();
+    move_assigned = jl::unwrap(jl::tmpfd::open());
   }
 }
 

@@ -77,7 +77,7 @@ std::expected<size_t, error> inline sendfileall(int fd_out, ofd in, size_t len) 
   return rw_loop(len, [fd_out, in_fd = in.fd, in_off = nullable(in.offset)](size_t remaining, off_t) {
            return ::sendfile(fd_out, in_fd, in_off, remaining);
          })
-      .transform_error([in, fd_out](auto ec) { return jl::error(ec, "sendfile({} -> {})", in.fd, fd_out); });
+      .transform_error([in, fd_out](auto ec) { return error(ec, "sendfile({} -> {})", in.fd, fd_out); });
 }
 
 /// Copy up to len bytes from in to out (see `man 2 splice` for details).
@@ -86,7 +86,7 @@ std::expected<size_t, error> inline spliceall(ofd in, ofd out, size_t len, unsig
   return rw_loop(len, [flags, in = in.fd, in_off = nullable(in.offset), out = out.fd, out_off = nullable(out.offset)](size_t remaining, off_t) {
            return ::splice(in, in_off, out, out_off, remaining, flags);
          })
-      .transform_error([in, out](auto ec) { return jl::error(ec, "splice({} -> {})", in.fd, out.fd); });
+      .transform_error([in, out](auto ec) { return error(ec, "splice({} -> {})", in.fd, out.fd); });
 }
 
 /// An owned and managed file descriptor.
@@ -95,9 +95,13 @@ class unique_fd {
   int _fd;
 
  public:
-  /// @throws error with errno and errmsg if it fails.
-  explicit unique_fd(int fd, const std::string &errmsg = "unique_fd(-1)") : _fd(fd) {
-    if (_fd < 0) throw error(errno, errmsg);
+  [[nodiscard]] static expected_or_errno<unique_fd> from(int fd) {
+    return ok_or_errno(fd).transform([](int fd) { return unique_fd(fd); });
+  }
+
+  [[nodiscard]] static std::expected<unique_fd, error> open(const std::filesystem::path &path, int oflag) {
+    return from(::open(path.c_str(), oflag))
+        .transform_error([&](auto ec) { return error(ec, "open({}, 0x{:x})", path.c_str(), oflag); });
   }
 
   [[nodiscard]] static expected_or_errno<std::pair<unique_fd, unique_fd>> pipes(int flags = O_CLOEXEC) {
@@ -123,6 +127,9 @@ class unique_fd {
     reset(other.release());
     return *this;
   }
+
+ protected:
+  explicit unique_fd(int fd) : _fd(fd) {}
 };
 
 template <typename C>
@@ -142,7 +149,7 @@ template <typename C, size_t Size = sizeof(typename C::value_type)>
            return ::write(fd, buf + offset / Size, remaining);
          })
       .transform([](size_t bytes_written) { return bytes_written / Size; })
-      .transform_error([fd](auto ec) { return jl::error(ec, "write({})", fd); });
+      .transform_error([fd](auto ec) { return error(ec, "write({})", fd); });
 }
 
 template <typename T>
@@ -166,19 +173,19 @@ template <typename T, size_t Size = sizeof(T)>
            return ::read(fd, buf + offset / Size, remaining);
          })
       .transform([buffer](size_t bytes_read) { return buffer.subspan(0, bytes_read / Size); })
-      .transform_error([fd](auto ec) { return jl::error(ec, "write({})", fd); });
+      .transform_error([fd](auto ec) { return error(ec, "write({})", fd); });
 }
 
 [[nodiscard]] std::expected<struct stat, error> inline stat(int fd) {
   struct stat buf{};
   return zero_or_errno(fstat(fd, &buf))
       .transform([&] { return std::move(buf); })
-      .transform_error([fd](auto ec) { return jl::error(ec, "fstat({})", fd); });
+      .transform_error([fd](auto ec) { return error(ec, "fstat({})", fd); });
 }
 
 [[nodiscard]] std::expected<void, error> inline truncate(int fd, off_t length) {
   return zero_or_errno(ftruncate(fd, length))
-      .transform_error([=](auto ec) { return jl::error(ec, "ftruncate({}, {})", fd, length); });
+      .transform_error([=](auto ec) { return error(ec, "ftruncate({}, {})", fd, length); });
 }
 
 /// @returns nfd
@@ -200,8 +207,15 @@ class tmpfd {
   std::filesystem::path _path;
 
  public:
-  explicit tmpfd(const std::string &prefix = "/tmp/jl_tmpfile_", const std::string &suffix = "")
-      : tmpfd(std::format("{}XXXXXX{}", prefix, suffix), static_cast<int>(suffix.length())) {}
+  [[nodiscard]] static std::expected<tmpfd, error> open(const std::string &prefix = "/tmp/jl_tmpfile_", const std::string &suffix = "") {
+    auto path = std::format("{}XXXXXX{}", prefix, suffix);
+    return unique_fd::from(mkstemps(path.data(), static_cast<int>(suffix.length())))
+        .transform_error([&path](auto ec) { return error(ec, "mkstemps({})", path); })
+        .transform([&path](unique_fd fd) { return tmpfd(std::move(fd), std::move(path)); });
+  }
+  [[nodiscard]] static std::expected<unique_fd, error> unlinked() {
+    return open().transform([](tmpfd fd) { return std::move(fd).unlink(); });
+  }
 
   [[nodiscard]] auto *operator->(this auto &self) noexcept { return &self._fd; }
 
@@ -238,8 +252,7 @@ class tmpfd {
   }
 
  private:
-  tmpfd(std::string path, int suffixlen)
-      : _fd(mkstemps(path.data(), suffixlen)), _path(std::move(path)) {}
+  tmpfd(unique_fd fd, std::filesystem::path path) : _fd(std::move(fd)), _path(std::move(path)) {}
 };
 
 /// An owned addrinfo wrapper that also remembers the hostname you looked up.
@@ -320,7 +333,7 @@ struct host_port {
 template <typename T>
 [[nodiscard]] std::expected<void, error> setsockopt(int fd, int level, int option_name, const T &value) {
   return zero_or_errno(::setsockopt(fd, level, option_name, &value, sizeof(value)))
-      .transform_error([=](auto ec) { return jl::error(ec, "setsockopt({}, {}, {})", fd, level, option_name); });
+      .transform_error([=](auto ec) { return error(ec, "setsockopt({}, {}, {})", fd, level, option_name); });
 }
 
 [[nodiscard]] std::expected<void, error> inline linger(int fd, std::chrono::seconds timeout) {
@@ -331,7 +344,7 @@ template <typename T>
 /// An owned socket descriptor that simplifies common network usage.
 class unique_socket : public unique_fd {
  public:
-  explicit unique_socket(int fd) : unique_fd(fd, "unique_socket(-1)") {}
+  explicit unique_socket(int fd) : unique_fd(fd) {}
 
   [[nodiscard]] static expected_or_errno<std::pair<unique_socket, unique_socket>> pipes(int domain = AF_UNIX, int type = SOCK_STREAM) {
     std::array<int, 2> sv{-1, -1};
@@ -367,7 +380,7 @@ class unique_socket : public unique_fd {
       std::optional<int> protocol = IPPROTO_TCP,
       const std::function<void(unique_socket &)> &before_bind = [](auto &) {}) {
     return bound(source, domain, SOCK_STREAM, protocol, [&](auto &fd) {
-      jl::unwrap(setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, 1));
+      unwrap(setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, 1));
       before_bind(fd);
     });
   }
@@ -552,27 +565,26 @@ class unique_mmap {
 
  public:
   /// A common mmap. The count/offset parameters are in counts of T, not bytes.
-  /// @throws error with errno and errmsg if it fails.
-  explicit unique_mmap(size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap()")
-      : unique_mmap(nullptr, count, prot, flags, fd, offset, errmsg) {
+  [[nodiscard]] static expected_or_errno<unique_mmap<T>> map(size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0) {
+    return map(nullptr, count, prot, flags, fd, offset);
   }
 
   /// More advanced constructor for e.g. MAP_FIXED when you need the addr
   /// parameter. The size/offset parameters are in counts of T, not bytes.
-  /// @throws error with errno and errmsg if it fails.
-  unique_mmap(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0, const std::string &errmsg = "mmap()")
-      : _map(unwrap(ok_mmap<T>(mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T)))
-                        .transform_error([&errmsg](auto ec) { return jl::error(ec, errmsg); })),
-             count) {}
+  [[nodiscard]] static expected_or_errno<unique_mmap<T>> map(void *addr, size_t count, int prot = PROT_NONE, int flags = MAP_SHARED, int fd = -1, off_t offset = 0) {
+    return ok_mmap<T>(mmap(addr, count * sizeof(T), prot, flags, fd, offset * sizeof(T)))
+        .transform([count](T *addr) { return unique_mmap<T>(std::span{addr, count}); });
+  }
 
-  static unique_mmap<T> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE, const std::string &errmsg = "anon mmap") {
-    unique_mmap<T> map(count, prot, flags, -1, 0, errmsg);
+  static std::expected<unique_mmap<T>, error> anon(size_t count, int prot = PROT_NONE, const std::string &name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE) {
+    return map(count, prot, flags, -1, 0)
+        .transform([count, &name](unique_mmap<T> map) {
 #ifdef PR_SET_VMA
-    std::ignore = prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());  // best effort, so okay if it fails silently
-#else
-    std::ignore = name;
+          std::ignore = prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());  // best effort, so okay if it fails silently
 #endif
-    return map;
+          return map;
+        })
+        .transform_error([count, &name](auto ec) { return error(ec, "unique_mmap({} {}B)", name, count * sizeof(T)); });
   }
 
   [[nodiscard]] auto &operator[](this auto &self, size_t idx) noexcept {
@@ -611,6 +623,9 @@ class unique_mmap {
     reset(other.release());
     return *this;
   }
+
+ private:
+  explicit unique_mmap(std::span<T> map) : _map(map) {}
 };
 
 /// An owned and managed file descriptor and mapping to its contents
@@ -629,9 +644,27 @@ class fd_mmap {
 
  public:
   /// A mmap over fd. The count/offset parameters are in counts of T, not bytes.
-  /// @throws error with errno and errmsg if it fails.
-  explicit fd_mmap(unique_fd fd, int prot = PROT_READ, int flags = MAP_SHARED, off_t offset = 0, std::optional<size_t> count = std::nullopt, const std::string &errmsg = "fd_mmap()")  // NOLINT(*-member-init) false positive: https://github.com/llvm/llvm-project/issues/37250
-      : fd_mmap(with_count(std::move(fd), count), prot, flags, offset, count, errmsg) {}
+  [[nodiscard]] static std::expected<fd_mmap<T>, error> map(unique_fd fd, int prot = PROT_READ, int flags = MAP_SHARED, off_t offset = 0, std::optional<size_t> count = std::nullopt) {
+    auto available = [&]() -> std::expected<size_t, error> {
+      if (count) return *count;
+      return jl::stat(fd.fd()).transform([](struct stat st) { return st.st_size / sizeof(T); });
+    }();
+    if (!available) return std::unexpected(available.error());
+
+    auto mmap = jl::unique_mmap<T>::map(count.value_or(beyond_offset(*available, offset)), prot, flags, fd.fd(), offset);
+    if (!mmap) return std::unexpected(error(mmap.error(), "fd_mmap({})", fd.fd()));
+
+    auto reported = count || offset < static_cast<off_t>(*available) ? **mmap : (**mmap).subspan(0, 0);
+    return fd_mmap(offset, std::move(fd), std::move(*mmap), reported);
+  }
+
+  [[nodiscard]] static std::expected<fd_mmap<T>, error> open(const std::filesystem::path &path, int mode, int flags = MAP_SHARED, off_t offset = 0, std::optional<size_t> count = std::nullopt) {  // NOLINT(*-swappable-parameters)
+
+    int prot = PROT_READ | (mode != O_RDONLY ? PROT_WRITE : 0);
+    return unique_fd::open(path, mode)
+        .and_then([&](auto fd) { return fd_mmap<T>::map(std::move(fd), prot, flags, offset, count); })
+        .transform_error([&](const error &e) { return error(e.code(), "fd_mmap({}, 0x{:x})", path.c_str(), mode); });
+  }
 
   [[nodiscard]] int fd() const noexcept { return _fd.fd(); }
 
@@ -659,25 +692,18 @@ class fd_mmap {
   /// from construction.
   [[nodiscard]] std::expected<void, error> truncate(size_t length, int mremap_flags = 0) {
     return jl::truncate(*_fd, length * sizeof(T))
-        .and_then([=, this] { return _mmap.remap(beyond_offset(length), mremap_flags)
+        .and_then([=, this] { return _mmap.remap(beyond_offset(length, _offset), mremap_flags)
                                   .transform_error([=](auto ec) { return error(ec, "mremap({}, {})", length, mremap_flags); }); })
         .transform([=, this] { _map = _offset < static_cast<off_t>(length) ? *_mmap : _mmap->subspan(0, 0); });
   }
 
  private:
-  static std::pair<unique_fd, size_t> with_count(unique_fd fd, std::optional<size_t> specified_count) {
-    auto count = specified_count.value_or(jl::unwrap(stat(*fd)).st_size / sizeof(T));
-    return {std::move(fd), count};
-  }
-  fd_mmap(std::pair<unique_fd, size_t> fd_count, int prot, int flags, off_t offset, std::optional<size_t> specified_count, const std::string &errmsg)
-      : _offset(offset),
-        _fd(std::move(fd_count.first)),
-        _mmap(specified_count.value_or(beyond_offset(fd_count.second)), prot, flags, _fd.fd(), offset, errmsg),
-        _map(specified_count || offset < static_cast<off_t>(fd_count.second) ? *_mmap : _mmap->subspan(0, 0)) {}
+  fd_mmap(off_t offset, unique_fd fd, unique_mmap<T> mmap, std::span<T> available)
+      : _offset(offset), _fd(std::move(fd)), _mmap(std::move(mmap)), _map(available) {}
 
-  [[nodiscard]] size_t beyond_offset(size_t count) {
-    if (static_cast<off_t>(count) <= _offset) return 1;  // 0-sized mmaps are not allowed, so always map something
-    return count - _offset;
+  [[nodiscard]] static size_t beyond_offset(size_t count, off_t offset) {
+    if (static_cast<off_t>(count) <= offset) return 1;  // 0-sized mmaps are not allowed, so always map something
+    return count - offset;
   }
 };
 
@@ -698,8 +724,7 @@ class CircularBuffer {
   size_t _consumers_read = 0;
 
  public:
-  explicit CircularBuffer(const std::string &mmap_name = "CircularBuffer")
-      : _data(unique_mmap<T>::anon(Capacity * 2, PROT_NONE, mmap_name)) {
+  [[nodiscard]] static std::expected<CircularBuffer, error> create(const std::string &mmap_name = "CircularBuffer") {
     // _data is a continues virtual memory span twice as big as the Capacity
     // where the first and second half is mapped to the same shared buffer.
     // This gives a circular buffer that supports continuous memory spans even
@@ -708,17 +733,11 @@ class CircularBuffer {
     // refer to the same physical address.
     //
     // This concept/trick originates from https://github.com/willemt/cbuffer
-    int prot = PROT_READ | PROT_WRITE;
-    int flags = MAP_FIXED | MAP_SHARED;
-    unique_fd fd = tmpfd().unlink();
-    constexpr off_t len = Capacity * sizeof(T);
-    auto status = jl::truncate(*fd, len)
-                      .and_then([&] { return ok_mmap(mmap(_data->data(), len, prot, flags, *fd, 0))
-                                          .transform_error([](auto ec) { return jl::error(ec, "mmap(CircularBuffer data)"); }); })
-                      .and_then([&](auto) { return ok_mmap(mmap(_data->data() + Capacity, len, prot, flags, *fd, 0))
-                                                .transform_error([](auto ec) { return jl::error(ec, "mmap(CircularBuffer shadow)"); }); });
-    if (!status) throw status.error();
+    return prepare_data(mmap_name).transform([](unique_mmap<T> data) { return CircularBuffer(std::move(data)); });
   }
+
+  /// same as create(...), but throws on unexpected error
+  explicit CircularBuffer(const std::string &mmap_name = "CircularBuffer") : _data(unwrap(prepare_data(mmap_name))) {}
 
   /// @returns a span where you can write new data into the buffer where. Its
   /// size is limited to the amount of free space available.
@@ -779,6 +798,36 @@ class CircularBuffer {
     std::vector<T> output(readable.size());
     output.resize(fill_from_front(output));
     return output;
+  }
+
+ private:
+  explicit CircularBuffer(unique_mmap<T> data) : _data(std::move(data)) {}
+
+  [[nodiscard]] static std::expected<unique_mmap<T>, error> prepare_data(const std::string &mmap_name = "CircularBuffer") {
+    // _data is a continues virtual memory span twice as big as the Capacity
+    // where the first and second half is mapped to the same shared buffer.
+    // This gives a circular buffer that supports continuous memory spans even
+    // when those bytes span across the wrap-around threshold, because
+    // &_data[0] and &_data[Capacity] are both valid addresses that essentially
+    // refer to the same physical address.
+    //
+    // This concept/trick originates from https://github.com/willemt/cbuffer
+    return unique_mmap<T>::anon(Capacity * 2, PROT_NONE, mmap_name)
+        .and_then([](unique_mmap<T> data) -> std::expected<unique_mmap<T>, error> {
+          int prot = PROT_READ | PROT_WRITE;
+          int flags = MAP_FIXED | MAP_SHARED;
+          constexpr off_t len = Capacity * sizeof(T);
+
+          auto fd = tmpfd::unlinked();
+          if (!fd) return std::unexpected(fd.error());
+          return jl::truncate(fd->fd(), len)
+              .and_then([&] { return ok_mmap(mmap(data->data(), len, prot, flags, fd->fd(), 0))
+                                  .transform_error([](auto ec) { return error(ec, "mmap(CircularBuffer data)"); }); })
+              .and_then([&](auto) { return ok_mmap(mmap(data->data() + Capacity, len, prot, flags, fd->fd(), 0))
+                                        .transform_error([](auto ec) { return error(ec, "mmap(CircularBuffer shadow)"); }); })
+              .transform([&](auto) { return std::move(data); });
+        })
+        .transform_error([&](const error &e) { return e.prefixed("CircularBuffer({}): ", mmap_name); });
   }
 };
 

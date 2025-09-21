@@ -4,7 +4,7 @@
 
 #include <fstream>
 
-auto* configure_arguments(auto* b) {
+static auto* configure_arguments(auto* b) {
   return b;
 }
 #define JL_BENCHMARK_WITHOUT_STRIDE(...) BENCHMARK_TEMPLATE(__VA_ARGS__)         \
@@ -16,7 +16,7 @@ auto* configure_arguments(auto* b) {
   JL_BENCHMARK_WITHOUT_STRIDE(__VA_ARGS__, 1024)
 
 static inline std::pair<jl::tmpfd, jl::unique_fd> open_read_write(off_t size) {
-  auto read = jl::tmpfd();
+  auto read = jl::unwrap(jl::tmpfd::open());
   jl::unwrap(jl::truncate(read->fd(), size));
 
   // it is more realistic and fair if the data is not just zero pages, because
@@ -28,7 +28,7 @@ static inline std::pair<jl::tmpfd, jl::unique_fd> open_read_write(off_t size) {
     pwrite(read->fd(), &pos, sizeof(pos), pos);
   }
 
-  return {std::move(read), jl::unique_fd(open("/dev/null", O_WRONLY | O_CLOEXEC))};
+  return {std::move(read), jl::unwrap(jl::unique_fd::open("/dev/null", O_WRONLY | O_CLOEXEC))};
 }
 
 static inline std::tuple<ssize_t, ssize_t> args(benchmark::State& state) {
@@ -59,7 +59,7 @@ template <size_t stride>
 void BM_mmap_ref(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, write] = open_read_write(len);
-  jl::fd_mmap<char> map(std::move(read).unlink());
+  auto map = jl::unwrap(jl::fd_mmap<char>::map(std::move(read).unlink()));
   std::vector<char> buffer(block_size);
 
   size_t bytes_read = 0;
@@ -76,7 +76,7 @@ template <size_t stride>
 void BM_mmap_copy(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, write] = open_read_write(len);
-  jl::fd_mmap<char> map(std::move(read).unlink());
+  auto map = jl::unwrap(jl::fd_mmap<char>::map(std::move(read).unlink()));
   std::vector<char> buffer(block_size);
 
   size_t bytes_read = 0;

@@ -10,7 +10,7 @@ std::vector<ssize_t> block_sizes{1, 1024, 4096, 1 << 14, 1 << 16};  // any large
 void BM_readwrite(benchmark::State& state) {
   size_t block_size = state.range(0);
   auto [in, out] = jl::unwrap(jl::unique_fd::pipes());
-  jl::unique_fd devnull(open("/dev/null", O_WRONLY | O_CLOEXEC));
+  auto devnull = jl::unwrap(jl::unique_fd::open("/dev/null", O_WRONLY | O_CLOEXEC));
 
   std::vector<char> buffer(block_size);
   std::span block = buffer;
@@ -27,10 +27,10 @@ BENCHMARK(BM_readwrite)->ArgsProduct({{block_sizes}});
 
 void BM_splice(benchmark::State& state) {
   ssize_t block_size = state.range(0);
-  auto zero = jl::tmpfd().unlink();
+  auto zero = jl::unwrap(jl::tmpfd::open()).unlink();
   jl::unwrap(jl::truncate(*zero, block_size));
   auto [in, out] = jl::unwrap(jl::unique_fd::pipes());
-  jl::unique_fd devnull(open("/dev/null", O_WRONLY | O_CLOEXEC));
+  auto devnull = jl::unwrap(jl::unique_fd::open("/dev/null", O_WRONLY | O_CLOEXEC));
 
   size_t bytes_copied = 0;
   for (auto _ : state) {
@@ -43,9 +43,9 @@ BENCHMARK(BM_splice)->ArgsProduct({{block_sizes}});
 
 void BM_sendfile(benchmark::State& state) {
   ssize_t block_size = state.range(0);
-  auto zero = jl::tmpfd();
+  auto zero = jl::unwrap(jl::tmpfd::open());
   jl::unwrap(jl::truncate(zero->fd(), block_size));
-  jl::unique_fd devnull(open("/dev/null", O_WRONLY | O_CLOEXEC));
+  auto devnull = jl::unwrap(jl::unique_fd::open("/dev/null", O_WRONLY | O_CLOEXEC));
 
   size_t bytes_copied = 0;
   for (auto _ : state) {

@@ -3,18 +3,18 @@
 
 TEST_SUITE("fd_mmap") {
   TEST_CASE("basic") {
-    jl::unique_fd fd = jl::tmpfd().unlink();
-    CHECK(3 == jl::write(*fd, "foo"));
+    jl::tmpfd fd = jl::unwrap(jl::tmpfd::open());
+    CHECK(3 == jl::write(fd->fd(), "foo"));
 
     SUBCASE("read") {
-      jl::fd_mmap<char> map(std::move(fd));
+      auto map = jl::unwrap(jl::fd_mmap<char>::open(fd.path(), O_RDONLY));
       CHECK('f' == map[0]);
       CHECK("foo" == jl::view_of(*map));
     }
     SUBCASE("write") {
-      jl::fd_mmap<char> map(std::move(fd), PROT_READ | PROT_WRITE);
+      auto map = jl::unwrap(jl::fd_mmap<char>::open(fd.path(), O_RDWR));
       std::string_view ba = "ba";
-      std::copy(ba.begin(), ba.end(), map->begin());
+      std::ranges::copy(ba, map->begin());
       map[2] = 'r';
 
       CHECK("bar" == jl::view_of(*map));
@@ -22,23 +22,25 @@ TEST_SUITE("fd_mmap") {
   }
 
   TEST_CASE("automatic size takes offset into account") {
-    jl::unique_fd fd = jl::tmpfd().unlink();
+    jl::unique_fd fd = jl::unwrap(jl::tmpfd::unlinked());
     jl::unwrap(jl::truncate(*fd, 4096));
     CHECK(3 == pwrite(*fd, "foo", 3, 4096));
 
-    jl::fd_mmap<char> map(std::move(fd), PROT_READ, MAP_SHARED, 4096);
+    auto map = jl::unwrap(jl::fd_mmap<char>::map(std::move(fd), PROT_READ, MAP_SHARED, 4096));
 
     CHECK("foo" == jl::view_of(*map));
   }
 
   TEST_CASE("mapping beyond EOF is usable as is after file grows") {
-    jl::fd_mmap<const char> map(jl::tmpfd().unlink(), PROT_READ, MAP_SHARED, 0, 3);
+    auto map = jl::unwrap(jl::tmpfd::unlinked().and_then([](jl::unique_fd fd) {
+      return jl::fd_mmap<const char>::map(std::move(fd), PROT_READ, MAP_SHARED, 0, 3);
+    }));
     CHECK(0 == jl::unwrap(jl::stat(map.fd())).st_size);
     CHECK(3 == jl::write(map.fd(), "foo"));
     CHECK("foo" == jl::view_of(*map));
   }
 
-  std::string sread(int fd, size_t length, off_t offset) {
+  static std::string sread(int fd, size_t length, off_t offset) {
     std::string str(length, '\0');
     if (auto read = pread(fd, str.data(), length, offset); read >= 0) {
       str.resize(read);
@@ -48,7 +50,7 @@ TEST_SUITE("fd_mmap") {
   }
 
   TEST_CASE("truncate takes offset into account") {
-    jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_READ | PROT_WRITE, MAP_SHARED, 4096);
+    auto map = jl::unwrap(jl::fd_mmap<char>::map(jl::unwrap(jl::tmpfd::unlinked()), PROT_READ | PROT_WRITE, MAP_SHARED, 4096));
 
     jl::unwrap(map.truncate(4096));
     CHECK(0 == map->size());
@@ -64,7 +66,7 @@ TEST_SUITE("fd_mmap") {
   }
 
   TEST_CASE("remap does not affect file") {
-    jl::fd_mmap<const char> map(jl::tmpfd().unlink(), PROT_READ);
+    auto map = jl::unwrap(jl::fd_mmap<const char>::map(jl::unwrap(jl::tmpfd::unlinked()), PROT_READ));
     jl::unwrap(map.remap(10));
     CHECK(10 == map->size());
 
@@ -74,7 +76,7 @@ TEST_SUITE("fd_mmap") {
   }
 
   TEST_CASE("file descriptor is usable after unmap") {
-    jl::fd_mmap<char> map(jl::tmpfd().unlink(), PROT_WRITE);
+    auto map = jl::unwrap(jl::tmpfd::unlinked().and_then([](auto fd) { return jl::fd_mmap<char>::map(std::move(fd), PROT_WRITE); }));
     jl::unwrap(map.truncate(3));
 
     map[0] = 'f';
