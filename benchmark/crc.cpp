@@ -45,7 +45,7 @@ static void BM_CRC_str(benchmark::State& state) {
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_checksummed), benchmark::Counter::kIsRate);
   state.counters["CRC"] = crc;
 }
-static const std::vector<int64_t> str_sizes{128,1024};
+static const std::vector<int64_t> str_sizes{128, 1024};
 
 BENCHMARK_TEMPLATE(BM_CRC_str, crc8_autosar)->ArgsProduct({str_sizes});
 BENCHMARK_TEMPLATE(BM_CRC_str, crc8_bluetooth)->ArgsProduct({str_sizes});

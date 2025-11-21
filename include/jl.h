@@ -47,7 +47,7 @@ concept one_of = (... || std::same_as<std::remove_cvref_t<T>, Us>);
 /// Comparisons with equivalence class where t == u && t2 == u !=> t == t2.
 /// Same as https://en.cppreference.com/w/cpp/concepts/equality_comparable exposition only helper concept
 template <typename T, typename U>
-concept weakly_comparable_with = requires(const std::remove_reference_t<T> &t, const std::remove_reference_t<U> &u) {
+concept weakly_comparable_with = requires(const std::remove_reference_t<T>& t, const std::remove_reference_t<U>& u) {
   { t == u } -> std::convertible_to<bool>;
   { t != u } -> std::convertible_to<bool>;
   { u == t } -> std::convertible_to<bool>;
@@ -56,7 +56,7 @@ concept weakly_comparable_with = requires(const std::remove_reference_t<T> &t, c
 
 /// @returns true if haystack matches any of the patterns
 template <typename T, weakly_comparable_with<T>... Us>
-[[nodiscard]] constexpr bool among(const T &haystack, const Us &...pattern) {
+[[nodiscard]] constexpr bool among(const T& haystack, const Us&... pattern) {
   return ((haystack == pattern) || ...);
 }
 
@@ -80,22 +80,22 @@ class error : public std::system_error {
   size_t _msglen;
 
  public:
-  error(std::error_code ec, const std::string &what) noexcept
+  error(std::error_code ec, const std::string& what) noexcept
       : std::system_error(ec, what), _msglen(what.size()) {}
   error(std::error_code ec = {}) noexcept     // NOLINT(*-explicit-conversions) to mimic system_error
       : std::system_error(ec), _msglen(0) {}  // BTW, needed because empty what results in ": ..." messages
 
   template <class... Args>
-  error(std::error_code ec, std::format_string<Args...> fmt, Args &&...args)
+  error(std::error_code ec, std::format_string<Args...> fmt, Args&&... args)
       : error(ec, std::format(fmt, std::forward<Args>(args)...)) {}
   template <class... Args>
-  error(std::errc ec, std::format_string<Args...> fmt, Args &&...args)
+  error(std::errc ec, std::format_string<Args...> fmt, Args&&... args)
       : error(std::make_error_code(ec), std::format(fmt, std::forward<Args>(args)...)) {}
 
-  error(int posix_errno, const std::string &what) noexcept : error(as_ec(posix_errno), what) {}
+  error(int posix_errno, const std::string& what) noexcept : error(as_ec(posix_errno), what) {}
   explicit error(int posix_errno) noexcept : error(as_ec(posix_errno)) {}
   template <class... Args>
-  error(int posix_errno, std::format_string<Args...> fmt, Args &&...args)
+  error(int posix_errno, std::format_string<Args...> fmt, Args&&... args)
       : error(as_ec(posix_errno), std::format(fmt, std::forward<Args>(args)...)) {}
 
   /// Original what without e.g. ": Invalid argument" suffix
@@ -104,7 +104,7 @@ class error : public std::system_error {
   }
 
   template <class... Args>
-  [[nodiscard]] error prefixed(std::format_string<Args...> fmt, Args &&...args) const noexcept {
+  [[nodiscard]] error prefixed(std::format_string<Args...> fmt, Args&&... args) const noexcept {
     return {code(), std::format(fmt, std::forward<Args>(args)...) + std::string(msg())};
   }
 };
@@ -134,7 +134,7 @@ zero_or_errno(T n) noexcept {
 
 /// @returns a lambda for std::expected<T, std::error_code>::or_else that replaces ERRNOs with fallback
 template <int... ERRNOs, typename T>
-[[nodiscard]] constexpr auto retryable_as(T &&fallback) noexcept {
+[[nodiscard]] constexpr auto retryable_as(T&& fallback) noexcept {
   return [fallback = std::forward<T>(fallback)]<jl::one_of<std::error_code, int> EC>(EC ec) -> std::expected<T, EC> {
     if constexpr (std::same_as<std::error_code, EC>) {
       assert(ec.category() == std::generic_category());
@@ -146,9 +146,9 @@ template <int... ERRNOs, typename T>
   };
   ;
 }
-///// @returns a lambda for std::expected<T, std::error_code>::or_else toreturn replace retryable errors with fallback
+///// @returns a lambda for std::expected<T, std::error_code>::or_else to replace retryable errors with fallback
 template <std::same_as<std::error_code>... ECs, typename T>
-[[nodiscard]] constexpr auto retryable_as(T &&fallback, ECs... retryable) noexcept {
+[[nodiscard]] constexpr auto retryable_as(T&& fallback, ECs... retryable) noexcept {
   return [fallback = std::forward<T>(fallback), retryable...](std::error_code ec) -> std::expected<T, std::error_code> {
     if (among(ec, retryable...)) return fallback;
     return std::unexpected(ec);
@@ -158,16 +158,16 @@ template <std::same_as<std::error_code>... ECs, typename T>
 /// @returns expected value or throw its error
 /// Like: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap
 template <typename T, std::derived_from<std::exception> E>
-[[nodiscard]] constexpr T unwrap(std::expected<T, E> &&expected) {
+[[nodiscard]] constexpr T unwrap(std::expected<T, E>&& expected) {
   if (!expected.has_value()) throw std::move(expected.error());
   if constexpr (!std::is_void_v<T>) return std::move(*expected);
 }
 template <typename T>
-[[nodiscard]] T unwrap(std::expected<T, std::error_code> &&expected) {
+[[nodiscard]] T unwrap(std::expected<T, std::error_code>&& expected) {
   return unwrap(expected.transform_error([](std::error_code ec) { return jl::error(ec); }));
 }
 template <typename T>
-[[nodiscard]] T unwrap(expected_or_errno<T> &&expected) {
+[[nodiscard]] T unwrap(expected_or_errno<T>&& expected) {
   return unwrap(std::move(expected).transform_error([](int posix_errno) { return jl::error(jl::as_ec(posix_errno)); }));
 }
 
@@ -181,8 +181,8 @@ template <typename T>
 }
 
 /// @returns iterator to the first ready future without blocking
-[[nodiscard]] auto any_ready_of(std::ranges::range auto &&futures) {
-  return std::ranges::find_if(futures, [](auto &&f) {
+[[nodiscard]] auto any_ready_of(std::ranges::range auto&& futures) {
+  return std::ranges::find_if(futures, [](auto&& f) {
     return f.valid() && f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
   });
 }
@@ -205,7 +205,7 @@ template <typename T, std::invocable F>
 /// @returns a tuple of the values or the errors joined to one std::runtime_error
 template <class... T, std::derived_from<std::exception>... E>
 [[nodiscard]] inline std::expected<std::tuple<T...>, std::runtime_error>
-ok_or_join_with(const std::string &separator, std::expected<T, E> &&...args) {
+ok_or_join_with(const std::string& separator, std::expected<T, E>&&... args) {
   if (((args.has_value()) && ...)) {
     return std::tuple{*std::forward<std::expected<T, E>>(args)...};
   }
@@ -215,18 +215,18 @@ ok_or_join_with(const std::string &separator, std::expected<T, E> &&...args) {
 }
 
 template <typename E, class F, class... Args>
-[[nodiscard]] constexpr std::expected<std::invoke_result_t<F, Args...>, E> try_catch(F f, Args &&...args) {
+[[nodiscard]] constexpr std::expected<std::invoke_result_t<F, Args...>, E> try_catch(F f, Args&&... args) {
   try {
     return std::invoke(f, std::forward<Args>(args)...);
-  } catch (const E &e) {
+  } catch (const E& e) {
     return std::unexpected(e);
   }
 }
 template <class F, class... Args>
-[[nodiscard]] constexpr std::expected<std::invoke_result_t<F, Args...>, std::runtime_error> try_catch(F f, Args &&...args) noexcept {
+[[nodiscard]] constexpr std::expected<std::invoke_result_t<F, Args...>, std::runtime_error> try_catch(F f, Args&&... args) noexcept {
   try {
     return std::invoke(f, std::forward<Args>(args)...);
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     return std::unexpected(std::runtime_error(e.what()));
   } catch (...) {
     return std::unexpected(std::runtime_error("unknown exception"));
@@ -302,7 +302,7 @@ struct attempts {
 /// @returns the non-negative successful result or the error that occurred.
 template <attempts Attempts = attempts{3}, int... ERRNOs, class... Args, std::invocable<Args...> F>
   requires std::signed_integral<std::invoke_result_t<F, Args...>>
-expected_or_errno<std::invoke_result_t<F, Args...>> retry_syscall(F &&f, Args &&...args) noexcept(std::is_nothrow_invocable_v<F, Args...>) {
+expected_or_errno<std::invoke_result_t<F, Args...>> retry_syscall(F&& f, Args&&... args) noexcept(std::is_nothrow_invocable_v<F, Args...>) {
   for (int64_t attempts = Attempts.n; attempts--;) {
     if (auto result = f(args...); result >= 0) return result;
     if (!jl::among(errno, ERRNOs...)) break;
@@ -315,7 +315,7 @@ expected_or_errno<std::invoke_result_t<F, Args...>> retry_syscall(F &&f, Args &&
 template <attempts Attempts = attempts{3}, std::invocable<size_t, off_t> F>
   requires std::integral<std::invoke_result_t<F, size_t, off_t>>
 [[nodiscard]] expected_or_errno<size_t>
-rw_loop(size_t length, F &&f) noexcept(std::is_nothrow_invocable_v<F, size_t, off_t>) {
+    rw_loop(size_t length, F&& f) noexcept(std::is_nothrow_invocable_v<F, size_t, off_t>) {
   size_t offset = 0;
   while (offset < length) {
     auto amount = jl::retry_syscall<Attempts, EAGAIN, EINTR>(f, length - offset, offset);
@@ -337,10 +337,10 @@ class defer {
   [[nodiscard]] explicit defer(F f) : _f(std::move(f)) {}
   ~defer() noexcept { _f(); }
 
-  defer(const defer &) = delete;
-  defer &operator=(const defer &) = delete;
-  defer(defer &&) = delete;
-  defer &operator=(defer &&) = delete;
+  defer(const defer&) = delete;
+  defer& operator=(const defer&) = delete;
+  defer(defer&&) = delete;
+  defer& operator=(defer&&) = delete;
 };
 
 class invocable_counter {
@@ -349,7 +349,7 @@ class invocable_counter {
  public:
   [[nodiscard]] size_t total_calls() const { return _total_calls; }
   auto wrap(auto f) {
-    return [f = std::move(f), this](auto &&...args) {
+    return [f = std::move(f), this](auto&&... args) {
       ++_total_calls;
       return std::invoke(f, std::forward<decltype(args)>(args)...);
     };
@@ -357,12 +357,12 @@ class invocable_counter {
 };
 
 template <typename T>
-[[nodiscard]] inline T *nullable(std::optional<T> &opt) {
+[[nodiscard]] inline T* nullable(std::optional<T>& opt) {
   if (opt.has_value()) return &(*opt);
   return nullptr;
 }
 
-[[nodiscard]] inline std::string str_or_empty(const char *str) {
+[[nodiscard]] inline std::string str_or_empty(const char* str) {
   return {str == nullptr ? "" : str};
 }
 template <numeric T>
@@ -417,7 +417,7 @@ struct format_to_n_error : std::runtime_error {
 };
 /// same as std::format_to_n, but with a descriptive error if it truncated the result
 template <class OutputIt, class... Args>
-[[nodiscard]] std::expected<OutputIt, format_to_n_error<OutputIt>> format_to_n(OutputIt out, std::iter_difference_t<OutputIt> n, std::format_string<Args...> fmt, Args &&...args) {
+[[nodiscard]] std::expected<OutputIt, format_to_n_error<OutputIt>> format_to_n(OutputIt out, std::iter_difference_t<OutputIt> n, std::format_string<Args...> fmt, Args&&... args) {
   auto result = std::format_to_n(out, n, fmt, std::forward<Args>(args)...);
   if (result.out - out < result.size) return std::unexpected(format_to_n_error(out, result));
   return result.out;
@@ -425,14 +425,14 @@ template <class OutputIt, class... Args>
 
 /// @returns rest of output after the formatted text have been appended
 template <class... Args>
-[[nodiscard]] std::expected<std::span<char>, format_to_n_error<std::span<char>::iterator>> format_into(std::span<char> buf, std::format_string<Args...> fmt, Args &&...args) {
+[[nodiscard]] std::expected<std::span<char>, format_to_n_error<std::span<char>::iterator>> format_into(std::span<char> buf, std::format_string<Args...> fmt, Args&&... args) {
   return jl::format_to_n(buf.begin(), buf.size(), fmt, std::forward<Args>(args)...)
       .transform([buf](auto after) { return buf.subspan(after - buf.begin()); });
 }
 
 /// @returns rest of output after the formatted text have been appended
 template <class... Args>
-std::span<char> truncate_into(std::span<char> buf, std::format_string<Args...> fmt, Args &&...args) {
+std::span<char> truncate_into(std::span<char> buf, std::format_string<Args...> fmt, Args&&... args) {
   if (buf.empty()) return buf;  // do not bother calculating the size to format
 
   auto result = std::format_to_n(buf.begin(), buf.size(), fmt, std::forward<Args...>(args)...);
@@ -441,7 +441,7 @@ std::span<char> truncate_into(std::span<char> buf, std::format_string<Args...> f
 
 /// NOTE: require explicit ResultType, because some generators (e.g. std::mt19937) use fast uints that can be padded
 template <typename ResultType, size_t Extent>
-inline void urandom_into(std::span<std::byte, Extent> buffer, auto &&gen) {
+inline void urandom_into(std::span<std::byte, Extent> buffer, auto&& gen) {
   /// TODO: use C++26 std::ranges::generate_random
   for (size_t i = 0; i < buffer.size(); i += sizeof(ResultType)) {
     ResultType rand = gen();
@@ -455,7 +455,7 @@ inline void urandom_into(std::span<std::byte, Extent> buffer) {
 }
 /// NOTE: require explicit ResultType, because some generators (e.g. std::mt19937) use fast uints that can be padded
 template <typename ResultType>
-inline std::string urandom(size_t total_bytes, auto &&gen) {
+inline std::string urandom(size_t total_bytes, auto&& gen) {
   std::string buffer(total_bytes, 0);
   urandom_into<ResultType>(std::as_writable_bytes(std::span(buffer)), gen);
   return buffer;
@@ -528,7 +528,7 @@ struct MaybeQuoted {
       : _str(str), _delim(delim), _escape(escape) {}
 };
 template <std::predicate<char> Blacklist>
-inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted<Blacklist> &mq) {
+inline std::ostream& operator<<(std::ostream& os, const MaybeQuoted<Blacklist>& mq) {
   if (needs_quotes<Blacklist>(mq._str, mq._delim, mq._escape)) {
     return os << std::quoted(mq._str, mq._delim, mq._escape);
   }
@@ -536,13 +536,13 @@ inline std::ostream &operator<<(std::ostream &os, const MaybeQuoted<Blacklist> &
 }
 
 template <std::ranges::viewable_range R, class Pattern, class C = std::string>
-inline C join(R &&r, Pattern &&pattern) {
+inline C join(R&& r, Pattern&& pattern) {
   return std::ranges::to<std::string>(r | std::views::join_with(std::forward<Pattern>(pattern)));
 }
 
 struct to_s {
   template <class T>
-  std::string operator()(T &&arg) {
+  std::string operator()(T&& arg) {
     return std::format("{}", std::forward<T>(arg));
   }
 };
@@ -574,7 +574,7 @@ struct fixed_string {
   constexpr fixed_string(const char (&str)[N]) {  // NOLINT(*-member-init, *-explicit-*, *-c-arrays)
     std::copy(str, str + N - sizeof('\0'), chars.data());
   }
-  auto operator<=>(const fixed_string &) const = default;
+  auto operator<=>(const fixed_string&) const = default;
 };
 
 // clang-format off
@@ -661,13 +661,13 @@ template <std::integral T, size_t Offset, size_t Count, size_t Extent>
 [[nodiscard]] constexpr inline T be_bits(std::span<const std::byte, Extent> bytes) {
   static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little,
                 "jl::be_bits only supported on big/little-endian architectures");
-  return bits < T, Offset, Count, Extent, std::endian::native == std::endian::little > (bytes);
+  return bits<T, Offset, Count, Extent, std::endian::native == std::endian::little>(bytes);
 }
 template <std::integral T, size_t Offset, size_t Count, size_t Extent>
 [[nodiscard]] constexpr inline T le_bits(std::span<const std::byte, Extent> bytes) {
   static_assert(std::endian::native == std::endian::big || std::endian::native == std::endian::little,
                 "jl::le_bits only supported on big/little-endian architectures");
-  return bits < T, Offset, Count, Extent, std::endian::native == std::endian::big > (bytes);
+  return bits<T, Offset, Count, Extent, std::endian::native == std::endian::big>(bytes);
 }
 
 [[nodiscard]] constexpr std::byte bitswap(std::byte b) {
@@ -676,7 +676,7 @@ template <std::integral T, size_t Offset, size_t Count, size_t Extent>
 }
 [[nodiscard]] constexpr auto bitswap(std::integral auto n) {
   auto bytes = std::bit_cast<std::array<std::byte, sizeof(n)>>(n);
-  for (auto &b : bytes) b = bitswap(b);
+  for (auto& b : bytes) b = bitswap(b);
   return std::byteswap(std::bit_cast<decltype(n)>(bytes));
 }
 
@@ -771,7 +771,7 @@ template <size_t Offset, size_t Count, typename T, size_t Extent = std::dynamic_
 
 template <bitcastable_to<char> Char>
 inline std::string_view view_of(std::span<Char> bytes) noexcept {
-  const char *data = reinterpret_cast<const char *>(bytes.data());  // NOLINT(*reinterpret-cast) Char template requirement makes this safe
+  const char* data = reinterpret_cast<const char*>(bytes.data());  // NOLINT(*reinterpret-cast) Char template requirement makes this safe
   return {data, bytes.size()};
 }
 
@@ -780,9 +780,9 @@ inline std::string_view view_of(std::span<Char> bytes) noexcept {
 /// Optimized for mostly sorted input data, since std::vector-like structures
 /// are cheaper to insert into close to the end than close to the beginning.
 template <std::ranges::bidirectional_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
-std::ranges::borrowed_iterator_t<R> rsearch_lower_bound(R &&range, const T &v, Compare comp = {}) {
+std::ranges::borrowed_iterator_t<R> rsearch_lower_bound(R&& range, const T& v, Compare comp = {}) {
   assert(std::ranges::is_sorted(range));
-  auto [iter, end] = std::ranges::find_last_if(range.begin(), range.end(), [&comp, &v](const auto &c) { return comp(c, v); });
+  auto [iter, end] = std::ranges::find_last_if(range.begin(), range.end(), [&comp, &v](const auto& c) { return comp(c, v); });
   return iter == end ? range.begin() : ++iter;
 }
 
@@ -791,19 +791,19 @@ std::ranges::borrowed_iterator_t<R> rsearch_lower_bound(R &&range, const T &v, C
 /// @param lower_bound must point to either something == v, if it is exists; something >= v or end of the range
 /// @returns iterator to the inserted v or end
 template <std::ranges::range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
-auto insert_unique(R &range, std::ranges::iterator_t<R> lower_bound, T &&v, Compare comp = {}) {
+auto insert_unique(R& range, std::ranges::iterator_t<R> lower_bound, T&& v, Compare comp = {}) {
   if (auto end = std::ranges::end(range); lower_bound != end && !comp(v, *lower_bound)) return end;
   return range.insert(lower_bound, std::forward<T>(v));
 }
 
 /// Given a presorted range, linear reverse search for v's sorted location and insert it there
 template <std::ranges::bidirectional_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
-T &sorted_append(R &range, T v, Compare comp = Compare()) {
+T& sorted_append(R& range, T v, Compare comp = Compare()) {
   return *range.insert(rsearch_lower_bound(range, v, comp), std::move(v));
 }
 /// Given a presorted range, binary search for v's sorted location and insert it there
 template <std::ranges::random_access_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
-T &sorted_insert(R &range, T v, Compare comp = Compare()) {
+T& sorted_insert(R& range, T v, Compare comp = Compare()) {
   return *range.insert(std::ranges::lower_bound(range, v, comp), std::move(v));
 }
 
@@ -815,29 +815,29 @@ T &sorted_insert(R &range, T v, Compare comp = Compare()) {
 /// needed for this until it already had a proper iterator implemented.
 template <typename R, typename T = std::ranges::range_value_t<R>>
 struct idx_iter {
-  R *_range = nullptr;
+  R* _range = nullptr;
   size_t _i = 0;
 
   using difference_type = ptrdiff_t;
   using value_type = T;
 
-  [[nodiscard]] decltype(auto) operator*(this auto &self) { return (*self._range)[self._i]; }
-  [[nodiscard]] decltype(auto) operator[](this auto &self, difference_type n) { return (*self._range)[self._i + n]; }
+  [[nodiscard]] decltype(auto) operator*(this auto& self) { return (*self._range)[self._i]; }
+  [[nodiscard]] decltype(auto) operator[](this auto& self, difference_type n) { return (*self._range)[self._i + n]; }
 
-  constexpr idx_iter &operator++() { return ++_i, *this; }
-  constexpr idx_iter &operator--() { return --_i, *this; }
+  constexpr idx_iter& operator++() { return ++_i, *this; }
+  constexpr idx_iter& operator--() { return --_i, *this; }
   constexpr idx_iter operator++(int) { return std::exchange(*this, {_range, _i + 1}); }
   constexpr idx_iter operator--(int) { return std::exchange(*this, {_range, _i - 1}); }
 
-  [[nodiscard]] constexpr difference_type operator-(const idx_iter &other) const { return _i - other._i; }
+  [[nodiscard]] constexpr difference_type operator-(const idx_iter& other) const { return _i - other._i; }
   [[nodiscard]] constexpr idx_iter operator-(difference_type n) const { return {_range, _i - n}; }
-  [[nodiscard]] constexpr friend idx_iter operator+(difference_type n, const idx_iter &iter) { return {iter._range, iter._i + n}; }
+  [[nodiscard]] constexpr friend idx_iter operator+(difference_type n, const idx_iter& iter) { return {iter._range, iter._i + n}; }
   [[nodiscard]] constexpr idx_iter operator+(difference_type n) const { return {_range, _i + n}; }
-  constexpr idx_iter &operator+=(difference_type n) { return _i += n, *this; }
-  constexpr idx_iter &operator-=(difference_type n) { return _i -= n, *this; }
+  constexpr idx_iter& operator+=(difference_type n) { return _i += n, *this; }
+  constexpr idx_iter& operator-=(difference_type n) { return _i -= n, *this; }
 
-  [[nodiscard]] constexpr bool operator==(const idx_iter &other) const { return _i == other._i; }
-  [[nodiscard]] constexpr auto operator<=>(const idx_iter &other) const { return _i <=> other._i; }
+  [[nodiscard]] constexpr bool operator==(const idx_iter& other) const { return _i == other._i; }
+  [[nodiscard]] constexpr auto operator<=>(const idx_iter& other) const { return _i <=> other._i; }
 };
 
 template <typename T, std::size_t Extent = std::dynamic_extent>
@@ -864,26 +864,26 @@ class chunked {
 
     std::span<T> operator*() const { return upto(_buffer, _i * _n, _n); }
     std::span<T> operator[](difference_type n) const { return upto(_buffer, (_i + n) * _n, _n); }
-    iter &operator++() { return ++_i, *this; }
-    iter &operator--() { return --_i, *this; }
+    iter& operator++() { return ++_i, *this; }
+    iter& operator--() { return --_i, *this; }
     iter operator++(int) { return std::exchange(*this, {_buffer, _n, _i + 1}); }
     iter operator--(int) { return std::exchange(*this, {_buffer, _n, _i - 1}); }
 
-    difference_type operator-(const iter &other) const { return _i - other._i; }
-    friend iter operator-(const iter &a, difference_type n) { return {a._buffer, a._n, a._i - n}; }
-    friend iter operator+(difference_type n, const iter &a) { return {a._buffer, a._n, n + a._i}; }
-    friend iter operator+(const iter &a, difference_type n) { return {a._buffer, a._n, a._i + n}; }
-    iter &operator+=(difference_type n) {
+    difference_type operator-(const iter& other) const { return _i - other._i; }
+    friend iter operator-(const iter& a, difference_type n) { return {a._buffer, a._n, a._i - n}; }
+    friend iter operator+(difference_type n, const iter& a) { return {a._buffer, a._n, n + a._i}; }
+    friend iter operator+(const iter& a, difference_type n) { return {a._buffer, a._n, a._i + n}; }
+    iter& operator+=(difference_type n) {
       _i += n;
       return *this;
     }
-    iter &operator-=(difference_type n) {
+    iter& operator-=(difference_type n) {
       _i -= n;
       return *this;
     }
 
-    friend bool operator==(const iter &a, const iter &b) { return a._i == b._i; }
-    friend std::strong_ordering operator<=>(const iter &a, const iter &b) { return a._i <=> b._i; }
+    friend bool operator==(const iter& a, const iter& b) { return a._i == b._i; }
+    friend std::strong_ordering operator<=>(const iter& a, const iter& b) { return a._i <=> b._i; }
   };
   iter begin() const { return iter(_buffer, _n); }
   iter end() const { return iter(_buffer, _n, div_ceil(_buffer.size(), _n)); }
@@ -892,7 +892,7 @@ class chunked {
 /// Wrapper around free(...) like functions to use them as a std::unique_ptr deleter
 template <auto F>
 struct deleter {
-  void operator()(auto *p) noexcept {
+  void operator()(auto* p) noexcept {
     if (p) F(p);
   }
 };
@@ -928,7 +928,7 @@ constexpr std::chrono::tai_time j2000_tt = []() {
 
 /// std::chrono::duration_cast, but safely clamped close to ToDur::min/max when the input duration have a larger range
 template <typename ToDur, typename Rep, typename Period>
-ToDur clamped_cast(const std::chrono::duration<Rep, Period> &t) {
+ToDur clamped_cast(const std::chrono::duration<Rep, Period>& t) {
   using namespace std::chrono;
   static_assert(duration<double>(duration<Rep, Period>::max()) >= duration<double>(ToDur::max()),
                 "boundaries for ToDur must not overflow in the type of the input duration");
@@ -982,16 +982,16 @@ struct elapsed {
 /// Start the given timer at construction and stop it on destruction
 template <typename Timer>
 class scoped_timer {
-  Timer &_timer;
+  Timer& _timer;
 
  public:
-  explicit scoped_timer(Timer &timer) : _timer(timer) { timer.start(); }
+  explicit scoped_timer(Timer& timer) : _timer(timer) { timer.start(); }
   ~scoped_timer() { _timer.stop(); }
-  scoped_timer(const scoped_timer &) = delete;
-  scoped_timer &operator=(const scoped_timer &) = delete;
+  scoped_timer(const scoped_timer&) = delete;
+  scoped_timer& operator=(const scoped_timer&) = delete;
 };
 
-[[nodiscard]] inline std::string uri_host(const std::string &host) {
+[[nodiscard]] inline std::string uri_host(const std::string& host) {
   return host.find(':') == std::string::npos ? host : std::format("[{}]", host);
 }
 
@@ -1074,7 +1074,7 @@ class Ring {
   bool push(T value) {
     return push_from(value);
   }
-  bool push_from(T &value) {
+  bool push_from(T& value) {
     auto [write, free] = _fifo.write_free(1);
     if (free == 0) return false;
 
@@ -1092,29 +1092,29 @@ class Ring {
   }
 };
 
-[[nodiscard]] inline std::expected<std::string, error> env(const char *name) noexcept {
-  const char *value = std::getenv(name);  // NOLINT(*mt-unsafe)
+[[nodiscard]] inline std::expected<std::string, error> env(const char* name) noexcept {
+  const char* value = std::getenv(name);  // NOLINT(*mt-unsafe)
   if (value == nullptr) return std::unexpected(error(std::errc::invalid_argument, "environment {}", name));
   return value;
 }
 
 template <numeric T>
-[[nodiscard]] inline std::expected<T, error> env_as(const char *name) {
-  return env(name).and_then([name](const std::string &v) {
+[[nodiscard]] inline std::expected<T, error> env_as(const char* name) {
+  return env(name).and_then([name](const std::string& v) {
     return from_str<T>(v)
-        .transform_error([name](const error &e) { return e.prefixed("environment {} ", name); });
+        .transform_error([name](const error& e) { return e.prefixed("environment {} ", name); });
   });
 }
 
 template <numeric T>
-[[nodiscard]] inline std::expected<T, error> env_or(const char *name, T fallback) noexcept {
+[[nodiscard]] inline std::expected<T, error> env_or(const char* name, T fallback) noexcept {
   if (auto v = env(name)) {
     return from_str<T>(*v)
-        .transform_error([name](const error &e) { return e.prefixed("environment {} ", name); });
+        .transform_error([name](const error& e) { return e.prefixed("environment {} ", name); });
   }
   return fallback;
 }
-[[nodiscard]] inline std::string env_or(const char *name, const std::string &fallback) noexcept {
+[[nodiscard]] inline std::string env_or(const char* name, const std::string& fallback) noexcept {
   return env(name).value_or(fallback);
 }
 
@@ -1155,13 +1155,13 @@ class rows {
   }
 
   template <size_t j>
-  [[nodiscard]] constexpr auto &column() const { return std::get<j>(_columns); }
+  [[nodiscard]] constexpr auto& column() const { return std::get<j>(_columns); }
 
   // gory implementation details to quack like the most relevant parts of std::span<std::tuple<Ts...>> follows:
 
   /// @returns std::tuple<maybe const &, ...>
   template <typename Self>
-  constexpr auto operator[](this Self &self, size_t i) {
+  constexpr auto operator[](this Self& self, size_t i) {
     return [&]<size_t... Js>(std::index_sequence<Js...>) {
       if constexpr (std::is_const_v<std::remove_reference_t<Self>>) {
         return std::tuple<std::ranges::range_const_reference_t<Rs>...>{std::get<Js>(self._columns)[i]...};
@@ -1171,7 +1171,7 @@ class rows {
     }(std::index_sequence_for<Rs...>{});
   }
   /// @returns std::tuple<maybe const &, ...> or throws on out of bounds
-  constexpr auto at(this auto &self, size_t i) {
+  constexpr auto at(this auto& self, size_t i) {
     if (i >= self.size()) throw std::out_of_range(std::format("rows::at {} >= {}", i, self.size()));
     return self.operator[](i);
   }
@@ -1184,7 +1184,7 @@ class rows {
 
  protected:
   template <size_t j>
-  [[nodiscard]] auto &mutable_column() { return std::get<j>(_columns); }
+  [[nodiscard]] auto& mutable_column() { return std::get<j>(_columns); }
 
  private:
   std::tuple<Rs...> _columns;
@@ -1214,9 +1214,9 @@ class dynamic_rows : public resizeable_rows<Rs...> {  // e.g. std::deque
   using resizeable_rows<Rs...>::resizeable_rows;
 
   template <typename... Args>
-  constexpr std::tuple<std::ranges::range_value_t<Rs> &...> emplace_back(Args &&...args) {
-    return [&]<size_t... Js, typename T>(std::index_sequence<Js...>, T &&t) {
-      return std::tuple<std::ranges::range_value_t<Rs> &...>{
+  constexpr std::tuple<std::ranges::range_value_t<Rs>&...> emplace_back(Args&&... args) {
+    return [&]<size_t... Js, typename T>(std::index_sequence<Js...>, T&& t) {
+      return std::tuple<std::ranges::range_value_t<Rs>&...>{
           rows<Rs...>::template mutable_column<Js>().emplace_back(std::get<Js>(std::forward<T>(t)))...,
       };
     }(std::index_sequence_for<Rs...>{}, std::forward_as_tuple(std::forward<Args>(args)...));
@@ -1252,12 +1252,12 @@ struct istat {
     sum_square_delta_mean += delta * (x - mean);
     return x;
   }
-  auto &&add(std::ranges::range auto &&r) {
-    for (const auto &x : r) add(x);
+  auto&& add(std::ranges::range auto&& r) {
+    for (const auto& x : r) add(x);
     return std::forward<decltype(r)>(r);
   }
 
-  void add(const istat &other) {
+  void add(const istat& other) {
     if (other.n == 0) return;
     if (n == 0) {
       *this = other;
@@ -1285,15 +1285,15 @@ struct istat {
   double sum_square_delta_mean = 0.0;
 };
 
-double mean(std::ranges::sized_range auto &&r) {
+double mean(std::ranges::sized_range auto&& r) {
   double n = r.size();
   return std::ranges::fold_left(r, 0.0, std::plus{}) / n;
 }
-double variance(std::ranges::sized_range auto &&r) {
+double variance(std::ranges::sized_range auto&& r) {
   auto square_delta_mean = [mu = mean(r)](double sum, double x) { return sum + std::pow(x - mu, 2); };
   return std::ranges::fold_left(r, 0.0, square_delta_mean) / static_cast<double>(r.size());
 }
-double stddev(std::ranges::sized_range auto &&r) {
+double stddev(std::ranges::sized_range auto&& r) {
   return std::sqrt(variance(std::forward<decltype(r)>(r)));
 }
 
@@ -1307,8 +1307,8 @@ struct peaks {
     _max = std::max(_max, x);
     return x;
   }
-  auto &&add(std::ranges::range auto &&r) {
-    for (const auto &x : r) add(static_cast<double>(x));
+  auto&& add(std::ranges::range auto&& r) {
+    for (const auto& x : r) add(static_cast<double>(x));
     return std::forward<decltype(r)>(r);
   }
 

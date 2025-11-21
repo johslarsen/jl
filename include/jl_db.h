@@ -7,29 +7,29 @@
 namespace jl::db {
 
 static constexpr auto null = std::monostate{};
-using param = std::variant<std::monostate, int32_t, int64_t, double, std::string, std::string_view, const char *, std::span<const std::byte>>;
+using param = std::variant<std::monostate, int32_t, int64_t, double, std::string, std::string_view, const char*, std::span<const std::byte>>;
 
 /// An engine agnostic cursor into a database result
 class result {
  public:
   struct sentinel {};
   class iter {
-    result *_result;
+    result* _result;
 
    public:
     using difference_type = ptrdiff_t;
     using value_type = result;
 
-    constexpr explicit iter(result &result) : _result(&result) {}
+    constexpr explicit iter(result& result) : _result(&result) {}
 
-    constexpr iter &operator++() {
+    constexpr iter& operator++() {
       ++(*_result->_pimpl);
       return *this;
     }
     constexpr void operator++(int) { ++(*_result->_pimpl); }
 
-    [[nodiscard]] constexpr result &operator*() const { return *_result; }
-    [[nodiscard]] constexpr bool operator==(const sentinel &s) const { return (*_result->_pimpl) == s; }
+    [[nodiscard]] constexpr result& operator*() const { return *_result; }
+    [[nodiscard]] constexpr bool operator==(const sentinel& s) const { return (*_result->_pimpl) == s; }
   };
   static_assert(std::input_iterator<iter>);
   static_assert(std::sentinel_for<sentinel, iter>);
@@ -48,7 +48,7 @@ class result {
 
     [[nodiscard]] constexpr virtual int ncolumn() = 0;
     [[nodiscard]] constexpr virtual std::string_view column_name(int col) = 0;
-    [[nodiscard]] constexpr virtual int column_idx(const std::string &name) = 0;
+    [[nodiscard]] constexpr virtual int column_idx(const std::string& name) = 0;
     [[nodiscard]] constexpr virtual bool isnull(int col) = 0;
 
     [[nodiscard]] constexpr virtual int32_t i32(int col) = 0;
@@ -59,15 +59,15 @@ class result {
 
    protected:
     impl() = default;
-    impl(const impl &) = default;
-    impl &operator=(const impl &) = default;
-    impl(impl &&) = default;
-    impl &operator=(impl &&) = default;
+    impl(const impl&) = default;
+    impl& operator=(const impl&) = default;
+    impl(impl&&) = default;
+    impl& operator=(impl&&) = default;
   };
   constexpr explicit result(std::unique_ptr<impl> pimpl) : _pimpl(std::move(pimpl)) {}
 
   class field {
-    impl &_result;
+    impl& _result;
     int _col;
 
     [[nodiscard]] constexpr auto nullable(auto f) {
@@ -75,7 +75,7 @@ class result {
     }
 
    public:
-    constexpr field(impl &result, int col) : _result(result), _col(col) {}
+    constexpr field(impl& result, int col) : _result(result), _col(col) {}
 
     // accessors mappings mapping NULL-able values as optional:
 
@@ -98,7 +98,7 @@ class result {
   };
   /// Access the field in a given column of the current row
   [[nodiscard]] constexpr field operator[](int column) { return {*_pimpl, column}; };
-  [[nodiscard]] constexpr field operator[](const std::string &name) { return (*this)[_pimpl->column_idx(name)]; }
+  [[nodiscard]] constexpr field operator[](const std::string& name) { return (*this)[_pimpl->column_idx(name)]; }
 
   [[nodiscard]] constexpr int ncolumn() { return _pimpl->ncolumn(); }
   [[nodiscard]] constexpr bool empty() { return *_pimpl == end(); }
@@ -116,41 +116,41 @@ static_assert(std::ranges::input_range<result>);
 ///     }
 struct connection {
   virtual ~connection() = default;
-  connection(const connection &) = delete;
-  connection &operator=(const connection &) = delete;
+  connection(const connection&) = delete;
+  connection& operator=(const connection&) = delete;
 
   /// Execute a prepared SQL statement like:
   ///     exec("SELECT $1, $2", "foo", 42);
-  constexpr result exec(const std::string &sql, auto... params) {
+  constexpr result exec(const std::string& sql, auto... params) {
     return execv(sql, std::initializer_list<param>{params...});
   }
   /// WARN: make sure std::string_view, const char*, and std::span in params do not dangle
-  constexpr virtual result execv(const std::string &sql, std::span<const param> params) = 0;
+  constexpr virtual result execv(const std::string& sql, std::span<const param> params) = 0;
 
   connection() = default;
 };
 
-[[nodiscard]] constexpr inline int column_idx(const std::vector<std::string> &columns, std::string_view name) {
+[[nodiscard]] constexpr inline int column_idx(const std::vector<std::string>& columns, std::string_view name) {
   if (auto i = std::ranges::find(columns, name); i != columns.end()) return static_cast<int>(i - columns.begin());
   throw std::runtime_error(std::format("missing {} column", name));
 };
 
 /// A database that mocks or intercepts results
 class mock final : public connection {
-  std::move_only_function<db::result(const std::string &, std::span<const param>)> _exec;
+  std::move_only_function<db::result(const std::string&, std::span<const param>)> _exec;
 
  public:
   constexpr explicit mock(decltype(_exec) exec) : _exec(std::move(exec)) {}
   ~mock() override = default;
-  mock(const mock &) = delete;
-  mock &operator=(const mock &) = delete;
+  mock(const mock&) = delete;
+  mock& operator=(const mock&) = delete;
 
   class result final : public db::result::impl {
     std::vector<std::vector<param>> _rows;
     std::vector<std::string> _column_names;
     size_t _i = 0;
 
-    [[nodiscard]] constexpr const auto &at(size_t row, int col) {
+    [[nodiscard]] constexpr const auto& at(size_t row, int col) {
       return _rows.at(row).at(col);
     }
 
@@ -160,14 +160,14 @@ class mock final : public connection {
       if (_column_names.empty() && !_rows.empty()) {
         _column_names = std::vector<std::string>(_rows.front().size(), "unknown");
       }
-      assert(std::ranges::all_of(_rows, [n = _column_names.size()](const auto &r) { return r.size() == n; }));
+      assert(std::ranges::all_of(_rows, [n = _column_names.size()](const auto& r) { return r.size() == n; }));
     }
 
     ~result() override = default;
-    result(const result &) = default;
-    result &operator=(const result &) = default;
-    result(result &&) = default;
-    result &operator=(result &&) = default;
+    result(const result&) = default;
+    result& operator=(const result&) = default;
+    result(result&&) = default;
+    result& operator=(result&&) = default;
 
     constexpr bool operator==(db::result::sentinel /*unused*/) const override {
       return _rows.size() == _i;
@@ -181,7 +181,7 @@ class mock final : public connection {
       return static_cast<int>(_rows.at(0).size());
     }
     constexpr std::string_view column_name(int col) override { return _column_names.at(col); };
-    constexpr int column_idx(const std::string &name) override { return db::column_idx(_column_names, name); }
+    constexpr int column_idx(const std::string& name) override { return db::column_idx(_column_names, name); }
 
     constexpr bool isnull(int col) override {
       return std::holds_alternative<std::monostate>(_rows.at(_i).at(col));
@@ -191,9 +191,9 @@ class mock final : public connection {
     constexpr int64_t i64(int col) override { return std::get<int64_t>(at(_i, col)); }
     constexpr double f64(int col) override { return std::get<double>(at(_i, col)); }
     constexpr std::string_view str(int col) override {
-      if (const auto *s = std::get_if<std::string>(&at(_i, col)); s) return *s;
-      if (const auto *s = std::get_if<std::string_view>(&at(_i, col)); s) return *s;
-      return std::get<const char *>(at(_i, col));
+      if (const auto* s = std::get_if<std::string>(&at(_i, col)); s) return *s;
+      if (const auto* s = std::get_if<std::string_view>(&at(_i, col)); s) return *s;
+      return std::get<const char*>(at(_i, col));
     }
     constexpr std::span<const std::byte> blob(int col) override {
       return std::get<std::span<const std::byte>>(at(_i, col));
@@ -204,7 +204,7 @@ class mock final : public connection {
     return db::result(std::make_unique<result>(std::move(rows), std::move(column_names)));
   }
 
-  constexpr db::result execv(const std::string &sql, std::span<const param> params) override {
+  constexpr db::result execv(const std::string& sql, std::span<const param> params) override {
     return _exec(sql, params);
   }
 };
@@ -216,13 +216,13 @@ class sqlite final : public connection {
   std::unique_ptr<sqlite3, jl::deleter<sqlite3_close>> _db;
 
  public:
-  explicit sqlite(sqlite3 *db) : _db(db) {}
+  explicit sqlite(sqlite3* db) : _db(db) {}
   ~sqlite() override = default;
-  sqlite(const sqlite &) = delete;
-  sqlite &operator=(const sqlite &) = delete;
+  sqlite(const sqlite&) = delete;
+  sqlite& operator=(const sqlite&) = delete;
 
-  static std::unique_ptr<sqlite> open(const std::string &uri) {
-    sqlite3 *handle = nullptr;
+  static std::unique_ptr<sqlite> open(const std::string& uri) {
+    sqlite3* handle = nullptr;
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_URI;
     auto status = sqlite3_open_v2(uri.c_str(), &handle, flags, nullptr);
     auto db = std::make_unique<sqlite>(handle);
@@ -237,7 +237,7 @@ class sqlite final : public connection {
     std::vector<std::string> _column_names;
 
    public:
-    explicit result(sqlite3_stmt *stmt) : _stmt(stmt) {}
+    explicit result(sqlite3_stmt* stmt) : _stmt(stmt) {}
 
     void operator++() override {
       if (auto status = sqlite3_step(_stmt.get()); status == SQLITE_DONE) {
@@ -255,7 +255,7 @@ class sqlite final : public connection {
 
     int ncolumn() override { return sqlite3_column_count(_stmt.get()); }
     std::string_view column_name(int col) override { return sqlite3_column_name(_stmt.get(), col); }
-    int column_idx(const std::string &name) override {
+    int column_idx(const std::string& name) override {
       if (_column_names.empty()) {
         for (int i = 0; i < ncolumn(); ++i) _column_names.emplace_back(column_name(i));
       }
@@ -269,18 +269,18 @@ class sqlite final : public connection {
     int64_t i64(int col) override { return sqlite3_column_int64(_stmt.get(), col); }
     double f64(int col) override { return sqlite3_column_double(_stmt.get(), col); }
     std::string_view str(int col) override {
-      return {reinterpret_cast<const char *>(sqlite3_column_text(_stmt.get(), col)), nbyte(col)};
+      return {reinterpret_cast<const char*>(sqlite3_column_text(_stmt.get(), col)), nbyte(col)};
     }
     std::span<const std::byte> blob(int col) override {
-      return {reinterpret_cast<const std::byte *>(sqlite3_column_blob(_stmt.get(), col)), nbyte(col)};
+      return {reinterpret_cast<const std::byte*>(sqlite3_column_blob(_stmt.get(), col)), nbyte(col)};
     }
 
    private:
     [[nodiscard]] size_t nbyte(int col) { return sqlite3_column_bytes(_stmt.get(), col); }
   };
 
-  db::result execv(const std::string &sql, std::span<const param> params) override {
-    sqlite3_stmt *stmt = nullptr;
+  db::result execv(const std::string& sql, std::span<const param> params) override {
+    sqlite3_stmt* stmt = nullptr;
     auto status = sqlite3_prepare_v3(_db.get(), sql.data(), static_cast<int>(sql.size()), 0, &stmt, nullptr);
     if (status != SQLITE_OK) throw error(_db.get(), "sqlite_prepare");
     if (stmt == nullptr) {     // i.e. sql is empty (or only comments),
@@ -288,7 +288,7 @@ class sqlite final : public connection {
     }
 
     auto query = std::make_unique<result>(stmt);
-    for (const auto &[i, p] : std::views::enumerate(params)) {
+    for (const auto& [i, p] : std::views::enumerate(params)) {
       int idx = 1 + static_cast<int>(i);
       auto status = std::visit(
           jl::overload{
@@ -307,7 +307,7 @@ class sqlite final : public connection {
   }
 
  private:
-  [[nodiscard]] static std::runtime_error error(sqlite3 *db, std::string_view context) noexcept {
+  [[nodiscard]] static std::runtime_error error(sqlite3* db, std::string_view context) noexcept {
     return std::runtime_error(std::format("{}: {}", context, sqlite3_errmsg(db)));
   }
 };
@@ -320,12 +320,12 @@ class psql final : public connection {
   std::unique_ptr<PGconn, jl::deleter<PQfinish>> _db;
 
  public:
-  explicit psql(PGconn *db) : _db(db) {}
+  explicit psql(PGconn* db) : _db(db) {}
   ~psql() override = default;
-  psql(const psql &) = delete;
-  psql &operator=(const psql &) = delete;
+  psql(const psql&) = delete;
+  psql& operator=(const psql&) = delete;
 
-  static std::unique_ptr<psql> open(const std::string &uri) {
+  static std::unique_ptr<psql> open(const std::string& uri) {
     auto db = std::make_unique<psql>(PQconnectdb(uri.c_str()));
     if (db->_db == nullptr) throw jl::error(std::errc::not_enough_memory, "PQconnectdb({})", uri);
     if (PQstatus(db->_db.get()) != CONNECTION_OK) throw db->error("PQconnectdb({})");
@@ -351,7 +351,7 @@ class psql final : public connection {
 
     int ncolumn() override { return PQnfields(_result.get()); }
     std::string_view column_name(int col) override { return PQfname(_result.get(), col); }
-    int column_idx(const std::string &name) override {
+    int column_idx(const std::string& name) override {
       if (auto i = PQfnumber(_result.get(), name.c_str()); i >= 0) return i;
       throw std::runtime_error(std::format("missing {} column", name));
     }
@@ -368,17 +368,17 @@ class psql final : public connection {
     }
 
    private:
-    [[nodiscard]] const char *c_str(int col) const { return PQgetvalue(_result.get(), _row, col); }
+    [[nodiscard]] const char* c_str(int col) const { return PQgetvalue(_result.get(), _row, col); }
   };
-  db::result execv(const std::string &sql, std::span<const param> params) override {
+  db::result execv(const std::string& sql, std::span<const param> params) override {
     constexpr int values_as_text = 0;
 
-    std::vector<const char *> c_strs(params.size());
+    std::vector<const char*> c_strs(params.size());
     std::vector<int> sizes(params.size());
     std::vector<int> formats(params.size(), 0 /* i.e. text */);
     std::vector<std::string> tmps;
     tmps.reserve(params.size());
-    for (const auto &[i, p] : std::views::enumerate(params)) {
+    for (const auto& [i, p] : std::views::enumerate(params)) {
       auto str = std::visit(
           jl::overload{
               [](std::monostate) { return std::string_view{}; },
@@ -386,10 +386,10 @@ class psql final : public connection {
                 formats[i] = 1;  // i.e. binary, otherwise PQexecParams ignores size and requires it null-terminated
                 return s;
               },
-              [](const std::string &s) { return std::string_view(s); },
+              [](const std::string& s) { return std::string_view(s); },
               [&formats, i](std::span<const std::byte> s) {
                 formats[i] = 1;  // i.e. binary
-                return std::string_view(reinterpret_cast<const char *>(s.data()), s.size());
+                return std::string_view(reinterpret_cast<const char*>(s.data()), s.size());
               },
               [&tmps](auto v) { return std::string_view(tmps.emplace_back(std::format("{}", v))); }},
           p);
@@ -422,7 +422,7 @@ class psql final : public connection {
 /// Connect to a database at uri using one of these schemes:
 /// * SQLite3:    file://
 /// * PostgreSQL: postgres:// , postrgresql://
-inline std::unique_ptr<connection> open(const std::string &uri) {
+inline std::unique_ptr<connection> open(const std::string& uri) {
 #ifdef JL_HAS_SQLITE
   if (uri.starts_with("file://")) return sqlite::open(uri);
 #endif /*JL_HAS_SQLITE*/

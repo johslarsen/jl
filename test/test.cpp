@@ -3,7 +3,7 @@
 
 #include <cstdlib>
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   doctest::Context context;
 
   // NOLINTBEGIN(concurrency-mt-unsafe)

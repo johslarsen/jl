@@ -80,7 +80,7 @@ TEST_SUITE("strings") {
     using namespace std::literals;
     CHECK("" == jl::join(std::vector<std::string>{}, ' '));
     CHECK("foo,bar,baz" == jl::join(std::array{"foo"sv, "bar"sv, "baz"sv}, ','));
-    CHECK("1, 2, 3" == jl::join(std::views::iota(1,4) | jl::map_to_s(), ", "sv));
+    CHECK("1, 2, 3" == jl::join(std::views::iota(1, 4) | jl::map_to_s(), ", "sv));
   }
 
   TEST_CASE("from_str") {

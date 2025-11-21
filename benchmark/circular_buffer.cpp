@@ -61,7 +61,8 @@ void BM_ParallelCircularBufferRWDataEndpoints(benchmark::State& state) {
 }
 BENCHMARK(BM_ParallelCircularBufferRWDataEndpoints)->ArgName("BurstSize")->ArgsProduct({{1, 16, 17, 256, 1023, 1024, 4096}});
 
-static const std::vector<int64_t> burst_sizes = {/*1, 2, 16, 256,*/ 1 << 10, /*4 << 10*/};
+static const std::vector<int64_t> burst_sizes = {/*1, 2, 16, 256,*/ 1 << 10,
+                                                 /*4 << 10*/};
 
 template <size_t Capacity, typename Index>
 void BM_CircularBufferFillThenEmpty(benchmark::State& state) {
@@ -119,6 +120,10 @@ BENCHMARK_TEMPLATE(BM_ContainerFillThenEmptyWith1KiBursts, std::deque<uint8_t>)
     ->ArgsProduct({burst_sizes, {4 << 10, 32 << 10, 256 << 10, 2 << 20, 16 << 20, 128 << 20}});
 BENCHMARK_TEMPLATE(BM_ContainerFillThenEmptyWith1KiBursts, std::vector<uint8_t>)
     ->ArgNames({"BurstSize", "Capacity"})
-    ->ArgsProduct({burst_sizes, {4 << 10, 32 << 10, 256 << 10, 2 << 20, /* rest is too slow */}});
+    ->ArgsProduct({burst_sizes, {4 << 10,
+                                 32 << 10,
+                                 256 << 10,
+                                 2 << 20,
+                                 /* rest is too slow */}});
 
 BENCHMARK_MAIN();  // NOLINT

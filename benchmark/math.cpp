@@ -21,4 +21,4 @@ void BM_RuntimeDivision(benchmark::State& state) {
 }
 BENCHMARK(BM_RuntimeDivision);
 
-BENCHMARK_MAIN(); // NOLINT
+BENCHMARK_MAIN();  // NOLINT
