@@ -1118,6 +1118,26 @@ template <numeric T>
   return env(name).value_or(fallback);
 }
 
+/// A tuple of std::optional<Ts>... with helper accessor given the wrapped type
+template <typename... Ts>
+struct tuple_of_opts : std::tuple<std::optional<Ts>...> {
+  template <typename T>
+  constexpr auto&& get(this auto&& self) {
+    return std::get<std::optional<T>>(std::forward<decltype(self)>(self));
+  }
+};
+/// A tuple of std::expected<Ts, E>... with helper accessor given the wrapped type
+template <typename E, typename... Ts>
+struct tuple_of_expected : std::tuple<std::expected<Ts, E>...> {
+  static tuple_of_expected unexpected(const E& error) {
+    return tuple_of_expected{{std::expected<Ts, E>{std::unexpected(error)}...}};
+  }
+  template <typename T>
+  constexpr auto&& get(this auto&& self) {
+    return std::get<std::expected<T, E>>(std::forward<decltype(self)>(self));
+  }
+};
+
 /// A tuple of array-like structures acting like a array-like structure of tuples
 template <std::ranges::random_access_range... Rs>
 class rows {

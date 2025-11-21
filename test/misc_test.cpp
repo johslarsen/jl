@@ -5,6 +5,23 @@
 #include <random>
 
 TEST_SUITE("misc") {
+  TEST_CASE("tuple_of_opts") {
+    jl::tuple_of_opts<int, double> maybes{};
+    maybes.get<int>() = 42;
+    CHECK(maybes.get<int>().value() == 42);
+    CHECK(std::get<0>(maybes).value() == 42);
+    CHECK(!maybes.get<double>().has_value());
+    CHECK(!std::get<1>(maybes).has_value());
+  }
+  TEST_CASE("tuple_of_expected") {
+    auto maybes = jl::tuple_of_expected<std::string, int, double>::unexpected("missing");
+    maybes.get<int>() = 42;
+    CHECK(maybes.get<int>().value() == 42);
+    CHECK(std::get<0>(maybes).value() == 42);
+    CHECK(!std::get<1>(maybes).has_value());
+    CHECK(maybes.get<double>().error() == "missing");
+  }
+
   TEST_CASE("one_of") {
     static_assert(jl::one_of<int, int, float>);
     static_assert(jl::one_of<float, int, float>);
