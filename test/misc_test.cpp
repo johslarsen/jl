@@ -4,7 +4,25 @@
 #include <list>
 #include <random>
 
+template <class... Ts>
+struct pack_metadata {
+  static constexpr size_t count = sizeof...(Ts);
+};
+
 TEST_SUITE("misc") {
+  TEST_CASE("reuse_pack_from") {
+    SUBCASE("empty pack") {
+      static_assert(jl::reuse_pack_from<std::tuple<>, pack_metadata>::count == 0);
+    }
+    SUBCASE("one type") {
+      static_assert(std::same_as<int, std::variant_alternative_t<0, jl::reuse_pack_from<std::vector<int>, std::variant>>>);
+    }
+    SUBCASE("multiple types") {
+      static_assert(std::same_as<int, std::variant_alternative_t<0, jl::reuse_pack_from<std::tuple<int, double>, std::variant>>>);
+      static_assert(std::same_as<double, std::variant_alternative_t<1, jl::reuse_pack_from<std::tuple<int, double>, std::variant>>>);
+    }
+  }
+
   TEST_CASE("tuple_of_opts") {
     jl::tuple_of_opts<int, double> maybes{};
     maybes.get<int>() = 42;

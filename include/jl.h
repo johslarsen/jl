@@ -65,6 +65,19 @@ struct overload : Ts... {
   using Ts::operator()...;
 };
 
+namespace detail {
+template <class Src, template <class...> class Dst>
+struct reuse_pack_from {};
+template <template <class...> class Src, class... Ts, template <class...> class Dst>
+struct reuse_pack_from<Src<Ts...>, Dst> {
+  using type = Dst<Ts...>;
+};
+}  // namespace detail
+
+/// a Dst<T...> type where T... is extracted from Src<T...>
+template <class Src, template <class...> class Dst>
+using reuse_pack_from = detail::reuse_pack_from<Src, Dst>::type;
+
 /// @returns ceil(x/y)
 constexpr auto div_ceil(std::unsigned_integral auto x, std::unsigned_integral auto y) {
   return x / y + (x % y != 0);
