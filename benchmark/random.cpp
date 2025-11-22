@@ -3,7 +3,7 @@
 
 #include <random>
 
-template <typename Engine>
+template <class Engine>
 static void BM_random_number_engine(benchmark::State& state) {
   Engine gen(std::random_device{}());
 

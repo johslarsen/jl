@@ -18,7 +18,7 @@
 /// Johs's <mail@johslarsen.net> Library. Use however you see fit.
 namespace jl {
 
-template <typename T = void>
+template <class T = void>
 expected_or_errno<T*> ok_mmap(void* p) {
   if (p == MAP_FAILED) return std::unexpected(errno);
   return reinterpret_cast<T*>(p);
@@ -36,7 +36,7 @@ inline std::vector<iovec> as_iovecs(R&& spans) noexcept {
   return std::ranges::to<std::vector>(spans | std::views::transform(as_iovec<T>));
 }
 
-template <typename T>
+template <class T>
 inline std::span<T> as_span(auto&& src) noexcept {
   if constexpr (std::same_as<std::remove_cvref_t<decltype(src)>, iovec>) {
     return {reinterpret_cast<T*>(src.iov_base), src.iov_len / sizeof(T)};
@@ -45,13 +45,13 @@ inline std::span<T> as_span(auto&& src) noexcept {
   }
 }
 
-template <typename T>
+template <class T>
 inline std::vector<std::span<T>> as_spans(std::span<iovec> iovecs) noexcept {
   return std::ranges::to<std::vector>(iovecs | std::views::transform([](auto r) { return as_span<T>(r); }));
 }
 
 /// Copy the concatenation of list of input buffers (e.g. iovecs)
-template <typename T, typename ListOfSpanable>
+template <class T, class ListOfSpanable>
 inline std::span<T> copy(ListOfSpanable&& source, std::span<T> dest) noexcept {
   std::span<T> copied;
   for (const auto& spanable : source) {
@@ -132,7 +132,7 @@ class unique_fd {
   explicit unique_fd(int fd) : _fd(fd) {}
 };
 
-template <typename C>
+template <class C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] size_t write(int fd, const C& data) {
   constexpr size_t size = sizeof(typename C::value_type);
@@ -142,7 +142,7 @@ template <typename C>
   return write(fd, std::span(data));
 }
 
-template <typename C, size_t Size = sizeof(typename C::value_type)>
+template <class C, size_t Size = sizeof(typename C::value_type)>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] std::expected<size_t, error> writeall(int fd, const C& data) {
   return rw_loop(Size * data.size(), [fd, buf = data.data()](size_t remaining, off_t offset) {
@@ -152,12 +152,12 @@ template <typename C, size_t Size = sizeof(typename C::value_type)>
       .transform_error([fd](auto ec) { return error(ec, "write({})", fd); });
 }
 
-template <typename T>
+template <class T>
 [[nodiscard]] std::span<T> read(int fd, std::span<T> buffer) {
   auto n = unwrap(ok_or_errno(::read(fd, buffer.data(), sizeof(T) * buffer.size())));
   return buffer.subspan(0, n / sizeof(T));
 }
-template <typename C>
+template <class C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] std::span<typename C::value_type> read(int fd, C& buffer) {
   return read(fd, std::span(buffer));
@@ -167,7 +167,7 @@ template <typename C>
   return {result.data(), result.size()};
 }
 
-template <typename T, size_t Size = sizeof(T)>
+template <class T, size_t Size = sizeof(T)>
 [[nodiscard]] std::expected<std::span<T>, error> readall(int fd, std::span<T> buffer) {
   return rw_loop(Size * buffer.size(), [fd, buf = buffer.data()](size_t remaining, off_t offset) {
            return ::read(fd, buf + offset / Size, remaining);
@@ -330,7 +330,7 @@ struct host_port {
   bool operator==(const host_port&) const = default;
 };
 
-template <typename T>
+template <class T>
 [[nodiscard]] std::expected<void, error> setsockopt(int fd, int level, int option_name, const T& value) {
   return zero_or_errno(::setsockopt(fd, level, option_name, &value, sizeof(value)))
       .transform_error([=](auto ec) { return error(ec, "setsockopt({}, {}, {})", fd, level, option_name); });
@@ -396,7 +396,7 @@ class unique_socket : public unique_fd {
   }
 };
 
-template <typename C>
+template <class C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] size_t send(int fd, const C& data, int flags = 0) {
   constexpr size_t size = sizeof(typename C::value_type);
@@ -406,12 +406,12 @@ template <typename C>
   return send(fd, std::span(data), flags);
 }
 
-template <typename T>
+template <class T>
 [[nodiscard]] std::span<T> recv(int fd, std::span<T> buffer, int flags = 0) {
   auto n = unwrap(ok_or_errno(::recv(fd, buffer.data(), sizeof(T) * buffer.size(), flags)));
   return buffer.subspan(0, n / sizeof(T));
 }
-template <typename C>
+template <class C>
   requires std::constructible_from<std::span<const typename C::value_type>, C>
 [[nodiscard]] std::span<typename C::value_type> recv(int fd, C& data, int flags = 0) {
   return recv(fd, std::span(data), flags);
@@ -452,7 +452,7 @@ void inline listen(int fd, int backlog) {
 
 /// An abstraction for managing the POSIX "span" structures required by
 /// multi-message system calls like recvmmsg/sendmmsg.
-template <typename T = char>
+template <class T = char>
   requires std::is_trivially_copyable_v<T>
 class mmsg_socket {
   unique_socket _fd;
@@ -533,7 +533,7 @@ class mmsg_socket {
 };
 
 /// Same as mmsg_socket, but with a self-managed buffer
-template <typename T = char>
+template <class T = char>
   requires std::is_trivially_copyable_v<T>
 class mmsg_buffer : public mmsg_socket<T> {
   std::vector<T> _buffer;
@@ -558,7 +558,7 @@ class mmsg_buffer : public mmsg_socket<T> {
 };
 
 /// An owned and managed memory mapped span.
-template <typename T>
+template <class T>
   requires std::is_trivially_copyable_v<T>
 class unique_mmap {
   std::span<T> _map;
@@ -629,7 +629,7 @@ class unique_mmap {
 };
 
 /// An owned and managed file descriptor and mapping to its contents
-template <typename T>
+template <class T>
   requires std::is_trivially_copyable_v<T>
 class fd_mmap {
   off_t _offset;  // need to keep track of this to properly map size after truncation
@@ -712,7 +712,7 @@ class fd_mmap {
 /// threshold. Given an atomic Index type, one writer and one reader can safely
 /// use this to share data across threads. Even so, it is not thread-safe to
 /// use this if there are multiple readers or writers.
-template <typename T, size_t Capacity, typename Index = uint32_t>
+template <class T, size_t Capacity, class Index = uint32_t>
   requires std::is_trivially_copyable_v<T>  // because the wrap-around functionality uses mmaps
 class CircularBuffer {
   static_assert((sizeof(T) * Capacity) % (4 << 10) == 0,

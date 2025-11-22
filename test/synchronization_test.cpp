@@ -1,7 +1,7 @@
 #include <doctest/doctest.h>
 #include <jl.h>
 
-template <typename T>
+template <class T>
 auto futures_of(auto&& promises) {
   std::vector<std::future<T>> futures;
   futures.reserve(promises.size());

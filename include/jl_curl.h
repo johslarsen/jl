@@ -166,7 +166,7 @@ class easy {
     return std::forward<Self>(self);
   }
 
-  template <typename T>
+  template <class T>
   T& info(CURLINFO id, T& result) {
     if (auto err = curl_easy_getinfo(_curl.get(), id, &result); err != CURLE_OK) {
       throw error(err, "curl_easy_getinfo({}) failed", static_cast<int>(id));
@@ -177,7 +177,7 @@ class easy {
     result.reset(info<curl_slist*>(id));
     return result;
   }
-  template <typename T>
+  template <class T>
   T info(CURLINFO id) {
     T value;
     info(id, value);

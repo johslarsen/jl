@@ -4,7 +4,7 @@
 #include <deque>
 #include <thread>
 
-template <typename Index>
+template <class Index>
 void BM_CircularBufferBytewiseAdvance(benchmark::State& state) {
   jl::CircularBuffer<char, 4 << 10, Index> buf;
   double bytes_read = 0;
@@ -64,7 +64,7 @@ BENCHMARK(BM_ParallelCircularBufferRWDataEndpoints)->ArgName("BurstSize")->ArgsP
 static const std::vector<int64_t> burst_sizes = {/*1, 2, 16, 256,*/ 1 << 10,
                                                  /*4 << 10*/};
 
-template <size_t Capacity, typename Index>
+template <size_t Capacity, class Index>
 void BM_CircularBufferFillThenEmpty(benchmark::State& state) {
   std::vector<uint8_t> frame(state.range(0));
   jl::CircularBuffer<uint8_t, Capacity, Index> buf;
@@ -93,7 +93,7 @@ BENCHMARK_TEMPLATE(BM_CircularBufferFillThenEmpty, 2 << 20, std::atomic<uint32_t
 BENCHMARK_TEMPLATE(BM_CircularBufferFillThenEmpty, 16 << 20, std::atomic<uint32_t>)->ArgName("BurstSize")->ArgsProduct({burst_sizes});
 BENCHMARK_TEMPLATE(BM_CircularBufferFillThenEmpty, 128 << 20, std::atomic<uint32_t>)->ArgName("BurstSize")->ArgsProduct({burst_sizes});
 
-template <typename Container>
+template <class Container>
 void BM_ContainerFillThenEmptyWith1KiBursts(benchmark::State& state) {
   ssize_t chunk = state.range(0);
   size_t capacity = state.range(1);

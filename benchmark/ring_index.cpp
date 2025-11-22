@@ -5,7 +5,7 @@
 
 constexpr size_t Capacity = 0x7fff'ffff'ffff'ffff;
 
-template <typename T>
+template <class T>
 void BM_Singlethreaded(benchmark::State& state) {
   jl::RingIndex<T, Capacity> fifo;
   size_t steps = 0;

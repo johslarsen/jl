@@ -35,18 +35,18 @@ constexpr std::size_t hardware_constructive_interference_size = 64;
 constexpr std::size_t hardware_destructive_interference_size = 64;
 #endif
 
-template <typename T>
+template <class T>
 concept numeric = std::integral<T> || std::floating_point<T>;
 
-template <typename T, typename U>
+template <class T, class U>
 concept bitcastable_to = requires(T t) { std::bit_cast<U>(t); };
 
-template <typename T, typename... Us>
+template <class T, class... Us>
 concept one_of = (... || std::same_as<std::remove_cvref_t<T>, Us>);
 
 /// Comparisons with equivalence class where t == u && t2 == u !=> t == t2.
 /// Same as https://en.cppreference.com/w/cpp/concepts/equality_comparable exposition only helper concept
-template <typename T, typename U>
+template <class T, class U>
 concept weakly_comparable_with = requires(const std::remove_reference_t<T>& t, const std::remove_reference_t<U>& u) {
   { t == u } -> std::convertible_to<bool>;
   { t != u } -> std::convertible_to<bool>;
@@ -55,7 +55,7 @@ concept weakly_comparable_with = requires(const std::remove_reference_t<T>& t, c
 };
 
 /// @returns true if haystack matches any of the patterns
-template <typename T, weakly_comparable_with<T>... Us>
+template <class T, weakly_comparable_with<T>... Us>
 [[nodiscard]] constexpr bool among(const T& haystack, const Us&... pattern) {
   return ((haystack == pattern) || ...);
 }
@@ -129,7 +129,7 @@ class error : public std::system_error {
 // it tries to be compatible with both int and std::error_code types.
 
 /// Placeholder for `std::expected<T, /*generic*/ std::error_code>` that is constexpr compatible
-template <typename T>
+template <class T>
 using expected_or_errno = std::expected<T, int>;
 
 template <std::integral T>
@@ -146,7 +146,7 @@ zero_or_errno(T n) noexcept {
 }
 
 /// @returns a lambda for std::expected<T, std::error_code>::or_else that replaces ERRNOs with fallback
-template <int... ERRNOs, typename T>
+template <int... ERRNOs, class T>
 [[nodiscard]] constexpr auto retryable_as(T&& fallback) noexcept {
   return [fallback = std::forward<T>(fallback)]<jl::one_of<std::error_code, int> EC>(EC ec) -> std::expected<T, EC> {
     if constexpr (std::same_as<std::error_code, EC>) {
@@ -160,7 +160,7 @@ template <int... ERRNOs, typename T>
   ;
 }
 ///// @returns a lambda for std::expected<T, std::error_code>::or_else to replace retryable errors with fallback
-template <std::same_as<std::error_code>... ECs, typename T>
+template <std::same_as<std::error_code>... ECs, class T>
 [[nodiscard]] constexpr auto retryable_as(T&& fallback, ECs... retryable) noexcept {
   return [fallback = std::forward<T>(fallback), retryable...](std::error_code ec) -> std::expected<T, std::error_code> {
     if (among(ec, retryable...)) return fallback;
@@ -170,22 +170,22 @@ template <std::same_as<std::error_code>... ECs, typename T>
 
 /// @returns expected value or throw its error
 /// Like: https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap
-template <typename T, std::derived_from<std::exception> E>
+template <class T, std::derived_from<std::exception> E>
 [[nodiscard]] constexpr T unwrap(std::expected<T, E>&& expected) {
   if (!expected.has_value()) throw std::move(expected.error());
   if constexpr (!std::is_void_v<T>) return std::move(*expected);
 }
-template <typename T>
+template <class T>
 [[nodiscard]] T unwrap(std::expected<T, std::error_code>&& expected) {
   return unwrap(expected.transform_error([](std::error_code ec) { return jl::error(ec); }));
 }
-template <typename T>
+template <class T>
 [[nodiscard]] T unwrap(expected_or_errno<T>&& expected) {
   return unwrap(std::move(expected).transform_error([](int posix_errno) { return jl::error(jl::as_ec(posix_errno)); }));
 }
 
 /// @returns promised value now or throw if it is not ready without blocking
-template <typename T>
+template <class T>
 [[nodiscard]] T unwrap(std::future<T> future) {
   if (future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
     throw std::runtime_error("unwrapped future was not ready");
@@ -202,14 +202,14 @@ template <typename T>
 
 /// @returns std::expected with the given value or the given error
 /// Like: https://doc.rust-lang.org/std/option/enum.Option.html#method.ok_or
-template <typename T, typename E>
+template <class T, class E>
 [[nodiscard]] constexpr std::expected<T, E> ok_or(std::optional<T> opt, E error) noexcept {
   if (opt) return *opt;
   return std::unexpected(std::move(error));
 }
 /// @returns std::expected with the given value or the result from calling error
 /// Like: https://doc.rust-lang.org/std/option/enum.Option.html#method.ok_or_else
-template <typename T, std::invocable F>
+template <class T, std::invocable F>
 [[nodiscard]] constexpr std::expected<T, std::invoke_result_t<F>> ok_or_else(std::optional<T> opt, F error) noexcept(std::is_nothrow_invocable_v<F>) {
   if (opt) return *opt;
   return std::unexpected(error());
@@ -227,7 +227,7 @@ ok_or_join_with(const std::string& separator, std::expected<T, E>&&... args) {
   return std::unexpected(std::runtime_error(err));
 }
 
-template <typename E, class F, class... Args>
+template <class E, class F, class... Args>
 [[nodiscard]] constexpr std::expected<std::invoke_result_t<F, Args...>, E> try_catch(F f, Args&&... args) {
   try {
     return std::invoke(f, std::forward<Args>(args)...);
@@ -285,7 +285,7 @@ struct deadline {
       return r - delay;
     });
   }
-  template <typename Duration = decltype(deadline)::duration>
+  template <class Duration = decltype(deadline)::duration>
   [[nodiscard]] std::optional<Duration> backoff_duration(decltype(deadline) now = std::chrono::system_clock::now()) {
     return remaining(now).transform([this](auto r) { return std::chrono::duration_cast<Duration>(std::min(r, timeout++)); });
   }
@@ -369,7 +369,7 @@ class invocable_counter {
   }
 };
 
-template <typename T>
+template <class T>
 [[nodiscard]] inline T* nullable(std::optional<T>& opt) {
   if (opt.has_value()) return &(*opt);
   return nullptr;
@@ -453,7 +453,7 @@ std::span<char> truncate_into(std::span<char> buf, std::format_string<Args...> f
 }
 
 /// NOTE: require explicit ResultType, because some generators (e.g. std::mt19937) use fast uints that can be padded
-template <typename ResultType, size_t Extent>
+template <class ResultType, size_t Extent>
 inline void urandom_into(std::span<std::byte, Extent> buffer, auto&& gen) {
   /// TODO: use C++26 std::ranges::generate_random
   for (size_t i = 0; i < buffer.size(); i += sizeof(ResultType)) {
@@ -467,7 +467,7 @@ inline void urandom_into(std::span<std::byte, Extent> buffer) {
   urandom_into<uint64_t>(buffer, gen);
 }
 /// NOTE: require explicit ResultType, because some generators (e.g. std::mt19937) use fast uints that can be padded
-template <typename ResultType>
+template <class ResultType>
 inline std::string urandom(size_t total_bytes, auto&& gen) {
   std::string buffer(total_bytes, 0);
   urandom_into<ResultType>(std::as_writable_bytes(std::span(buffer)), gen);
@@ -509,7 +509,7 @@ template <std::predicate<char> F>
 }
 
 /// @returns true if the Blacklist characters in str needs to be quoted
-template <typename Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
+template <class Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
   requires std::predicate<Blacklist, char>
 [[nodiscard]] inline bool needs_quotes(
     std::string_view str,
@@ -531,7 +531,7 @@ template <typename Blacklist = decltype([](unsigned char ch) { return std::isaln
 
 /// An I/O manipulator that inserts str std::quoted if it needs to be or as is
 /// if it is already properly quoted or if there are no Blacklist characters in it.
-template <typename Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
+template <class Blacklist = decltype([](unsigned char ch) { return std::isalnum(ch) == 0; })>
   requires std::predicate<Blacklist, char>
 struct MaybeQuoted {
   std::string_view _str;
@@ -605,7 +605,7 @@ template <> struct uint_from_size<16> { using type = uint128; };
 // clang-format on
 
 /// @return T constructed from the given bytes
-template <typename T>
+template <class T>
   requires std::is_trivially_copyable_v<T>
 [[nodiscard]] constexpr T native(std::span<const std::byte, sizeof(T)> bytes) {
   return std::bit_cast<T>([bytes]() {
@@ -622,12 +622,12 @@ template <std::integral Int>
                 "jl::be only supported on big/little-endian architectures");
   return std::endian::native == std::endian::little ? std::byteswap(n) : n;
 }
-template <typename T, typename U = uint_from_size<sizeof(T)>::type>
+template <class T, class U = uint_from_size<sizeof(T)>::type>
   requires(!std::integral<T>)
 [[nodiscard]] constexpr T be(T n) noexcept {
   return std::endian::native == std::endian::little ? std::bit_cast<T>(be(std::bit_cast<U>(n))) : n;
 }
-template <typename T>
+template <class T>
 [[nodiscard]] constexpr T be(std::span<const std::byte, sizeof(T)> bytes) {
   return be(native<T>(bytes));
 }
@@ -639,12 +639,12 @@ template <std::integral Int>
                 "jl::le only supported on big/little-endian architectures");
   return std::endian::native == std::endian::big ? std::byteswap(n) : n;
 }
-template <typename T, typename U = uint_from_size<sizeof(T)>::type>
+template <class T, class U = uint_from_size<sizeof(T)>::type>
   requires(!std::integral<T>)
 [[nodiscard]] constexpr T le(T n) noexcept {
   return std::endian::native == std::endian::big ? std::bit_cast<T>(le(std::bit_cast<U>(n))) : n;
 }
-template <typename T>
+template <class T>
 [[nodiscard]] constexpr T le(std::span<const std::byte, sizeof(T)> bytes) {
   return le(native<T>(bytes));
 }
@@ -755,7 +755,7 @@ struct crc32c : crc<uint32_t, 0x1edc'6f41, 0xffff'ffff, true, 0xffff'ffff> {};
 // for more CRC variants see https://reveng.sourceforge.io/crc-catalogue/
 
 /// @returns same as span.subspan(...), but truncated/empty where it would be ill-formed/UB
-template <typename T>
+template <class T>
 [[nodiscard]] constexpr inline std::span<T> upto(std::span<T> span, size_t offset, size_t count = std::dynamic_extent) {
   if (offset > span.size()) return {};
   if (count == std::dynamic_extent) return span.subspan(offset);
@@ -763,7 +763,7 @@ template <typename T>
 }
 
 /// @returns same as span.subspan(...) or an error of span where it would be ill-formed/UB
-template <size_t Offset, size_t Count, typename T>
+template <size_t Offset, size_t Count, class T>
 [[nodiscard]] constexpr inline std::expected<std::span<T, Count>, std::invalid_argument> atleast(std::span<T> span) {
   static_assert(Count != std::dynamic_extent);
   if (span.size() < Offset + Count) return std::unexpected(std::invalid_argument(std::format("subspan({}, {}) < {}", Offset, Count, span.size())));
@@ -771,7 +771,7 @@ template <size_t Offset, size_t Count, typename T>
 }
 
 /// @returns same as span.subspan<Offset, Count>(), but throws where it would be ill-formed/UB
-template <size_t Offset, size_t Count, typename T, size_t Extent = std::dynamic_extent>
+template <size_t Offset, size_t Count, class T, size_t Extent = std::dynamic_extent>
 [[nodiscard]] constexpr inline std::span<T, Count> subspan(std::span<T, Extent> span) {
   static_assert(Count != std::dynamic_extent);
   if constexpr (Extent == std::dynamic_extent) {
@@ -792,7 +792,7 @@ inline std::string_view view_of(std::span<Char> bytes) noexcept {
 ///
 /// Optimized for mostly sorted input data, since std::vector-like structures
 /// are cheaper to insert into close to the end than close to the beginning.
-template <std::ranges::bidirectional_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
+template <std::ranges::bidirectional_range R, class T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
 std::ranges::borrowed_iterator_t<R> rsearch_lower_bound(R&& range, const T& v, Compare comp = {}) {
   assert(std::ranges::is_sorted(range));
   auto [iter, end] = std::ranges::find_last_if(range.begin(), range.end(), [&comp, &v](const auto& c) { return comp(c, v); });
@@ -803,19 +803,19 @@ std::ranges::borrowed_iterator_t<R> rsearch_lower_bound(R&& range, const T& v, C
 ///
 /// @param lower_bound must point to either something == v, if it is exists; something >= v or end of the range
 /// @returns iterator to the inserted v or end
-template <std::ranges::range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
+template <std::ranges::range R, class T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
 auto insert_unique(R& range, std::ranges::iterator_t<R> lower_bound, T&& v, Compare comp = {}) {
   if (auto end = std::ranges::end(range); lower_bound != end && !comp(v, *lower_bound)) return end;
   return range.insert(lower_bound, std::forward<T>(v));
 }
 
 /// Given a presorted range, linear reverse search for v's sorted location and insert it there
-template <std::ranges::bidirectional_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
+template <std::ranges::bidirectional_range R, class T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
 T& sorted_append(R& range, T v, Compare comp = Compare()) {
   return *range.insert(rsearch_lower_bound(range, v, comp), std::move(v));
 }
 /// Given a presorted range, binary search for v's sorted location and insert it there
-template <std::ranges::random_access_range R, typename T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
+template <std::ranges::random_access_range R, class T = std::ranges::range_value_t<R>, class Compare = std::less<T>>
 T& sorted_insert(R& range, T v, Compare comp = Compare()) {
   return *range.insert(std::ranges::lower_bound(range, v, comp), std::move(v));
 }
@@ -826,7 +826,7 @@ T& sorted_insert(R& range, T v, Compare comp = Compare()) {
 /// that was to be enforced, then this could not be used to implement the
 /// iterator for said range, because it would not satisfy the range concept
 /// needed for this until it already had a proper iterator implemented.
-template <typename R, typename T = std::ranges::range_value_t<R>>
+template <class R, class T = std::ranges::range_value_t<R>>
 struct idx_iter {
   R* _range = nullptr;
   size_t _i = 0;
@@ -853,7 +853,7 @@ struct idx_iter {
   [[nodiscard]] constexpr auto operator<=>(const idx_iter& other) const { return _i <=> other._i; }
 };
 
-template <typename T, std::size_t Extent = std::dynamic_extent>
+template <class T, std::size_t Extent = std::dynamic_extent>
 class chunked {
   std::span<T, Extent> _buffer;
   size_t _n;
@@ -915,7 +915,7 @@ inline std::timespec as_timespec(std::chrono::nanoseconds ns) {
   return {.tv_sec = s.count(), .tv_nsec = (ns - s).count()};
 }
 
-template <typename Duration>
+template <class Duration>
 constexpr std::pair<std::chrono::year_month_day, std::chrono::hh_mm_ss<Duration>> ymdhms(std::chrono::sys_time<Duration> t) {
   auto days = std::chrono::floor<std::chrono::days>(t);
   return {std::chrono::year_month_day(days), std::chrono::hh_mm_ss(t - days)};
@@ -940,7 +940,7 @@ constexpr std::chrono::tai_time j2000_tt = []() {
 }();
 
 /// std::chrono::duration_cast, but safely clamped close to ToDur::min/max when the input duration have a larger range
-template <typename ToDur, typename Rep, typename Period>
+template <class ToDur, class Rep, class Period>
 ToDur clamped_cast(const std::chrono::duration<Rep, Period>& t) {
   using namespace std::chrono;
   static_assert(duration<double>(duration<Rep, Period>::max()) >= duration<double>(ToDur::max()),
@@ -955,7 +955,7 @@ ToDur clamped_cast(const std::chrono::duration<Rep, Period>& t) {
   return std::chrono::duration_cast<ToDur>(std::clamp(t, min, max));
 }
 
-template <typename Clock = std::chrono::system_clock>
+template <class Clock = std::chrono::system_clock>
 struct realtimer {
   Clock::duration elapsed{};  //< Total time spent between start()s and stop()s.
   // NOTE: negative after start(), but before stop(), idea from and see details in
@@ -993,7 +993,7 @@ struct elapsed {
 };
 
 /// Start the given timer at construction and stop it on destruction
-template <typename Timer>
+template <class Timer>
 class scoped_timer {
   Timer& _timer;
 
@@ -1012,7 +1012,7 @@ class scoped_timer {
 /// implementing efficient single-producer-single-consumer data structures.
 /// There is one implementation for raw integers that gives a better performance
 /// if thread-safety is not needed and one lock-free implementation for atomics.
-template <typename T, size_t Capacity, bool is_atomic = !std::unsigned_integral<T>>
+template <class T, size_t Capacity, bool is_atomic = !std::unsigned_integral<T>>
 /// See https://www.snellman.net/blog/archive/2016-12-13-ring-buffers/ for further details
   requires std::unsigned_integral<T> || (std::unsigned_integral<typename T::value_type> && T::is_always_lock_free)
 class RingIndex {
@@ -1021,7 +1021,7 @@ class RingIndex {
   static_assert(std::bit_width(Capacity) < static_cast<T>(CHAR_BIT * sizeof(T)),
                 "Ring capacity needs the \"sign\" bit to detect if it is full in the presence of overflow");
 };
-template <typename T, size_t Capacity>
+template <class T, size_t Capacity>
 class RingIndex<T, Capacity, false> {
   T _read = 0;
   T _write = 0;
@@ -1034,7 +1034,7 @@ class RingIndex<T, Capacity, false> {
   void store_write(size_t write) { _write = write; }
   void store_read(size_t read) { _read = read; }
 };
-template <typename Atomic, size_t Capacity>
+template <class Atomic, size_t Capacity>
 class RingIndex<Atomic, Capacity, true> {
   using T = Atomic::value_type;
   alignas(hardware_destructive_interference_size) Atomic _read = 0;
@@ -1076,7 +1076,7 @@ class RingIndex<Atomic, Capacity, true> {
 /// A basic ring buffer. Given an atomic Index type, one writer and one reader
 /// can safely use this to share data across threads. Even so, it is not
 /// thread-safe to use this if there are multiple readers or writers.
-template <typename T, size_t Capacity, typename Index = uint32_t>
+template <class T, size_t Capacity, class Index = uint32_t>
 class Ring {
   std::array<T, Capacity> _buffer;
   RingIndex<Index, Capacity> _fifo;
@@ -1132,20 +1132,20 @@ template <numeric T>
 }
 
 /// A tuple of std::optional<Ts>... with helper accessor given the wrapped type
-template <typename... Ts>
+template <class... Ts>
 struct tuple_of_opts : std::tuple<std::optional<Ts>...> {
-  template <typename T>
+  template <class T>
   constexpr auto&& get(this auto&& self) {
     return std::get<std::optional<T>>(std::forward<decltype(self)>(self));
   }
 };
 /// A tuple of std::expected<Ts, E>... with helper accessor given the wrapped type
-template <typename E, typename... Ts>
+template <class E, class... Ts>
 struct tuple_of_expected : std::tuple<std::expected<Ts, E>...> {
   static tuple_of_expected unexpected(const E& error) {
     return tuple_of_expected{{std::expected<Ts, E>{std::unexpected(error)}...}};
   }
-  template <typename T>
+  template <class T>
   constexpr auto&& get(this auto&& self) {
     return std::get<std::expected<T, E>>(std::forward<decltype(self)>(self));
   }
@@ -1173,7 +1173,7 @@ class rows {
   // gory implementation details to quack like the most relevant parts of std::span<std::tuple<Ts...>> follows:
 
   /// @returns std::tuple<maybe const &, ...>
-  template <typename Self>
+  template <class Self>
   constexpr auto operator[](this Self& self, size_t i) {
     return [&]<size_t... Js>(std::index_sequence<Js...>) {
       if constexpr (std::is_const_v<std::remove_reference_t<Self>>) {
@@ -1203,7 +1203,7 @@ class rows {
   std::tuple<Rs...> _columns;
 };
 
-template <size_t N, typename... Ts>
+template <size_t N, class... Ts>
 using arrays = rows<std::array<Ts, N>...>;
 
 template <std::ranges::random_access_range... Rs>
@@ -1226,9 +1226,9 @@ class dynamic_rows : public resizeable_rows<Rs...> {  // e.g. std::deque
  public:
   using resizeable_rows<Rs...>::resizeable_rows;
 
-  template <typename... Args>
+  template <class... Args>
   constexpr std::tuple<std::ranges::range_value_t<Rs>&...> emplace_back(Args&&... args) {
-    return [&]<size_t... Js, typename T>(std::index_sequence<Js...>, T&& t) {
+    return [&]<size_t... Js, class T>(std::index_sequence<Js...>, T&& t) {
       return std::tuple<std::ranges::range_value_t<Rs>&...>{
           rows<Rs...>::template mutable_column<Js>().emplace_back(std::get<Js>(std::forward<T>(t)))...,
       };
@@ -1250,7 +1250,7 @@ class reservable_rows : public dynamic_rows<Rs...> {
   }
 };
 
-template <typename... Ts>
+template <class... Ts>
 using vectors = reservable_rows<std::vector<Ts>...>;
 
 struct istat {
@@ -1310,7 +1310,7 @@ double stddev(std::ranges::sized_range auto&& r) {
   return std::sqrt(variance(std::forward<decltype(r)>(r)));
 }
 
-template <typename T>
+template <class T>
 struct peaks {
   T _min = std::numeric_limits<T>::max();
   T _max = std::numeric_limits<T>::min();

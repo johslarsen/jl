@@ -8,7 +8,7 @@ struct crc32_cksum : jl::crc<uint32_t, 0x04c1'1db7, 0x0, false, 0xffff'ffff> {};
 struct crc64_we : jl::crc<uint64_t, 0x42f0'e1eb'a9ea'3693, 0xffff'ffff'ffff'ffff, false, 0xffff'ffff'ffff'ffff> {};
 struct crc64_nvme : jl::crc<uint64_t, 0xad93'd235'94c9'35a9, 0x0, true, 0x0> {};
 
-template <typename CRC>
+template <class CRC>
 static void BM_CRC_uint64_t(benchmark::State& state) {
   uint64_t bytes_checksummed = 0;
   uint32_t crc = 0;
@@ -28,7 +28,7 @@ BENCHMARK_TEMPLATE(BM_CRC_uint64_t, jl::crc32c);
 BENCHMARK_TEMPLATE(BM_CRC_uint64_t, crc64_we);
 BENCHMARK_TEMPLATE(BM_CRC_uint64_t, crc64_nvme);
 
-template <typename CRC>
+template <class CRC>
 static void BM_CRC_str(benchmark::State& state) {
   const size_t nbyte = state.range(0);
   std::string str(nbyte, 0);
