@@ -6,6 +6,11 @@ if(${CURL_FOUND})
   target_link_libraries(curl_benchmark jl_curl benchmark)
 endif()
 
+if(${Eigen3_FOUND})
+  add_executable(eigen_benchmark eigen.cpp)
+  target_link_libraries(eigen_benchmark jl_eigen benchmark)
+endif()
+
 add_executable(fixed_string fixed_string.cpp)
 target_link_libraries(fixed_string jl benchmark)
 

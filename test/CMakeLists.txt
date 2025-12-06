@@ -34,6 +34,12 @@ if(${CURL_FOUND})
   add_test(jl_curl_test jl_curl_test)
 endif()
 
+if(${Eigen3_FOUND})
+  add_executable(jl_eigen_test eigen/eigen_test.cpp test.cpp)
+  target_link_libraries(jl_eigen_test jl_eigen doctest)
+  add_test(jl_eigen_test jl_eigen_test)
+endif()
+
 add_executable(jl_db_test db/mock_test.cpp test.cpp)
 if(${PostgreSQL_FOUND})
   target_sources(jl_db_test PRIVATE db/psql_test.cpp)

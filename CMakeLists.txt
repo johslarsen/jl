@@ -24,6 +24,12 @@ if(${CURL_FOUND})
   target_link_libraries(jl_curl INTERFACE jl curl)
 endif()
 
+find_package(Eigen3)
+if(${Eigen3_FOUND})
+  add_library(jl_eigen INTERFACE include/jl_eigen.h)
+  target_link_libraries(jl_eigen INTERFACE jl ${Eigen3_LIBRARIES})
+endif()
+
 find_package(SQLite3)
 find_package(PostgreSQL)
 add_library(jl_db INTERFACE include/jl_db.h)
