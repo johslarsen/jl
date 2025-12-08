@@ -1,6 +1,37 @@
 #include <benchmark/benchmark.h>
 #include <jl_eigen.h>
 
+template <class M>
+static void BM_iterate_column_major(benchmark::State& state) {
+  M m(1000, 1000);
+  for (auto _ : state) {
+    for (Eigen::Index i = 0; i < m.cols(); ++i) {
+      for (Eigen::Index j = 0; j < m.rows(); ++j) {
+        ++m(j, i);
+      }
+    }
+    benchmark::DoNotOptimize(m);
+  }
+}
+BENCHMARK_TEMPLATE(BM_iterate_column_major, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>);
+BENCHMARK_TEMPLATE(BM_iterate_column_major, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>);
+BENCHMARK_TEMPLATE(BM_iterate_column_major, Eigen::Matrix<double, 100, 100, Eigen::ColMajor>);
+BENCHMARK_TEMPLATE(BM_iterate_column_major, Eigen::Matrix<double, 100, 100, Eigen::RowMajor>);
+template <class M>
+static void BM_for_each(benchmark::State& state) {
+  M m(1000, 1000);
+  for (auto _ : state) {
+    jl::eigen::for_each(m, [&m](Eigen::Index j, Eigen::Index i) {
+      ++m(j, i);
+    });
+    benchmark::DoNotOptimize(m);
+  }
+}
+BENCHMARK_TEMPLATE(BM_for_each, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>);
+BENCHMARK_TEMPLATE(BM_for_each, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>);
+BENCHMARK_TEMPLATE(BM_for_each, Eigen::Matrix<double, 100, 100, Eigen::ColMajor>);
+BENCHMARK_TEMPLATE(BM_for_each, Eigen::Matrix<double, 100, 100, Eigen::RowMajor>);
+
 template <Eigen::Index M, Eigen::Index K>
 static void BM_conv2(benchmark::State& state) {
   Eigen::Matrix<double, M, M> m = Eigen::Matrix<double, M, M>::Random();
