@@ -59,12 +59,15 @@ TEST_SUITE("stat") {
   }
 
   TEST_CASE("peaks") {
-    auto one_to_hundred = std::views::iota(1, 101);
+    jl::peaks<int> empty;
+    CHECK(!empty.valid());
 
-    jl::peaks<int> one_to_hundred_peaks;
-    one_to_hundred_peaks.add(one_to_hundred);
+    jl::peaks<int> one;
+    one.add(1);
+    CHECK(one.valid().value() == jl::peaks{.min = 1, .max = 1});
 
-    CHECK(one_to_hundred_peaks.min().value() == 1);
-    CHECK(one_to_hundred_peaks.max().value() == 100);
+    jl::peaks<int> one_to_hundred;
+    one_to_hundred.add(std::views::iota(1, 101));
+    CHECK(one_to_hundred.valid().value() == jl::peaks{.min = 1, .max = 100});
   }
 }

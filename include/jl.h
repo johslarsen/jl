@@ -1329,12 +1329,12 @@ double stddev(std::ranges::sized_range auto&& r) {
 
 template <class T>
 struct peaks {
-  T _min = std::numeric_limits<T>::max();
-  T _max = std::numeric_limits<T>::min();
+  T min = std::numeric_limits<T>::max();
+  T max = std::numeric_limits<T>::min();
 
   T add(T x) {
-    _min = std::min(_min, x);
-    _max = std::max(_max, x);
+    min = std::min(min, x);
+    max = std::max(max, x);
     return x;
   }
   auto&& add(std::ranges::range auto&& r) {
@@ -1342,8 +1342,11 @@ struct peaks {
     return std::forward<decltype(r)>(r);
   }
 
-  std::optional<T> min() { return _min < _max ? std::optional(_min) : std::nullopt; }
-  std::optional<T> max() { return _min < _max ? std::optional(_max) : std::nullopt; }
+  std::optional<peaks> valid() {
+    return min <= max ? std::optional(*this) : std::nullopt;
+  }
+
+  bool operator==(const peaks&) const = default;
 };
 
 }  // namespace jl
