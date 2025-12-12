@@ -155,6 +155,23 @@ TEST_SUITE("misc") {
       }
     }
   }
+
+  TEST_CASE("interval") {
+    constexpr jl::interval plus_minus_2{.min = -2, .max = 2};
+    SUBCASE("contains") {
+      static_assert(!plus_minus_2.contains(-3));
+      static_assert(plus_minus_2.contains(-2));
+      static_assert(plus_minus_2.contains(0));
+      static_assert(plus_minus_2.contains(2));
+      static_assert(!plus_minus_2.contains(3));
+    }
+    SUBCASE("subset_of_sorted") {
+      constexpr auto subset = jl::subset_of_sorted(std::views::iota(-5, 5), plus_minus_2);
+      static_assert(subset.size() == 5);
+      CHECK(std::vector(subset.begin(), subset.end()) == std::vector{-2, -1, 0, 1, 2});
+    }
+  }
+
   TEST_CASE("idx_iter") {
     static_assert(std::input_or_output_iterator<jl::idx_iter<std::span<int>>>);
     static_assert(std::input_iterator<jl::idx_iter<std::span<int>>>);

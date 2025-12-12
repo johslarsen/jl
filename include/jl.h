@@ -788,6 +788,23 @@ inline std::string_view view_of(std::span<Char> bytes) noexcept {
   return {data, bytes.size()};
 }
 
+template <class T>
+struct interval {
+  T min;
+  T max;
+
+  [[nodiscard]] constexpr bool contains(const T& element) const {
+    return min <= element && element <= max;
+  }
+};
+template <std::ranges::forward_range R, class T, class Proj = std::identity,
+          std::indirect_strict_weak_order<const T*, std::projected<std::ranges::iterator_t<R>, Proj>> Comp = std::ranges::less>
+constexpr std::ranges::borrowed_subrange_t<R>
+subset_of_sorted(R&& r, const interval<T>& inclusive, Comp comp = {}, Proj proj = {}) {
+  return {std::ranges::lower_bound(r, inclusive.min, comp, proj),
+          std::ranges::upper_bound(r, inclusive.max, comp, proj)};
+}
+
 /// Given a presorted range, find the lower_bound using a linear search from the end
 ///
 /// Optimized for mostly sorted input data, since std::vector-like structures
