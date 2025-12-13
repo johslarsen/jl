@@ -32,6 +32,24 @@ BENCHMARK_TEMPLATE(BM_for_each, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dyn
 BENCHMARK_TEMPLATE(BM_for_each, Eigen::Matrix<double, 100, 100, Eigen::ColMajor>);
 BENCHMARK_TEMPLATE(BM_for_each, Eigen::Matrix<double, 100, 100, Eigen::RowMajor>);
 
+#ifdef _LIBCPP_VERSION
+template <class M>
+static void BM_mdspan_for_each(benchmark::State& state) {
+  M m(1000, 1000);
+  auto mdspan = jl::eigen::span_of(m);
+  for (auto _ : state) {
+    jl::md::for_each(mdspan, [&](M::Scalar& e) {
+      ++e;
+    });
+    benchmark::DoNotOptimize(mdspan);
+  }
+}
+BENCHMARK_TEMPLATE(BM_mdspan_for_each, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>);
+BENCHMARK_TEMPLATE(BM_mdspan_for_each, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>);
+BENCHMARK_TEMPLATE(BM_mdspan_for_each, Eigen::Matrix<double, 100, 100, Eigen::ColMajor>);
+BENCHMARK_TEMPLATE(BM_mdspan_for_each, Eigen::Matrix<double, 100, 100, Eigen::RowMajor>);
+#endif
+
 template <Eigen::Index M, Eigen::Index K>
 static void BM_conv2(benchmark::State& state) {
   Eigen::Matrix<double, M, M> m = Eigen::Matrix<double, M, M>::Random();

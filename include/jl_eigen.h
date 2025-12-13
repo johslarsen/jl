@@ -48,3 +48,76 @@ conv2(const Eigen::MatrixBase<M>& m, const Eigen::MatrixBase<K>& kernel) {
 }
 
 }  // namespace jl::eigen
+
+// mdspan is still missing as of GCC libstdc++ 15.2.1
+#ifdef _LIBCPP_VERSION
+#include <mdspan>
+namespace jl::eigen {
+
+constexpr size_t as_extent(Eigen::Index i) {
+  return i == Eigen::Dynamic ? std::dynamic_extent : i;
+}
+
+template <class Dense>
+  requires std::derived_from<std::remove_cvref_t<Dense>, Eigen::PlainObjectBase<std::remove_cvref_t<Dense>>>
+constexpr auto span_of(Dense& m) {
+  using element_type = std::conditional_t<std::is_const_v<Dense>, std::add_const_t<typename Dense::Scalar>, typename Dense::Scalar>;
+  using extents = std::extents<Eigen::Index, as_extent(Dense::RowsAtCompileTime), as_extent(Dense::ColsAtCompileTime)>;
+  if constexpr (Dense::IsRowMajor) {
+    return std::mdspan<element_type, extents, std::layout_right>(m.data(), m.rows(), m.cols());
+  } else {
+    return std::mdspan<element_type, extents, std::layout_left>(m.data(), m.rows(), m.cols());
+  }
+}
+
+}  // namespace jl::eigen
+
+namespace jl::md {
+
+template <class Extents>
+using idx = std::array<typename Extents::index_type, Extents::rank()>;
+
+template <class Extents, class... Is>
+void constexpr row_major_each(const Extents& e, std::invocable<idx<Extents>> auto&& f, Is... outer) {
+  if constexpr (sizeof...(Is) == Extents::rank()) {
+    f(std::array{outer...});
+  } else {
+    for (typename Extents::index_type i = 0; i < e.extent(sizeof...(Is)); ++i) {
+      row_major_each(e, f, outer..., i);
+    }
+  }
+}
+template <class Extents, class... Is>
+void constexpr col_major_each(const Extents& e, std::invocable<idx<Extents>> auto&& f, Is... outer) {
+  if constexpr (sizeof...(Is) == Extents::rank()) {
+    std::array idx{outer...};
+    std::ranges::reverse(idx);
+    f(idx);
+  } else {
+    for (typename Extents::index_type i = 0; i < e.extent(Extents::rank() - 1 - sizeof...(Is)); ++i) {
+      col_major_each(e, f, outer..., i);
+    }
+  }
+}
+
+template <class MDSpan>
+void constexpr for_each(const MDSpan& m, std::invocable<idx<typename MDSpan::extents_type>> auto&& f) {
+  if constexpr (std::same_as<typename MDSpan::layout_type, std::layout_right>) {
+    row_major_each(m.extents(), f);
+  } else if constexpr (std::same_as<typename MDSpan::layout_type, std::layout_left>) {
+    col_major_each(m.extents(), f);
+  } else {
+    static_assert(false, "unsupported LayoutMapping");
+  }
+}
+template <class MDSpan>
+void constexpr for_each(const MDSpan& m, std::invocable<typename std::remove_reference_t<MDSpan>::element_type&, idx<typename MDSpan::extents_type>> auto&& f) {
+  for_each(m, [&m, &f](idx<typename MDSpan::extents_type> i) { f(m[i], i); });
+}
+template <class MDSpan>
+void constexpr for_each(const MDSpan& m, std::invocable<typename std::remove_reference_t<MDSpan>::element_type&> auto&& f) {
+  for_each(m, [&m, &f](idx<typename MDSpan::extents_type> i) { f(m[i]); });
+}
+
+}  // namespace jl::md
+#endif

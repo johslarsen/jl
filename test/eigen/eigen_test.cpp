@@ -31,6 +31,49 @@ TEST_SUITE("eigen") {
       CHECK(sum == 3);
     }
   }
+
+#ifdef _LIBCPP_VERSION
+  TEST_CASE("as_span") {
+    SUBCASE("mutable dynamic ColMajor span") {
+      using ColMajor = Eigen::Matrix<char, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>;
+      ColMajor col_major = ColMajor::Identity(3, 2);
+      auto span = jl::eigen::span_of(col_major);
+      static_assert(std::same_as<decltype(span)::layout_type, std::layout_left>);
+      span[1, 1] = 42;
+      CHECK(col_major(1, 1) == 42);
+    }
+    SUBCASE("const static RowMajor span") {
+      using RowMajor = Eigen::Matrix<char, 3, 2, Eigen::RowMajor>;
+      const RowMajor row_major = RowMajor::Identity();
+      const auto span = jl::eigen::span_of(row_major);
+      static_assert(std::same_as<decltype(span)::layout_type, std::layout_right>);
+      CHECK(span[1, 1] == 1);
+    }
+  }
+  TEST_CASE("mdspan for_each") {
+    SUBCASE("mutable reference") {
+      Eigen::Matrix<Eigen::Index, 5, 2, Eigen::ColMajor> col_major;
+      Eigen::Matrix<Eigen::Index, 5, 2, Eigen::RowMajor> row_major;
+
+      jl::md::for_each(jl::eigen::span_of(col_major), [](Eigen::Index& e, std::array<Eigen::Index, 2> ij) {
+        e = ij[0] << 4 | ij[1];
+      });
+      jl::md::for_each(jl::eigen::span_of(row_major), [](Eigen::Index& e, std::array<Eigen::Index, 2> ij) {
+        e = ij[0] << 4 | ij[1];
+      });
+
+      CHECK(col_major(4, 1) == 0x41);
+      CHECK(row_major(4, 1) == 0x41);
+    }
+    SUBCASE("const reference") {
+      const Eigen::Matrix3d& m = Eigen::Matrix3d::Identity();
+      Eigen::Index sum = 0;
+      jl::md::for_each(jl::eigen::span_of(m), [&sum](const Eigen::Index& e) { sum += e; });
+      CHECK(sum == 3);
+    }
+  }
+#endif
+
   TEST_CASE("conv2") {
     SUBCASE("scalar kernel") {
       auto upto5 = Eigen::Vector<double, 5>::LinSpaced(1, 5);
