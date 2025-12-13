@@ -19,6 +19,14 @@ void constexpr for_each(const Eigen::MatrixBase<M>& m, std::invocable<Eigen::Ind
     }
   }
 }
+template <class M>
+void constexpr for_each(M&& m, std::invocable<typename std::remove_reference_t<M>::Scalar&, Eigen::Index, Eigen::Index> auto&& f) {
+  for_each(m, [&m, &f](Eigen::Index j, Eigen::Index i) { f(m(j, i), j, i); });
+}
+template <class M>
+void constexpr for_each(M&& m, std::invocable<typename std::remove_reference_t<M>::Scalar&> auto&& f) {
+  for_each(m, [&m, &f](Eigen::Index j, Eigen::Index i) { f(m(j, i)); });
+}
 
 /// 2D convolution like e.g. https://www.mathworks.com/help/matlab/ref/conv2.html
 /// @return the part of the result without any zero-padded edges
@@ -32,9 +40,9 @@ conv2(const Eigen::MatrixBase<M>& m, const Eigen::MatrixBase<K>& kernel) {
                 dim(M::RowsAtCompileTime, K::RowsAtCompileTime),
                 dim(M::ColsAtCompileTime, K::ColsAtCompileTime), M::Options>
       result(dim(m.rows(), kernel.rows()), dim(m.cols(), kernel.cols()));
-  for_each(result, [&](Eigen::Index j, Eigen::Index i) {
+  for_each(result, [&m, &kernel](M::Scalar& e, Eigen::Index j, Eigen::Index i) {
     auto window = m.template block<K::RowsAtCompileTime, K::ColsAtCompileTime>(j, i, kernel.rows(), kernel.cols()).array();
-    result(j, i) = (window * kernel.array().reverse()).sum();
+    e = (window * kernel.array().reverse()).sum();
   });
   return result;
 }

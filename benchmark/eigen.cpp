@@ -21,8 +21,8 @@ template <class M>
 static void BM_for_each(benchmark::State& state) {
   M m(1000, 1000);
   for (auto _ : state) {
-    jl::eigen::for_each(m, [&m](Eigen::Index j, Eigen::Index i) {
-      ++m(j, i);
+    jl::eigen::for_each(m, [](M::Scalar& e) {
+      ++e;
     });
     benchmark::DoNotOptimize(m);
   }

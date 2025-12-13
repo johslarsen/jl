@@ -10,18 +10,26 @@ static void expect_near(const auto& a, const auto& b, double epsilon = DBL_EPSIL
 
 TEST_SUITE("eigen") {
   TEST_CASE("for_each") {
-    Eigen::Matrix<Eigen::Index, 5, 2, Eigen::ColMajor> col_major;
-    Eigen::Matrix<Eigen::Index, 5, 2, Eigen::RowMajor> row_major;
+    SUBCASE("mutable reference") {
+      Eigen::Matrix<Eigen::Index, 5, 2, Eigen::ColMajor> col_major;
+      Eigen::Matrix<Eigen::Index, 5, 2, Eigen::RowMajor> row_major;
 
-    jl::eigen::for_each(col_major, [&](Eigen::Index j, Eigen::Index i) {
-      col_major(j, i) = j << 4 | i;
-    });
-    jl::eigen::for_each(row_major, [&](Eigen::Index j, Eigen::Index i) {
-      row_major(j, i) = j << 4 | i;
-    });
+      jl::eigen::for_each(col_major, [](Eigen::Index& e, Eigen::Index j, Eigen::Index i) {
+        e = j << 4 | i;
+      });
+      jl::eigen::for_each(row_major, [](Eigen::Index& e, Eigen::Index j, Eigen::Index i) {
+        e = j << 4 | i;
+      });
 
-    CHECK(col_major(4, 1) == 0x41);
-    CHECK(row_major(4, 1) == 0x41);
+      CHECK(col_major(4, 1) == 0x41);
+      CHECK(row_major(4, 1) == 0x41);
+    }
+    SUBCASE("const reference") {
+      const Eigen::Matrix3d& m = Eigen::Matrix3d::Identity();
+      Eigen::Index sum = 0;
+      jl::eigen::for_each(m, [&sum](const Eigen::Index& e) { sum += e; });
+      CHECK(sum == 3);
+    }
   }
   TEST_CASE("conv2") {
     SUBCASE("scalar kernel") {
