@@ -14,11 +14,11 @@ TEST_SUITE("eigen") {
       Eigen::Matrix<Eigen::Index, 5, 2, Eigen::ColMajor> col_major;
       Eigen::Matrix<Eigen::Index, 5, 2, Eigen::RowMajor> row_major;
 
-      jl::eigen::for_each(col_major, [](Eigen::Index& e, Eigen::Index j, Eigen::Index i) {
-        e = j << 4 | i;
+      jl::eigen::for_each(col_major, [](Eigen::Index& e, Eigen::Index i, Eigen::Index j) {
+        e = i << 4 | j;
       });
-      jl::eigen::for_each(row_major, [](Eigen::Index& e, Eigen::Index j, Eigen::Index i) {
-        e = j << 4 | i;
+      jl::eigen::for_each(row_major, [](Eigen::Index& e, Eigen::Index i, Eigen::Index j) {
+        e = i << 4 | j;
       });
 
       CHECK(col_major(4, 1) == 0x41);

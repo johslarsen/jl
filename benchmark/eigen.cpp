@@ -5,9 +5,9 @@ template <class M>
 static void BM_iterate_column_major(benchmark::State& state) {
   M m(1000, 1000);
   for (auto _ : state) {
-    for (Eigen::Index i = 0; i < m.cols(); ++i) {
-      for (Eigen::Index j = 0; j < m.rows(); ++j) {
-        ++m(j, i);
+    for (Eigen::Index j = 0; j < m.cols(); ++j) {
+      for (Eigen::Index i = 0; i < m.rows(); ++i) {
+        ++m(i, j);
       }
     }
     benchmark::DoNotOptimize(m);
