@@ -201,15 +201,31 @@ inline expected_or_errno<int> poll(int fd, short events, std::chrono::nanosecond
       .transform([&fds](int nfd) { return nfd == 1 ? fds.revents : 0; });
 }
 
+// @return lazy-initialized once from TMPDIR environment (or to /tmp if missing)
+inline const std::string& tmpdir() {
+  static const std::string tmpdir = jl::env_or("TMPDIR", "/tmp");
+  return tmpdir;
+}
+struct tmpname {
+  std::optional<std::string> dir = std::nullopt;
+  std::string prefix;
+  std::string suffix = "";
+
+  [[nodiscard]] std::string as_template() const {
+    if (dir) return std::format("{}/{}XXXXXX{}", *dir, prefix, suffix);
+    return std::format("{}/{}XXXXXX{}", tmpdir(), prefix, suffix);
+  }
+};
+
 /// A named file descriptor that is closed and removed upon destruction.
 class tmpfd {
   unique_fd _fd;
   std::filesystem::path _path;
 
  public:
-  [[nodiscard]] static std::expected<tmpfd, error> open(const std::string& prefix = "/tmp/jl_tmpfile_", const std::string& suffix = "") {
-    auto path = std::format("{}XXXXXX{}", prefix, suffix);
-    return unique_fd::from(mkstemps(path.data(), static_cast<int>(suffix.length())))
+  [[nodiscard]] static std::expected<tmpfd, error> open(const tmpname& name = {.prefix = "jl_tmpfile_"}) {
+    auto path = name.as_template();
+    return unique_fd::from(mkstemps(path.data(), static_cast<int>(name.suffix.length())))
         .transform_error([&path](auto ec) { return error(ec, "mkstemps({})", path); })
         .transform([&path](unique_fd fd) { return tmpfd(std::move(fd), std::move(path)); });
   }
