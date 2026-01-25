@@ -188,6 +188,19 @@ template <class T, size_t Size = sizeof(T)>
       .transform_error([=](auto ec) { return error(ec, "ftruncate({}, {})", fd, length); });
 }
 
+template <int mode>
+[[nodiscard]] std::expected<void, error> inline fallocate(int fd, off_t offset, off_t size) {
+  auto status = [&]() -> expected_or_errno<void> {
+#ifdef _GNU_SOURCE
+    return zero_or_errno(::fallocate(fd, mode, offset, size));
+#else
+    static_assert(mode == 0, "non-0 fallocate requires _GNU_SOURCE");
+    return zero_or_postive_errc(posix_fallocate(fd, offset, size));
+#endif
+  }();
+  return status.transform_error([=](auto ec) { return error(ec, "fallocate<0x{:x}>({}, {}, {})", mode, fd, offset, size); });
+}
+
 /// @returns nfd
 inline expected_or_errno<int> poll(std::span<pollfd> fds, std::chrono::nanoseconds timeout = std::chrono::nanoseconds(0), std::optional<sigset_t> sigset = std::nullopt) {
   auto ts = as_timespec(timeout);
@@ -679,7 +692,18 @@ class fd_mmap {
     int prot = PROT_READ | (mode != O_RDONLY ? PROT_WRITE : 0);
     return unique_fd::open(path, mode)
         .and_then([&](auto fd) { return fd_mmap<T>::map(std::move(fd), prot, flags, offset, count); })
-        .transform_error([&](const error& e) { return error(e.code(), "fd_mmap({}, 0x{:x})", path.c_str(), mode); });
+        .transform_error([&](const error& e) { return e.prefixed("fd_mmap({}, 0x{:x}): ", path.c_str(), mode); });
+  }
+
+  [[nodiscard]] static std::expected<fd_mmap<T>, error> allocated(const std::filesystem::path& path, size_t size, int mode = O_RDWR | O_CREAT, int flags = MAP_SHARED, off_t offset = 0) {  // NOLINT(*-swappable-parameters)
+    int prot = PROT_READ | (mode != O_RDONLY ? PROT_WRITE : 0);
+    return unique_fd::open(path, mode)
+        .and_then([size, offset](auto fd) -> std::expected<unique_fd, error> {
+          if (auto ok = jl::fallocate<0>(*fd, offset, static_cast<off_t>(size)); !ok) return std::unexpected(ok.error());
+          return fd;
+        })
+        .and_then([&](auto fd) { return fd_mmap<T>::map(std::move(fd), prot, flags, offset, size); })
+        .transform_error([&](const error& e) { return e.prefixed("fd_mmap({}, 0x{:x}): ", path.c_str(), mode); });
   }
 
   [[nodiscard]] int fd() const noexcept { return _fd.fd(); }

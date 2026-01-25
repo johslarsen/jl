@@ -144,6 +144,10 @@ zero_or_errno(T n) noexcept {
   if (n == 0) return {};
   return std::unexpected(errno);
 }
+[[nodiscard]] inline expected_or_errno<void> zero_or_postive_errc(int n) noexcept {
+  if (n == 0) return {};
+  return std::unexpected(n);
+}
 
 /// @returns a lambda for std::expected<T, std::error_code>::or_else that replaces ERRNOs with fallback
 template <int... ERRNOs, class T>
