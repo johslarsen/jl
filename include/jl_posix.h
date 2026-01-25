@@ -99,8 +99,8 @@ class unique_fd {
     return ok_or_errno(fd).transform([](int fd) { return unique_fd(fd); });
   }
 
-  [[nodiscard]] static std::expected<unique_fd, error> open(const std::filesystem::path& path, int oflag) {
-    return from(::open(path.c_str(), oflag))
+  [[nodiscard]] static std::expected<unique_fd, error> open(const std::filesystem::path& path, int oflag, mode_t mode = 0644) {
+    return from(::open(path.c_str(), oflag, mode))
         .transform_error([&](auto ec) { return error(ec, "open({}, 0x{:x})", path.c_str(), oflag); });
   }
 
