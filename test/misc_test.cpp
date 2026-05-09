@@ -189,4 +189,12 @@ TEST_SUITE("misc") {
     CHECK(jl::to_xdigits(std::as_bytes(std::span(fixed_seeded))) == "66dce15fb33deacb5c0362f30e95f52e6af463bb47d499c7bcae4199142ccb9866d6f02779182272d241");
     CHECK(fixed_seeded != random_seeded);
   }
+
+  TEST_CASE("rands") {
+    auto fixed_seeded = jl::rands<4>(std::uniform_real_distribution(-M_PI, M_PI), std::mt19937_64(42));
+    auto random_seeded = jl::rands<4>();
+
+    CHECK(fixed_seeded == std::array{1.603189495705536, 0.8735600111045331, 1.584275020615848, -2.2853661300205323});
+    CHECK(fixed_seeded != random_seeded);
+  }
 }

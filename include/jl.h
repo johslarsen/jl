@@ -483,6 +483,22 @@ inline std::string urandom(size_t total_bytes) {
   return buffer;
 }
 
+template <size_t N, class Distribution, class ResultType = std::remove_reference_t<Distribution>::result_type>
+inline std::array<ResultType, N> rands(Distribution&& distribution, auto&& gen) {
+  std::array<ResultType, N> result;
+  for (auto& x : result) x = distribution(gen);
+  return result;
+}
+template <size_t N, class Distribution>
+inline auto rands(Distribution&& distribution) {
+  thread_local std::mt19937_64 gen(std::random_device{}());
+  return rands<N>(distribution, gen);
+}
+template <size_t N>
+inline std::array<double, N> rands() {
+  return rands<N>(std::uniform_real_distribution(0.0, 1.0));
+}
+
 /// @returns index of the first unescaped ch or std::string::npos.
 /// @returns size-1 if that happens to be an incomplete escape sequence
 [[nodiscard]] inline size_t find_unescaped(std::string_view haystack, char ch, size_t pos = 0, char escape = '\\') {  // NOLINT(*-swappable-parameters)
