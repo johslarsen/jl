@@ -6,10 +6,11 @@ TEST_SUITE("SQLite3") {
   }
 
   TEST_CASE("db::mock as a man in the middle proxy") {
-    jl::db::mock proxy([backend = jl::db::open("file:///db.sqlite3?mode=memory")](std::string sql, const auto& params) {
-      std::ranges::replace(sql, 'o', 'a');
+    jl::db::mock proxy([backend = jl::db::open("file:///db.sqlite3?mode=memory")](jl::cstr_view sql, const auto& params) {
+      std::string copy(sql);
+      std::ranges::replace(copy, 'o', 'a');
       auto new_params = std::vector<jl::db::param>(params.size(), 42);
-      return backend->execv(sql, new_params);
+      return backend->execv(copy, new_params);
     });
     auto result = proxy.exec("SELECT 'foo', $1, $2", 13, "foo");
     CHECK(result[0].str() == "faa");

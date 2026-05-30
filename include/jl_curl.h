@@ -72,7 +72,7 @@ class unique_slist {
   void reset(curl_slist* p) { _list.reset(p); }
 
   template <class Self>
-  auto&& add(this Self&& self, const char* str) {
+  auto&& add(this Self&& self, cstr_view str) {
     decltype(_list) next(curl_slist_append(self._list.get(), str));
     if (!next) throw std::runtime_error("curl_slist_append(...) failed");
     std::swap(self._list, next);
@@ -159,7 +159,7 @@ class easy {
 
   /// Configure a request. Use e.g. `jl::curl_ok(curl.request(...))`, to run it
   template <class Self>
-  auto&& request(this Self&& self, const char* url, writer response, reader body = no_body) {
+  auto&& request(this Self&& self, cstr_view url, writer response, reader body = no_body) {
     self.setopt(CURLOPT_URL, url);
     self._state->response = std::move(response);
     self._state->body = std::move(body);
@@ -214,21 +214,21 @@ class easy {
 }
 
 /// @returns the response body from a successful preconfigured CURL request
-[[nodiscard]] inline std::expected<std::string, error> ok(easy& curl, const char* url, std::string_view body = "", std::string buffer = "") {
+[[nodiscard]] inline std::expected<std::string, error> ok(easy& curl, cstr_view url, std::string_view body = "", std::string buffer = "") {
   curl.setopt(CURLOPT_POSTFIELDSIZE, body.size());  // to avoid chunked transfer encoding
   return ok(curl.request(url, overwrite(buffer), read_from(body)))
       .transform([&buffer](long /*status*/) { return std::move(buffer); });
 }
 
-[[nodiscard]] inline std::expected<std::string, error> GET(const char* url, easy& curl = easy::clean(), std::string buffer = "") {
+[[nodiscard]] inline std::expected<std::string, error> GET(cstr_view url, easy& curl = easy::clean(), std::string buffer = "") {
   curl.setopt(CURLOPT_HTTPGET, 1);  // NOTE: automatically resets CURLOPT_POST/UPLOAD
   return ok(curl, url, "", std::move(buffer));
 }
-[[nodiscard]] inline std::expected<std::string, error> POST(const char* url, std::string_view body, easy& curl = easy::clean(), std::string buffer = "") {
+[[nodiscard]] inline std::expected<std::string, error> POST(cstr_view url, std::string_view body, easy& curl = easy::clean(), std::string buffer = "") {
   curl.setopt(CURLOPT_POST, 1);  // NOTE: automatically resets CURLOPT_HTTPGET/UPLOAD
   return ok(curl, url, body, std::move(buffer));
 }
-[[nodiscard]] inline std::expected<std::string, error> PUT(const char* url, std::string_view body, easy& curl = easy::clean(), std::string buffer = "") {
+[[nodiscard]] inline std::expected<std::string, error> PUT(cstr_view url, std::string_view body, easy& curl = easy::clean(), std::string buffer = "") {
   curl.setopt(CURLOPT_UPLOAD, 1);  // NOTE: automatically resets CURLOPT_HTTPGET/POST
   return ok(curl, url, body, std::move(buffer));
 }
@@ -409,7 +409,7 @@ using unique_url = std::unique_ptr<CURLU, deleter<curl_url_cleanup>>;
 /// actually possible, but at least it is cute so I am trying it out.
 class url : public std::expected<unique_url, jl::error> {
  public:
-  static url parse(const char* url, int flags = 0) {
+  static url parse(const cstr_view url, int flags = 0) {
     return curl::url().with(CURLUPART_URL, url, flags);
   }
 
@@ -421,7 +421,7 @@ class url : public std::expected<unique_url, jl::error> {
     }
   }
 
-  [[nodiscard]] url with(CURLUPart part, const char* value, int flags = 0) && {
+  [[nodiscard]] url with(CURLUPart part, cstr_view value, int flags = 0) && {
     if (!has_value()) return std::unexpected(error());
     if (auto ok = set(part, value, flags); !ok) return std::unexpected(ok.error());
     return std::move(*this);
@@ -445,7 +445,7 @@ class url : public std::expected<unique_url, jl::error> {
       return std::string(managed.get());
     });
   }
-  [[nodiscard]] std::expected<void, jl::error> set(CURLUPart part, const char* value, int flags = 0) {
+  [[nodiscard]] std::expected<void, jl::error> set(CURLUPart part, cstr_view value, int flags = 0) {
     return and_then([part, value, flags](const auto& url) -> std::expected<void, jl::error> {
       if (auto err = curl_url_set(url.get(), part, value, flags); err != CURLUE_OK) {
         return std::unexpected(make_url_error(err, "curl_url_set"));

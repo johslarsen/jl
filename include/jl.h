@@ -573,6 +573,24 @@ inline C join(R&& r, Pattern&& pattern) {
   return std::ranges::to<C>(r | std::views::join_with(std::forward<Pattern>(pattern)));
 }
 
+/// similar to string_view but representing a zero-terminated C-string that can be passed to APIs requiring that semantic
+class cstr_view {
+  const char* _p;
+  mutable size_t _n;
+
+ public:
+  cstr_view(const char* native, size_t n = std::dynamic_extent) : _p(native), _n(n) {}  // NOLINT(*-explicit-*)
+  cstr_view(const std::string& str) : _p(str.c_str()), _n(std::ssize(str)) {}           // NOLINT(*-explicit-*)
+  operator const char*() const { return _p; }                                           // NOLINT(*-explicit-*)
+  explicit operator std::string() const { return {_p, size()}; }                        // explicit, since it makes a copy
+
+  [[nodiscard]] const char* data() const { return _p; }
+  [[nodiscard]] size_t size() const {
+    if (_n == std::dynamic_extent) _n = std::strlen(_p);
+    return _n;
+  }
+};
+
 struct to_s {
   template <class T>
   std::string operator()(T&& arg) {
@@ -806,6 +824,9 @@ template <bitcastable_to<char> Char>
 inline std::string_view view_of(std::span<Char> bytes) noexcept {
   const char* data = reinterpret_cast<const char*>(bytes.data());  // NOLINT(*reinterpret-cast) Char template requirement makes this safe
   return {data, bytes.size()};
+}
+inline std::string_view view_of(cstr_view str) {
+  return {str.data(), str.size()};
 }
 
 template <class T>
@@ -1142,29 +1163,29 @@ class Ring {
   }
 };
 
-[[nodiscard]] inline std::expected<std::string, error> env(const char* name) noexcept {
+[[nodiscard]] inline std::expected<std::string, error> env(cstr_view name) noexcept {
   const char* value = std::getenv(name);  // NOLINT(*mt-unsafe)
-  if (value == nullptr) return std::unexpected(error(std::errc::invalid_argument, "environment {}", name));
+  if (value == nullptr) return std::unexpected(error(std::errc::invalid_argument, "environment {}", name.data()));
   return value;
 }
 
 template <numeric T>
-[[nodiscard]] inline std::expected<T, error> env_as(const char* name) {
+[[nodiscard]] inline std::expected<T, error> env_as(cstr_view name) {
   return env(name).and_then([name](const std::string& v) {
     return from_str<T>(v)
-        .transform_error([name](const error& e) { return e.prefixed("environment {} ", name); });
+        .transform_error([name](const error& e) { return e.prefixed("environment {} ", name.data()); });
   });
 }
 
 template <numeric T>
-[[nodiscard]] inline std::expected<T, error> env_or(const char* name, T fallback) noexcept {
+[[nodiscard]] inline std::expected<T, error> env_or(cstr_view name, T fallback) noexcept {
   if (auto v = env(name)) {
     return from_str<T>(*v)
-        .transform_error([name](const error& e) { return e.prefixed("environment {} ", name); });
+        .transform_error([name](const error& e) { return e.prefixed("environment {} ", name.data()); });
   }
   return fallback;
 }
-[[nodiscard]] inline std::string env_or(const char* name, const std::string& fallback) noexcept {
+[[nodiscard]] inline std::string env_or(cstr_view name, const std::string& fallback) noexcept {
   return env(name).value_or(fallback);
 }
 

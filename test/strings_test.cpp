@@ -122,6 +122,45 @@ TEST_SUITE("strings") {
     }
   }
 
+  TEST_CASE("cstr_view") {
+    const std::string string("foo");
+    constexpr const char* cstr = "bar";
+
+    SUBCASE("basics") {
+      const char* from_string = jl::cstr_view(string);
+      CHECK(from_string == string.data());
+      CHECK(jl::cstr_view(string).data() == string.data());
+      CHECK(jl::cstr_view(string).size() == 3);
+
+      const char* from_cstr = jl::cstr_view(cstr);
+      CHECK(from_cstr == cstr);
+      CHECK(jl::cstr_view(cstr).data() == cstr);
+      CHECK(jl::cstr_view(cstr).size() == 3);
+
+      const char* from_literal = jl::cstr_view("bar");
+      CHECK(std::string_view(from_literal) == "bar");
+    }
+
+    SUBCASE("from std::string_view should not compile") {
+      // jl::cstr_view from_sv(std::string_view("foo")); // should not compile
+    }
+    SUBCASE("convert to std::string should be explicit")
+    {
+      std::ignore = std::string(jl::cstr_view(string));
+      // std::stoi(jl::cstr_view("42")); // should not compile
+    }
+
+    SUBCASE("provided size is used instead of strlen") {
+      CHECK(jl::cstr_view(cstr, 1).size() == 1);
+      CHECK(jl::cstr_view(cstr, 5).size() == 5);
+    }
+
+    SUBCASE("view_of") {
+      std::string_view view = jl::view_of(jl::cstr_view(cstr));
+      CHECK(view.data() == cstr);
+    }
+  }
+
   TEST_CASE("line_eol") {
     SUBCASE("at end of input") {
       auto [standard_line, nl] = jl::line_eol::find_first_in("foo\n");

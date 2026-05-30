@@ -605,15 +605,15 @@ class unique_mmap {
         .transform([count](T* addr) { return unique_mmap<T>(std::span{addr, count}); });
   }
 
-  static std::expected<unique_mmap<T>, error> anon(size_t count, int prot = PROT_NONE, const std::string& name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE) {
+  static std::expected<unique_mmap<T>, error> anon(size_t count, int prot = PROT_NONE, cstr_view name = "unique_mmap", int flags = MAP_ANONYMOUS | MAP_PRIVATE) {
     return map(count, prot, flags, -1, 0)
         .transform([count, &name](unique_mmap<T> map) {
 #ifdef PR_SET_VMA
-          std::ignore = prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name.c_str());  // best effort, so okay if it fails silently
+          std::ignore = prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, &map[0], count * sizeof(T), name);  // best effort, so okay if it fails silently
 #endif
           return map;
         })
-        .transform_error([count, &name](auto ec) { return error(ec, "unique_mmap({} {}B)", name, count * sizeof(T)); });
+        .transform_error([count, &name](auto ec) { return error(ec, "unique_mmap({} {}B)", view_of(name), count * sizeof(T)); });
   }
 
   [[nodiscard]] auto& operator[](this auto& self, size_t idx) noexcept {
@@ -764,7 +764,7 @@ class CircularBuffer {
   size_t _consumers_read = 0;
 
  public:
-  [[nodiscard]] static std::expected<CircularBuffer, error> create(const std::string& mmap_name = "CircularBuffer") {
+  [[nodiscard]] static std::expected<CircularBuffer, error> create(cstr_view mmap_name = "CircularBuffer") {
     // _data is a continues virtual memory span twice as big as the Capacity
     // where the first and second half is mapped to the same shared buffer.
     // This gives a circular buffer that supports continuous memory spans even
@@ -843,7 +843,7 @@ class CircularBuffer {
  private:
   explicit CircularBuffer(unique_mmap<T> data) : _data(std::move(data)) {}
 
-  [[nodiscard]] static std::expected<unique_mmap<T>, error> prepare_data(const std::string& mmap_name = "CircularBuffer") {
+  [[nodiscard]] static std::expected<unique_mmap<T>, error> prepare_data(cstr_view mmap_name = "CircularBuffer") {
     // _data is a continues virtual memory span twice as big as the Capacity
     // where the first and second half is mapped to the same shared buffer.
     // This gives a circular buffer that supports continuous memory spans even
@@ -867,7 +867,7 @@ class CircularBuffer {
                                         .transform_error([](auto ec) { return error(ec, "mmap(CircularBuffer shadow)"); }); })
               .transform([&](auto) { return std::move(data); });
         })
-        .transform_error([&](const error& e) { return e.prefixed("CircularBuffer({}): ", mmap_name); });
+        .transform_error([&](const error& e) { return e.prefixed("CircularBuffer({}): ", view_of(mmap_name)); });
   }
 };
 
