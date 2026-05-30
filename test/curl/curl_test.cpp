@@ -34,6 +34,13 @@ TEST_SUITE("synchronize easy API") {
       CHECK(doctest::String(echo.c_str()) == doctest::Contains("POST"));
       CHECK(doctest::String(echo.c_str()) == doctest::Contains("bar"));
     }
+    SUBCASE("POST MIME") {
+      auto echo = jl::unwrap(jl::curl::POST("http://localhost:8080/foo", {{"bar", "baz"}}));
+      CHECK(doctest::String(echo.c_str()) == doctest::Contains("POST"));
+      CHECK(doctest::String(echo.c_str()) == doctest::Contains("multipart/form-data"));
+      CHECK(doctest::String(echo.c_str()) == doctest::Contains("bar"));
+      CHECK(doctest::String(echo.c_str()) == doctest::Contains("baz"));
+    }
     SUBCASE("PUT") {
       // CURL have no default Content-Type for PUT, and then ealen/echo-server does not output the body at all
       auto headers = jl::curl::unique_slist().add("Content-Type: application/x-www-form-urlencoded");
@@ -85,6 +92,19 @@ TEST_SUITE("synchronize easy API") {
     curl.setopt(CURLOPT_HTTPHEADER, *headers);
 
     CHECK(std::vector<std::string_view>{"Content-Type: text/plain", "Connection: keep-alive"} == headers.dump());
+  }
+
+  TEST_CASE("unique_mime") {
+    jl::curl::easy curl;
+    jl::curl::unique_mime mime(*curl);
+    mime.add("key", "value");
+    mime.add({{"key", "value"}});
+    mime.add(std::unordered_map<const char*, std::string_view>{{"key", "value"}});
+
+    curl_mimepart* part = mime.add("key");
+    CHECK(curl_mime_type(part, "application/json") == CURLE_OK);
+
+    curl.setopt(CURLOPT_MIMEPOST, *mime);
   }
 }
 

@@ -87,6 +87,53 @@ class unique_slist {
   }
 };
 
+/// WARN: in most cases this must outlive the curl handle it is set on
+class unique_mime {
+  std::unique_ptr<curl_mime, deleter<curl_mime_free>> _mime;
+
+ public:
+  explicit unique_mime(CURL* curl) : _mime(curl_mime_init(curl)) {
+    if (!_mime) throw std::runtime_error("curl_mime_init(...) failed");
+  }
+
+  template <class Self>
+  curl_mime* operator*() { return _mime.get(); }
+  const curl_mime* operator*() const { return _mime.get(); }
+
+  void reset(curl_mime* p) { _mime.reset(p); }
+
+  curl_mimepart* add(const cstr_view& name) {
+    curl_mimepart* part = curl_mime_addpart(_mime.get());
+    if (part == nullptr) throw std::runtime_error("curl_mime_addpart failed");
+    if (auto status = curl_mime_name(part, name); status != CURLE_OK) {
+      throw make_easy_error(status, "curl_mime_name({})", view_of(name));
+    }
+    return part;
+  }
+
+  template <class Self>
+  auto&& add(this Self&& self, const cstr_view& name, std::string_view data) {
+    curl_mimepart* part = self.add(name);
+    if (auto status = curl_mime_data(part, data.data(), data.size()); status != CURLE_OK) {
+      throw make_easy_error(status, "curl_mime_data");
+    }
+    return std::forward<Self>(self);
+  }
+  template <class Self, std::ranges::forward_range R,
+            class K = std::ranges::range_value_t<R>::first_type,
+            class V = std::ranges::range_value_t<R>::second_type>
+    requires std::convertible_to<K, cstr_view> && std::convertible_to<V, std::string_view>
+  auto&& add(this Self&& self, R&& name_data) {
+    for (const auto& [name, data] : name_data) self.add(name, data);
+    return std::forward<Self>(self);
+  }
+  template <class Self>
+  auto&& add(this Self&& self, const std::initializer_list<std::pair<const char*, std::string_view>>& name_data) {
+    for (const auto& [name, data] : name_data) self.add(name, data);
+    return std::forward<Self>(self);
+  }
+};
+
 /// C++ variant of https://curl.se/libcurl/c/CURLOPT_READFUNCTION.html
 using reader = std::function<size_t(std::span<std::byte>)>;
 inline size_t no_body(std::span<std::byte> /*ignored*/) { return 0; }
@@ -191,7 +238,7 @@ class easy {
   }
 
  private:
-  static size_t writefunction(char* ptr, size_t size, size_t nmemb, writer* userdata) {
+  static size_t writefunction(const char* ptr, size_t size, size_t nmemb, writer* userdata) {
     return (*userdata)(std::string_view(ptr, ptr + size * nmemb));
   }
   static size_t readfunction(std::byte* ptr, size_t size, size_t nmemb, reader* userdata) {
@@ -227,6 +274,21 @@ class easy {
 [[nodiscard]] inline std::expected<std::string, error> POST(cstr_view url, std::string_view body, easy& curl = easy::clean(), std::string buffer = "") {
   curl.setopt(CURLOPT_POST, 1);  // NOTE: automatically resets CURLOPT_HTTPGET/UPLOAD
   return ok(curl, url, body, std::move(buffer));
+}
+// WARN: no defaulted curl, since the mime better be associated with that curl!
+[[nodiscard]] inline std::expected<std::string, error> POST(cstr_view url, const unique_mime& mime, easy& curl, std::string buffer = "") {
+  curl.setopt(CURLOPT_MIMEPOST, *mime);  // NOTE: automatically resets CURLOPT_HTTPGET/UPLOAD
+  return ok(curl, url, "not used", std::move(buffer));
+}
+template <class Self, std::ranges::forward_range R,
+          class K = std::ranges::range_value_t<R>::first_type,
+          class V = std::ranges::range_value_t<R>::second_type>
+  requires std::convertible_to<K, cstr_view> && std::convertible_to<V, std::string_view>
+[[nodiscard]] inline std::expected<std::string, error> POST(cstr_view url, const R& form, easy& curl = easy::clean(), std::string buffer = "") {
+  return POST(url, unique_mime(*curl).add(form), curl, std::move(buffer));
+}
+[[nodiscard]] inline std::expected<std::string, error> POST(cstr_view url, const std::initializer_list<std::pair<const char*, std::string_view>>& form, easy& curl = easy::clean(), std::string buffer = "") {
+  return POST(url, unique_mime(*curl).add(form), curl, std::move(buffer));
 }
 [[nodiscard]] inline std::expected<std::string, error> PUT(cstr_view url, std::string_view body, easy& curl = easy::clean(), std::string buffer = "") {
   curl.setopt(CURLOPT_UPLOAD, 1);  // NOTE: automatically resets CURLOPT_HTTPGET/POST
