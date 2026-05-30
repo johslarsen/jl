@@ -72,7 +72,7 @@ class unique_slist {
   void reset(curl_slist* p) { _list.reset(p); }
 
   template <class Self>
-  auto&& add(this Self&& self, cstr_view str) {
+  auto&& push_back(this Self&& self, cstr_view str) {
     decltype(_list) next(curl_slist_append(self._list.get(), str));
     if (!next) throw std::runtime_error("curl_slist_append(...) failed");
     std::swap(self._list, next);
@@ -102,7 +102,7 @@ class unique_mime {
 
   void reset(curl_mime* p) { _mime.reset(p); }
 
-  curl_mimepart* add(const cstr_view& name) {
+  curl_mimepart* push_back(const cstr_view& name) {
     curl_mimepart* part = curl_mime_addpart(_mime.get());
     if (part == nullptr) throw std::runtime_error("curl_mime_addpart failed");
     if (auto status = curl_mime_name(part, name); status != CURLE_OK) {
@@ -112,25 +112,17 @@ class unique_mime {
   }
 
   template <class Self>
-  auto&& add(this Self&& self, const cstr_view& name, std::string_view data) {
-    curl_mimepart* part = self.add(name);
+  auto&& push_back(this Self&& self, const cstr_view& name, std::string_view data) {
+    curl_mimepart* part = self.push_back(name);
     if (auto status = curl_mime_data(part, data.data(), data.size()); status != CURLE_OK) {
       throw make_easy_error(status, "curl_mime_data");
     }
     return std::forward<Self>(self);
   }
-  template <class Self, std::ranges::forward_range R,
-            class K = std::ranges::range_value_t<R>::first_type,
-            class V = std::ranges::range_value_t<R>::second_type>
-    requires std::convertible_to<K, cstr_view> && std::convertible_to<V, std::string_view>
-  auto&& add(this Self&& self, R&& name_data) {
-    for (const auto& [name, data] : name_data) self.add(name, data);
-    return std::forward<Self>(self);
-  }
-  template <class Self>
-  auto&& add(this Self&& self, const std::initializer_list<std::pair<const char*, std::string_view>>& name_data) {
-    for (const auto& [name, data] : name_data) self.add(name, data);
-    return std::forward<Self>(self);
+
+  template <class Self, std::convertible_to<cstr_view> Name, std::convertible_to<std::string_view> Data>
+  auto&& push_back(this Self&& self, const std::pair<Name, Data>& name_data) {
+    return std::forward<Self>(self).push_back(name_data.first, name_data.second);
   }
 };
 
@@ -285,10 +277,10 @@ template <class Self, std::ranges::forward_range R,
           class V = std::ranges::range_value_t<R>::second_type>
   requires std::convertible_to<K, cstr_view> && std::convertible_to<V, std::string_view>
 [[nodiscard]] inline std::expected<std::string, error> POST(cstr_view url, const R& form, easy& curl = easy::clean(), std::string buffer = "") {
-  return POST(url, unique_mime(*curl).add(form), curl, std::move(buffer));
+  return POST(url, form | std::ranges::to<unique_mime>(*curl), curl, std::move(buffer));
 }
 [[nodiscard]] inline std::expected<std::string, error> POST(cstr_view url, const std::initializer_list<std::pair<const char*, std::string_view>>& form, easy& curl = easy::clean(), std::string buffer = "") {
-  return POST(url, unique_mime(*curl).add(form), curl, std::move(buffer));
+  return POST(url, form | std::ranges::to<unique_mime>(*curl), curl, std::move(buffer));
 }
 [[nodiscard]] inline std::expected<std::string, error> PUT(cstr_view url, std::string_view body, easy& curl = easy::clean(), std::string buffer = "") {
   curl.setopt(CURLOPT_UPLOAD, 1);  // NOTE: automatically resets CURLOPT_HTTPGET/POST

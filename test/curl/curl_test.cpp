@@ -43,7 +43,7 @@ TEST_SUITE("synchronize easy API") {
     }
     SUBCASE("PUT") {
       // CURL have no default Content-Type for PUT, and then ealen/echo-server does not output the body at all
-      auto headers = jl::curl::unique_slist().add("Content-Type: application/x-www-form-urlencoded");
+      auto headers = jl::curl::unique_slist().push_back("Content-Type: application/x-www-form-urlencoded");
       auto curl = jl::curl::easy().setopt(CURLOPT_HTTPHEADER, *headers);
 
       auto echo = jl::unwrap(jl::curl::PUT("http://localhost:8080/foo", "bar", curl));
@@ -85,8 +85,11 @@ TEST_SUITE("synchronize easy API") {
   }
 
   TEST_CASE("unique_slist") {
-    jl::curl::unique_slist headers;
-    headers.add("Content-Type: text/plain").add("Connection: keep-alive");
+    auto headers = std::initializer_list<const char*>{
+                       "Content-Type: text/plain",
+                       "Connection: keep-alive",
+                   } |
+                   std::ranges::to<jl::curl::unique_slist>();
 
     jl::curl::easy curl;
     curl.setopt(CURLOPT_HTTPHEADER, *headers);
@@ -96,12 +99,11 @@ TEST_SUITE("synchronize easy API") {
 
   TEST_CASE("unique_mime") {
     jl::curl::easy curl;
-    jl::curl::unique_mime mime(*curl);
-    mime.add("key", "value");
-    mime.add({{"key", "value"}});
-    mime.add(std::unordered_map<const char*, std::string_view>{{"key", "value"}});
+    auto mime = std::unordered_map<const char*, std::string_view>{{"key", "value"}} |
+                std::ranges::to<jl::curl::unique_mime>(*curl);
+    mime.push_back("key", "value");
 
-    curl_mimepart* part = mime.add("key");
+    curl_mimepart* part = mime.push_back("key");
     CHECK(curl_mime_type(part, "application/json") == CURLE_OK);
 
     curl.setopt(CURLOPT_MIMEPOST, *mime);
