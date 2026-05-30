@@ -570,7 +570,7 @@ inline std::ostream& operator<<(std::ostream& os, const MaybeQuoted<Blacklist>& 
 
 template <std::ranges::viewable_range R, class Pattern, class C = std::string>
 inline C join(R&& r, Pattern&& pattern) {
-  return std::ranges::to<std::string>(r | std::views::join_with(std::forward<Pattern>(pattern)));
+  return std::ranges::to<C>(r | std::views::join_with(std::forward<Pattern>(pattern)));
 }
 
 struct to_s {
