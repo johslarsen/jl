@@ -79,12 +79,6 @@ class unique_slist {
     std::ignore = next.release();
     return std::forward<Self>(self);
   }
-
-  [[nodiscard]] std::vector<std::string_view> dump() const {
-    return std::ranges::to<std::vector>([](const auto* p) -> std::generator<std::string_view> {
-      for (; p != nullptr; p = p->next) co_yield p->data;
-    }(_list.get()));
-  }
 };
 
 /// WARN: in most cases this must outlive the curl handle it is set on
@@ -162,6 +156,7 @@ class easy {
     std::array<char, CURL_ERROR_SIZE> error{};
     writer response = discard_body;
     reader body = no_body;
+    unique_slist hdrs{};
   };
   std::unique_ptr<stable_state> _state;  // should outlive _curl handle
   std::unique_ptr<CURL, deleter<curl_easy_cleanup>> _curl;
@@ -203,6 +198,30 @@ class easy {
     self._state->response = std::move(response);
     self._state->body = std::move(body);
     return std::forward<Self>(self);
+  }
+
+  template <class Self>
+  auto&& sethdrs(this Self&& self, unique_slist hdrs) {
+    self._state->hdrs = std::move(hdrs);
+    self.setopt(CURLOPT_HTTPHEADER, *self._state->hdrs);
+    return std::forward<Self>(self);
+  }
+  template <class Self, std::ranges::forward_range R>
+    requires std::convertible_to<std::ranges::range_value_t<R>, cstr_view>
+  auto&& sethdrs(this Self&& self, const R& hdrs) {
+    return std::forward<Self>(self).sethdrs(hdrs | std::ranges::to<unique_slist>());
+  }
+  template <class Self>
+  auto&& sethdrs(this Self&& self, std::initializer_list<jl::cstr_view> hdrs) {
+    return std::forward<Self>(self).sethdrs(hdrs | std::ranges::to<unique_slist>());
+  }
+  template <class Self, std::ranges::forward_range R,
+            class K = std::ranges::range_value_t<R>::first_type,
+            class V = std::ranges::range_value_t<R>::second_type>
+    requires std::convertible_to<K, std::string_view> && std::convertible_to<V, std::string_view>
+  auto&& sethdrs(this Self&& self, const R& hdrs) {
+    auto as_header = [](const auto& kv) { return std::format("{}: {}", kv.first, kv.second); };
+    return std::forward<Self>(self).sethdrs(hdrs | std::views::transform(as_header) | std::ranges::to<unique_slist>());
   }
 
   template <class T>

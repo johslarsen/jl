@@ -43,12 +43,20 @@ TEST_SUITE("synchronize easy API") {
     }
     SUBCASE("PUT") {
       // CURL have no default Content-Type for PUT, and then ealen/echo-server does not output the body at all
-      auto headers = jl::curl::unique_slist().push_back("Content-Type: application/x-www-form-urlencoded");
-      auto curl = jl::curl::easy().setopt(CURLOPT_HTTPHEADER, *headers);
+      auto curl = jl::curl::easy().sethdrs({"Content-Type: application/x-www-form-urlencoded"});
 
       auto echo = jl::unwrap(jl::curl::PUT("http://localhost:8080/foo", "bar", curl));
       CHECK(doctest::String(echo.c_str()) == doctest::Contains("PUT"));
       CHECK(doctest::String(echo.c_str()) == doctest::Contains("bar"));
+    }
+    SUBCASE("sethdrs") {
+      auto curl = jl::curl::easy().sethdrs({"bar: baz"});
+      auto from_list = jl::unwrap(jl::curl::GET("http://localhost:8080/foo", curl));
+      CHECK(doctest::String(from_list.c_str()) == doctest::Contains(R"("bar":"baz")"));
+
+      std::unordered_map<std::string_view, std::string_view> headers{{"baz", "qux"}};
+      auto from_map = jl::unwrap(jl::curl::GET("http://localhost:8080/foo", curl.sethdrs(headers)));
+      CHECK(doctest::String(from_map.c_str()) == doctest::Contains(R"("baz":"qux")"));
     }
   }
 
@@ -85,16 +93,7 @@ TEST_SUITE("synchronize easy API") {
   }
 
   TEST_CASE("unique_slist") {
-    auto headers = std::initializer_list<const char*>{
-                       "Content-Type: text/plain",
-                       "Connection: keep-alive",
-                   } |
-                   std::ranges::to<jl::curl::unique_slist>();
-
-    jl::curl::easy curl;
-    curl.setopt(CURLOPT_HTTPHEADER, *headers);
-
-    CHECK(std::vector<std::string_view>{"Content-Type: text/plain", "Connection: keep-alive"} == headers.dump());
+    std::initializer_list<const char*>{"foo: bar", "baz: qux"} | std::ranges::to<jl::curl::unique_slist>();
   }
 
   TEST_CASE("unique_mime") {
