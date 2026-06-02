@@ -12,6 +12,10 @@ TEST_SUITE("synchronize easy API") {
       auto content = jl::unwrap(jl::curl::GET(url_to_this_file));
       CHECK(content.size() == std::filesystem::file_size(__FILE__));
     }
+    SUBCASE("POST") {
+      auto content = jl::unwrap(jl::curl::POST(url_to_this_file, "ignored"));
+      CHECK(content.size() == std::filesystem::file_size(__FILE__));
+    }
     SUBCASE("PUT") {
       auto tmp = jl::unwrap(jl::tmpfd::open());
       auto response = jl::unwrap(jl::curl::PUT(tmp.url(), "foo"));
