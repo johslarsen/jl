@@ -9,12 +9,12 @@ const std::string url_to_this_file = std::format("file://{}", __FILE__);
 TEST_SUITE("synchronize easy API") {
   TEST_CASE("file://...") {
     SUBCASE("GET") {
-      auto content = jl::unwrap(jl::curl::GET(url_to_this_file.c_str()));
+      auto content = jl::unwrap(jl::curl::GET(url_to_this_file));
       CHECK(content.size() == std::filesystem::file_size(__FILE__));
     }
     SUBCASE("PUT") {
       auto tmp = jl::unwrap(jl::tmpfd::open());
-      auto response = jl::unwrap(jl::curl::PUT(tmp.url().c_str(), "foo"));
+      auto response = jl::unwrap(jl::curl::PUT(tmp.url(), "foo"));
       CHECK(response == "");
 
       auto content = jl::unwrap(jl::fd_mmap<char>::map(std::move(tmp).unlink()));
@@ -26,37 +26,37 @@ TEST_SUITE("synchronize easy API") {
   TEST_CASE("http echoserver" * doctest::skip()) {
     SUBCASE("GET") {
       auto echo = jl::unwrap(jl::curl::GET("http://localhost:8080/foo"));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("GET"));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("/foo"));
+      CHECK(doctest::String(echo) == doctest::Contains("GET"));
+      CHECK(doctest::String(echo) == doctest::Contains("/foo"));
     }
     SUBCASE("POST") {
       auto echo = jl::unwrap(jl::curl::POST("http://localhost:8080/foo", "bar"));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("POST"));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("bar"));
+      CHECK(doctest::String(echo) == doctest::Contains("POST"));
+      CHECK(doctest::String(echo) == doctest::Contains("bar"));
     }
     SUBCASE("POST MIME") {
       auto echo = jl::unwrap(jl::curl::POST("http://localhost:8080/foo", {{"bar", "baz"}}));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("POST"));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("multipart/form-data"));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("bar"));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("baz"));
+      CHECK(doctest::String(echo) == doctest::Contains("POST"));
+      CHECK(doctest::String(echo) == doctest::Contains("multipart/form-data"));
+      CHECK(doctest::String(echo) == doctest::Contains("bar"));
+      CHECK(doctest::String(echo) == doctest::Contains("baz"));
     }
     SUBCASE("PUT") {
       // CURL have no default Content-Type for PUT, and then ealen/echo-server does not output the body at all
       auto curl = jl::curl::easy().sethdrs({"Content-Type: application/x-www-form-urlencoded"});
 
       auto echo = jl::unwrap(jl::curl::PUT("http://localhost:8080/foo", "bar", curl));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("PUT"));
-      CHECK(doctest::String(echo.c_str()) == doctest::Contains("bar"));
+      CHECK(doctest::String(echo) == doctest::Contains("PUT"));
+      CHECK(doctest::String(echo) == doctest::Contains("bar"));
     }
     SUBCASE("sethdrs") {
       auto curl = jl::curl::easy().sethdrs({"bar: baz"});
       auto from_list = jl::unwrap(jl::curl::GET("http://localhost:8080/foo", curl));
-      CHECK(doctest::String(from_list.c_str()) == doctest::Contains(R"("bar":"baz")"));
+      CHECK(doctest::String(from_list) == doctest::Contains(R"("bar":"baz")"));
 
       std::unordered_map<std::string_view, std::string_view> headers{{"baz", "qux"}};
       auto from_map = jl::unwrap(jl::curl::GET("http://localhost:8080/foo", curl.sethdrs(headers)));
-      CHECK(doctest::String(from_map.c_str()) == doctest::Contains(R"("baz":"qux")"));
+      CHECK(doctest::String(from_map) == doctest::Contains(R"("baz":"qux")"));
     }
   }
 
@@ -113,8 +113,8 @@ TEST_SUITE("asynchronous multi API") {
   TEST_CASE("file://...") {  // which completes on first action() without every registering any poll sockets
     jl::curl::async curlm;
     std::string a, b;
-    auto af = curlm.send(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::overwrite(a)));
-    auto bf = curlm.send(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::overwrite(b)));
+    auto af = curlm.send(jl::curl::easy().request(url_to_this_file, jl::curl::overwrite(a)));
+    auto bf = curlm.send(jl::curl::easy().request(url_to_this_file, jl::curl::overwrite(b)));
     CHECK(curlm.action() == 0);
 
     CHECK(jl::unwrap(std::move(af)).first == CURLE_OK);
@@ -150,7 +150,7 @@ TEST_SUITE("asynchronous multi API") {
 
   TEST_CASE("reuse same handle") {
     jl::curl::async curlm;
-    auto future = curlm.send(jl::curl::easy().request(url_to_this_file.c_str(), jl::curl::discard_body));
+    auto future = curlm.send(jl::curl::easy().request(url_to_this_file, jl::curl::discard_body));
     CHECK(curlm.action() == 0);
     auto [result, curl] = jl::unwrap(std::move(future));
     CHECK(result == CURLE_OK);

@@ -40,7 +40,7 @@ static void BM_fd_mmap_truncated(benchmark::State& state) {
   for (auto _ : state) {
     auto fd = jl::unwrap(jl::tmpfd::open());
     jl::unwrap(jl::truncate(fd->fd(), map_size));
-    auto map = jl::unwrap(jl::fd_mmap<std::byte>::open(fd.path().c_str(), O_RDWR, flags, 0, map_size));
+    auto map = jl::unwrap(jl::fd_mmap<std::byte>::open(fd.path(), O_RDWR, flags, 0, map_size));
     for (ssize_t i = 0; i < map_size; i += 512) {
       std::memcpy(map->data() + i, &i, sizeof(i));
     }
@@ -57,7 +57,7 @@ static void BM_fd_mmap_allocated(benchmark::State& state) {
   size_t bytes_mapped = 0;
   for (auto _ : state) {
     auto fd = jl::unwrap(jl::tmpfd::open());
-    auto map = jl::unwrap(jl::fd_mmap<std::byte>::allocated(fd.path().c_str(), map_size, O_RDWR, flags));
+    auto map = jl::unwrap(jl::fd_mmap<std::byte>::allocated(fd.path(), map_size, O_RDWR, flags));
     for (ssize_t i = 0; i < map_size; i += 512) {
       std::memcpy(map->data() + i, &i, sizeof(i));
     }
