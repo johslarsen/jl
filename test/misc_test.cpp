@@ -196,7 +196,10 @@ TEST_SUITE("misc") {
     auto fixed_seeded = jl::rands<4>(std::uniform_real_distribution(-M_PI, M_PI), std::mt19937_64(42));
     auto random_seeded = jl::rands<4>();
 
-    CHECK(fixed_seeded == std::array{1.603189495705536, 0.8735600111045331, 1.584275020615848, -2.2853661300205323});
+    CHECK(fixed_seeded.at(0) == doctest::Approx(1.603189495705536));
+    CHECK(fixed_seeded.at(1) == doctest::Approx(0.8735600111045331));
+    CHECK(fixed_seeded.at(2) == doctest::Approx(1.584275020615848));
+    CHECK(fixed_seeded.at(3) == doctest::Approx(-2.2853661300205323));
     CHECK(fixed_seeded != random_seeded);
   }
 }
