@@ -38,7 +38,7 @@ static inline std::tuple<ssize_t, ssize_t> args(benchmark::State& state) {
 }
 
 template <size_t stride>
-void BM_sendfile(benchmark::State& state) {
+static void BM_sendfile(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, write] = open_read_write(len);
 
@@ -56,7 +56,7 @@ void BM_sendfile(benchmark::State& state) {
 JL_BENCHMARK_WITH_ARGS(BM_sendfile);
 
 template <size_t stride>
-void BM_mmap_ref(benchmark::State& state) {
+static void BM_mmap_ref(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, write] = open_read_write(len);
   auto map = jl::unwrap(jl::fd_mmap<char>::map(std::move(read).unlink()));
@@ -73,7 +73,7 @@ void BM_mmap_ref(benchmark::State& state) {
 JL_BENCHMARK_WITH_ARGS(BM_mmap_ref);
 
 template <size_t stride>
-void BM_mmap_copy(benchmark::State& state) {
+static void BM_mmap_copy(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, write] = open_read_write(len);
   auto map = jl::unwrap(jl::fd_mmap<char>::map(std::move(read).unlink()));
@@ -92,7 +92,7 @@ void BM_mmap_copy(benchmark::State& state) {
 JL_BENCHMARK_WITH_ARGS(BM_mmap_copy);
 
 template <size_t stride>
-void BM_pread(benchmark::State& state) {
+static void BM_pread(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, write] = open_read_write(len);
   std::vector<char> buffer(block_size);
@@ -110,7 +110,7 @@ void BM_pread(benchmark::State& state) {
 JL_BENCHMARK_WITH_ARGS(BM_pread);
 
 template <size_t stride>
-void BM_read(benchmark::State& state) {
+static void BM_read(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, write] = open_read_write(len);
   std::vector<char> buffer(block_size);
@@ -130,7 +130,7 @@ void BM_read(benchmark::State& state) {
 JL_BENCHMARK_WITH_ARGS(BM_read);
 
 template <size_t stride>
-void BM_fread(benchmark::State& state) {
+static void BM_fread(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, _] = open_read_write(len);
   std::vector<char> buffer(block_size);
@@ -144,7 +144,7 @@ void BM_fread(benchmark::State& state) {
 
   size_t bytes_read = 0;
   for (auto _ : state) {
-    if constexpr (stride == 1) rewind(fp.get());
+    if constexpr (stride == 1) rewind(fp.get());  // NOLINT(*-unsafe-*)
     for (ssize_t pos = 0; pos < len; pos += stride * block_size) {
       if constexpr (stride != 1) fseek(fp.get(), pos, SEEK_SET);
       bytes_read += fread(buffer.data(), 1, block_size, fp.get());
@@ -156,7 +156,7 @@ void BM_fread(benchmark::State& state) {
 JL_BENCHMARK_WITH_ARGS(BM_fread);
 
 template <size_t stride>
-void BM_ifstream_read(benchmark::State& state) {
+static void BM_ifstream_read(benchmark::State& state) {
   auto [len, block_size] = args(state);
   auto [read, _] = open_read_write(len);
   std::vector<char> buffer(block_size);
@@ -176,4 +176,4 @@ void BM_ifstream_read(benchmark::State& state) {
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_read), benchmark::Counter::kIsRate);
 }
 JL_BENCHMARK_WITH_ARGS(BM_ifstream_read);
-BENCHMARK_MAIN();
+BENCHMARK_MAIN();  // NOLINT

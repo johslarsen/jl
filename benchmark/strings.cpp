@@ -1,6 +1,8 @@
 #include <benchmark/benchmark.h>
 #include <jl.h>
 
+#include <algorithm>
+
 constexpr std::string_view whitespace = " \f\n\r\t\v";
 
 const std::string none(1 << 10, 'x');
@@ -8,7 +10,7 @@ const std::string last = []() {std::string s = none; s.back() = ' '; return s; }
 const std::string first = []() {std::string s = none; s.front() = ' '; return s; }();
 const std::string mid = []() {std::string s = none; s[s.size()/2] = ' '; return s; }();
 
-void BM_FindChar(benchmark::State& state, std::string_view str) {
+static void BM_FindChar(benchmark::State& state, std::string_view str) {
   auto pos = std::string::npos;
   for (auto _ : state) {
     benchmark::DoNotOptimize(pos = str.find(' '));  // uses hand optimized memchr under the hood
@@ -20,7 +22,7 @@ BENCHMARK_CAPTURE(BM_FindChar, First, first);
 BENCHMARK_CAPTURE(BM_FindChar, Mid, mid);
 BENCHMARK_CAPTURE(BM_FindChar, Last, last);
 
-void BM_FindCharLoop(benchmark::State& state, std::string_view str) {
+static void BM_FindCharLoop(benchmark::State& state, std::string_view str) {
   auto pos = std::string::npos;
   for (auto _ : state) {
     benchmark::DoNotOptimize(pos = [&str]() {
@@ -37,10 +39,10 @@ BENCHMARK_CAPTURE(BM_FindCharLoop, First, first);
 BENCHMARK_CAPTURE(BM_FindCharLoop, Mid, mid);
 BENCHMARK_CAPTURE(BM_FindCharLoop, Last, last);
 
-void BM_FindCharAlgorithm(benchmark::State& state, std::string_view str) {
+static void BM_FindCharAlgorithm(benchmark::State& state, std::string_view str) {
   const char* pos = str.end();
   for (auto _ : state) {
-    benchmark::DoNotOptimize(pos = std::find(str.begin(), str.end(), ' '));
+    benchmark::DoNotOptimize(pos = std::ranges::find(str, ' '));
   }
   state.counters["Pos"] = static_cast<double>(pos - str.begin());
 }
@@ -49,10 +51,10 @@ BENCHMARK_CAPTURE(BM_FindCharAlgorithm, First, first);
 BENCHMARK_CAPTURE(BM_FindCharAlgorithm, Mid, mid);
 BENCHMARK_CAPTURE(BM_FindCharAlgorithm, Last, last);
 
-void BM_FindIfIsSpace(benchmark::State& state, std::string_view str) {
+static void BM_FindIfIsSpace(benchmark::State& state, std::string_view str) {
   const auto* pos = str.end();
   for (auto _ : state) {
-    benchmark::DoNotOptimize(pos = std::find_if(str.begin(), str.end(), [](char c) { return std::isspace(c) != 0; }));
+    benchmark::DoNotOptimize(pos = std::ranges::find_if(str, [](char c) { return std::isspace(c) != 0; }));
   }
   state.counters["Pos"] = static_cast<double>(pos - str.begin());
 }
@@ -61,7 +63,7 @@ BENCHMARK_CAPTURE(BM_FindIfIsSpace, First, first);
 BENCHMARK_CAPTURE(BM_FindIfIsSpace, Mid, mid);
 BENCHMARK_CAPTURE(BM_FindIfIsSpace, Last, last);
 
-void BM_IsSpaceLoop(benchmark::State& state, std::string_view str) {
+static void BM_IsSpaceLoop(benchmark::State& state, std::string_view str) {
   auto pos = std::string::npos;
   for (auto _ : state) {
     benchmark::DoNotOptimize(pos = [&str]() {
@@ -78,7 +80,7 @@ BENCHMARK_CAPTURE(BM_IsSpaceLoop, First, first);
 BENCHMARK_CAPTURE(BM_IsSpaceLoop, Mid, mid);
 BENCHMARK_CAPTURE(BM_IsSpaceLoop, Last, last);
 
-void BM_FindOneOf(benchmark::State& state, std::string_view str) {
+static void BM_FindOneOf(benchmark::State& state, std::string_view str) {
   auto pos = std::string::npos;
   for (auto _ : state) {
     benchmark::DoNotOptimize(pos = str.find_first_of(whitespace));
@@ -90,6 +92,7 @@ BENCHMARK_CAPTURE(BM_FindOneOf, First, first);
 BENCHMARK_CAPTURE(BM_FindOneOf, Mid, mid);
 BENCHMARK_CAPTURE(BM_FindOneOf, Last, last);
 
+namespace {
 template <jl::fixed_string Needles>
 struct DepthFirstMatcher {
   static size_t FindOneOf(std::string_view str) {
@@ -99,8 +102,9 @@ struct DepthFirstMatcher {
     return std::string::npos;
   }
 };
+}  // namespace
 
-void BM_FindOneOfDepthFirst_FirstNeedle(benchmark::State& state, std::string_view str) {
+static void BM_FindOneOfDepthFirst_FirstNeedle(benchmark::State& state, std::string_view str) {
   auto pos = std::string::npos;
   for (auto _ : state) {
     benchmark::DoNotOptimize(pos = DepthFirstMatcher<" \t\n\r\f\v">::FindOneOf(str));
@@ -112,7 +116,7 @@ BENCHMARK_CAPTURE(BM_FindOneOfDepthFirst_FirstNeedle, First, first);
 BENCHMARK_CAPTURE(BM_FindOneOfDepthFirst_FirstNeedle, Mid, mid);
 BENCHMARK_CAPTURE(BM_FindOneOfDepthFirst_FirstNeedle, Last, last);
 
-void BM_FindOneOfDepthFirst_LastNeedle(benchmark::State& state, std::string_view str) {
+static void BM_FindOneOfDepthFirst_LastNeedle(benchmark::State& state, std::string_view str) {
   auto pos = std::string::npos;
   for (auto _ : state) {
     benchmark::DoNotOptimize(pos = DepthFirstMatcher<"\t\n\r\f\v ">::FindOneOf(str));

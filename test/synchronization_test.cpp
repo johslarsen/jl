@@ -2,7 +2,7 @@
 #include <jl.h>
 
 template <class T>
-auto futures_of(auto&& promises) {
+static auto futures_of(auto&& promises) {
   std::vector<std::future<T>> futures;
   futures.reserve(promises.size());
   for (auto& promise : promises) futures.emplace_back(promise.get_future());

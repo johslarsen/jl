@@ -6,7 +6,7 @@
 constexpr size_t Capacity = 0x7fff'ffff'ffff'ffff;
 
 template <class T>
-void BM_Singlethreaded(benchmark::State& state) {
+static void BM_Singlethreaded(benchmark::State& state) {
   jl::RingIndex<T, Capacity> fifo;
   size_t steps = 0;
   for (auto _ : state) {  // simulate a FIFO queue
@@ -26,7 +26,7 @@ void BM_Singlethreaded(benchmark::State& state) {
 BENCHMARK_TEMPLATE(BM_Singlethreaded, uint64_t);
 BENCHMARK_TEMPLATE(BM_Singlethreaded, std::atomic<uint64_t>);
 
-void BM_Multithreaded(benchmark::State& state) {
+static void BM_Multithreaded(benchmark::State& state) {
   jl::RingIndex<std::atomic<uint64_t>, Capacity> fifo;
 
   std::jthread consumer([&fifo] {
@@ -53,7 +53,7 @@ void BM_Multithreaded(benchmark::State& state) {
 }
 BENCHMARK(BM_Multithreaded);
 
-void BM_MultithreadedEagerConsumer(benchmark::State& state) {
+static void BM_MultithreadedEagerConsumer(benchmark::State& state) {
   jl::RingIndex<std::atomic<uint64_t>, Capacity> fifo;
 
   std::jthread consumer([&fifo] {
@@ -78,7 +78,7 @@ void BM_MultithreadedEagerConsumer(benchmark::State& state) {
 }
 BENCHMARK(BM_MultithreadedEagerConsumer);
 
-void BM_MultithreadedEagerProducer(benchmark::State& state) {
+static void BM_MultithreadedEagerProducer(benchmark::State& state) {
   jl::RingIndex<std::atomic<uint64_t>, Capacity> fifo;
 
   std::jthread consumer([&fifo] {

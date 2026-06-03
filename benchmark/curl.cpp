@@ -1,7 +1,7 @@
 #include <benchmark/benchmark.h>
 #include <jl_curl.h>
 
-void BM_CURLMReleaseAndReaddHandles(benchmark::State& state) {
+static void BM_CURLMReleaseAndReaddHandles(benchmark::State& state) {
   std::vector<std::pair<jl::curl::easy, CURL*>> curls(state.range(0));
   jl::curl::curlm curlm;
   for (auto _ : state) {
@@ -15,7 +15,7 @@ void BM_CURLMReleaseAndReaddHandles(benchmark::State& state) {
 }
 BENCHMARK(BM_CURLMReleaseAndReaddHandles)->Range(1, 4096);
 
-void BM_CURLMEmptyFileRequests(benchmark::State& state) {
+static void BM_CURLMEmptyFileRequests(benchmark::State& state) {
   jl::curl::multi curlm;
   for (long i = 0; i < state.range(0); ++i) {
     curlm.send(jl::curl::easy().request("file:///dev/null", jl::curl::discard_body));

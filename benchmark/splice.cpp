@@ -1,13 +1,13 @@
 #include <benchmark/benchmark.h>
 #include <jl_posix.h>
 
-auto* configure_arguments(auto* b) {
+static auto* configure_arguments(auto* b) {
   return b;
 }
 
-std::vector<ssize_t> block_sizes{1, 1024, 4096, 1 << 14, 1 << 16};  // any larger and it blocks!
+static std::vector<ssize_t> block_sizes{1, 1024, 4096, 1 << 14, 1 << 16};  // any larger and it blocks!
 
-void BM_readwrite(benchmark::State& state) {
+static void BM_readwrite(benchmark::State& state) {
   size_t block_size = state.range(0);
   auto [in, out] = jl::unwrap(jl::unique_fd::pipes());
   auto devnull = jl::unwrap(jl::unique_fd::open("/dev/null", O_WRONLY | O_CLOEXEC));
@@ -25,7 +25,7 @@ void BM_readwrite(benchmark::State& state) {
 }
 BENCHMARK(BM_readwrite)->ArgsProduct({{block_sizes}});
 
-void BM_splice(benchmark::State& state) {
+static void BM_splice(benchmark::State& state) {
   ssize_t block_size = state.range(0);
   auto zero = jl::unwrap(jl::tmpfd::open()).unlink();
   jl::unwrap(jl::truncate(*zero, block_size));
@@ -34,14 +34,14 @@ void BM_splice(benchmark::State& state) {
 
   size_t bytes_copied = 0;
   for (auto _ : state) {
-    auto written = jl::unwrap(jl::spliceall({*zero, 0}, {*out}, block_size));
-    benchmark::DoNotOptimize(bytes_copied += jl::unwrap(jl::spliceall({*in}, {*devnull}, written)));
+    auto written = jl::unwrap(jl::spliceall({.fd = *zero, .offset = 0}, {.fd = *out}, block_size));
+    benchmark::DoNotOptimize(bytes_copied += jl::unwrap(jl::spliceall({.fd = *in}, {.fd = *devnull}, written)));
   }
   state.counters["B/s"] = benchmark::Counter(static_cast<double>(bytes_copied), benchmark::Counter::kIsRate);
 }
 BENCHMARK(BM_splice)->ArgsProduct({{block_sizes}});
 
-void BM_sendfile(benchmark::State& state) {
+static void BM_sendfile(benchmark::State& state) {
   ssize_t block_size = state.range(0);
   auto zero = jl::unwrap(jl::tmpfd::open());
   jl::unwrap(jl::truncate(zero->fd(), block_size));
@@ -50,9 +50,9 @@ void BM_sendfile(benchmark::State& state) {
   size_t bytes_copied = 0;
   for (auto _ : state) {
     // NOTE: this only copies once, so not really a fair comparison to the other alternatives
-    benchmark::DoNotOptimize(bytes_copied += jl::unwrap(jl::sendfileall(*devnull, {zero->fd(), 0}, block_size)));
+    benchmark::DoNotOptimize(bytes_copied += jl::unwrap(jl::sendfileall(*devnull, {.fd = zero->fd(), .offset = 0}, block_size)));
   }
   state.counters["B/s"] = benchmark::Counter(static_cast<double>(bytes_copied), benchmark::Counter::kIsRate);
 }
 BENCHMARK(BM_sendfile)->ArgsProduct({{block_sizes}})->ArgsProduct({{1 << 20, 1 << 30, 16UL << 30}});
-BENCHMARK_MAIN();
+BENCHMARK_MAIN();  // NOLINT

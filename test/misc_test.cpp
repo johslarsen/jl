@@ -4,10 +4,12 @@
 #include <list>
 #include <random>
 
+namespace {
 template <class... Ts>
 struct pack_metadata {
   static constexpr size_t count = sizeof...(Ts);
 };
+}  // namespace
 
 TEST_SUITE("misc") {
   TEST_CASE("reuse_pack_from") {

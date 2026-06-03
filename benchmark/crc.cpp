@@ -1,12 +1,14 @@
 #include <benchmark/benchmark.h>
 #include <jl.h>
 
+namespace {
 struct crc8_autosar : jl::crc<uint8_t, 0x2f, 0xff, false, 0xff> {};
 struct crc8_bluetooth : jl::crc<uint8_t, 0xa7, 0x00, true, 0x00> {};
 struct crc16_gsm : jl::crc<uint16_t, 0x1021, 0x0000, false, 0xffff> {};
 struct crc32_cksum : jl::crc<uint32_t, 0x04c1'1db7, 0x0, false, 0xffff'ffff> {};
 struct crc64_we : jl::crc<uint64_t, 0x42f0'e1eb'a9ea'3693, 0xffff'ffff'ffff'ffff, false, 0xffff'ffff'ffff'ffff> {};
 struct crc64_nvme : jl::crc<uint64_t, 0xad93'd235'94c9'35a9, 0x0, true, 0x0> {};
+}  // namespace
 
 template <class CRC>
 static void BM_CRC_uint64_t(benchmark::State& state) {

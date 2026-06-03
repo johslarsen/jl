@@ -15,6 +15,7 @@ static void BM_random_number_engine(benchmark::State& state) {
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_generated), benchmark::Counter::kIsRate);
   state.counters["Final"] = gen();
+  state.counters["Checksum"] = static_cast<double>(checksum);
 }
 BENCHMARK_TEMPLATE(BM_random_number_engine, std::mt19937);
 BENCHMARK_TEMPLATE(BM_random_number_engine, std::mt19937_64);

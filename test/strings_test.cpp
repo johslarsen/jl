@@ -68,7 +68,7 @@ TEST_SUITE("strings") {
   }
 
   template <jl::fixed_string Str>
-  constexpr std::string_view view_of() {
+  static constexpr std::string_view view_of() {
     return std::string_view(Str.chars.data(), Str.chars.size());
   }
   TEST_CASE("fixed string") {

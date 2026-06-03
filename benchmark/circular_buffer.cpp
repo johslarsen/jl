@@ -5,7 +5,7 @@
 #include <thread>
 
 template <class Index>
-void BM_CircularBufferBytewiseAdvance(benchmark::State& state) {
+static void BM_CircularBufferBytewiseAdvance(benchmark::State& state) {
   jl::CircularBuffer<char, 4 << 10, Index> buf;
   double bytes_read = 0;
   for (auto _ : state) {
@@ -17,7 +17,7 @@ void BM_CircularBufferBytewiseAdvance(benchmark::State& state) {
 BENCHMARK_TEMPLATE(BM_CircularBufferBytewiseAdvance, uint32_t);
 BENCHMARK_TEMPLATE(BM_CircularBufferBytewiseAdvance, std::atomic<uint32_t>);
 
-void BM_ParallelCircularBufferRWFullData(benchmark::State& state) {
+static void BM_ParallelCircularBufferRWFullData(benchmark::State& state) {
   jl::CircularBuffer<uint8_t, 4 << 10, std::atomic<uint32_t>> buf;
   size_t chunk_size = state.range(0);
   std::jthread writer([&](const std::stop_token& token) {
@@ -39,7 +39,7 @@ void BM_ParallelCircularBufferRWFullData(benchmark::State& state) {
 }
 BENCHMARK(BM_ParallelCircularBufferRWFullData)->ArgName("BurstSize")->ArgsProduct({{1, 16, 17, 256, 1023, 1024, 4096}});
 
-void BM_ParallelCircularBufferRWDataEndpoints(benchmark::State& state) {
+static void BM_ParallelCircularBufferRWDataEndpoints(benchmark::State& state) {
   jl::CircularBuffer<uint8_t, 4 << 10, std::atomic<uint32_t>> buf;
   size_t chunk_size = state.range(0);
   std::jthread writer([&](const std::stop_token& token) {
@@ -65,7 +65,7 @@ static const std::vector<int64_t> burst_sizes = {/*1, 2, 16, 256,*/ 1 << 10,
                                                  /*4 << 10*/};
 
 template <size_t Capacity, class Index>
-void BM_CircularBufferFillThenEmpty(benchmark::State& state) {
+static void BM_CircularBufferFillThenEmpty(benchmark::State& state) {
   std::vector<uint8_t> frame(state.range(0));
   jl::CircularBuffer<uint8_t, Capacity, Index> buf;
   size_t bytes_read = 0;
@@ -94,7 +94,7 @@ BENCHMARK_TEMPLATE(BM_CircularBufferFillThenEmpty, 16 << 20, std::atomic<uint32_
 BENCHMARK_TEMPLATE(BM_CircularBufferFillThenEmpty, 128 << 20, std::atomic<uint32_t>)->ArgName("BurstSize")->ArgsProduct({burst_sizes});
 
 template <class Container>
-void BM_ContainerFillThenEmptyWith1KiBursts(benchmark::State& state) {
+static void BM_ContainerFillThenEmptyWith1KiBursts(benchmark::State& state) {
   ssize_t chunk = state.range(0);
   size_t capacity = state.range(1);
   std::vector<uint8_t> frame(chunk);

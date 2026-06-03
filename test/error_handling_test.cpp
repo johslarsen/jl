@@ -1,11 +1,11 @@
 #include <doctest/doctest.h>
 #include <jl.h>
 
-const std::string_view what(auto error) {
+static const std::string_view what(const auto& error) {
   return error.what();
 }
 
-const std::string_view error_what(auto expected) {
+static const std::string_view error_what(auto expected) {
   if (expected.has_value()) return "";
   return what(expected.error());
 }

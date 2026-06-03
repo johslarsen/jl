@@ -68,4 +68,4 @@ static void BM_fd_mmap_allocated(benchmark::State& state) {
 BENCHMARK_TEMPLATE(BM_fd_mmap_allocated, MAP_SHARED)->ArgName("log2_size")->ArgsProduct({log2_4K_1M_128M});
 BENCHMARK_TEMPLATE(BM_fd_mmap_allocated, MAP_SHARED | MAP_POPULATE)->ArgName("log2_size")->ArgsProduct({log2_4K_1M_128M});
 
-BENCHMARK_MAIN();
+BENCHMARK_MAIN();  // NOLINT

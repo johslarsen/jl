@@ -12,14 +12,13 @@ static void send_loop(const std::stop_token& token, std::atomic<bool>& finished,
   while (!token.stop_requested()) {
     try {
       std::ignore = jl::send(*fd, buffer);
-    } catch (const std::system_error&) {
-      // ignore intermittent ECONNREFUSED errors
+    } catch (const std::system_error&) {  // NOLINT(*-empty-catch) intermittent ECONNREFUSED errors
     }
   }
   finished = true;
 }
 
-void drain(std::atomic<bool>& sender_finished, jl::unique_socket& fd, std::span<char> buffer) {
+static void drain(std::atomic<bool>& sender_finished, jl::unique_socket& fd, std::span<char> buffer) {
   while (!sender_finished) {
     std::ignore = jl::recv(*fd, buffer, MSG_DONTWAIT).empty();
   }
@@ -41,7 +40,7 @@ static inline std::pair<jl::unique_socket, jl::unique_socket> connected_tcp() {
   return {std::move(conn), std::move(client)};
 }
 
-void BM_RecvIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
+static void BM_RecvIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
   size_t message_size = state.range(0);
   auto [in, out] = std::move(sockets);
   std::atomic<bool> sender_finished = false;
@@ -72,7 +71,7 @@ BENCHMARK_CAPTURE(BM_RecvIntoSameBuffer, TCP, connected_tcp(), send_loop)
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
 
-void BM_RecvIntoCircularBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
+static void BM_RecvIntoCircularBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
   size_t message_size = state.range(0);
   auto [in, out] = std::move(sockets);
   std::atomic<bool> sender_finished = false;
@@ -106,7 +105,7 @@ BENCHMARK_CAPTURE(BM_RecvIntoCircularBuffer, TCP, connected_tcp(), send_loop)
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
 
-void BM_RecvmmsgIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
+static void BM_RecvmmsgIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
   size_t message_size = state.range(0);
   size_t messages_per_burst = state.range(1);
   auto [in, out] = std::move(sockets);
@@ -142,7 +141,7 @@ BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, TCP, connected_tcp(), send_loop)
     ->ArgNames({"MessageSize", "MessagesPerBurst"})
     ->ArgsProduct({sizes, bursts});
 
-void BM_RecvmmsgPerMessageBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
+static void BM_RecvmmsgPerMessageBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
   size_t message_size = state.range(0);
   size_t messages_per_burst = state.range(1);
   auto [in, out] = std::move(sockets);
@@ -185,8 +184,7 @@ static void sendmmsg_loop(const std::stop_token& token, std::atomic<bool>& finis
   while (!token.stop_requested()) {
     try {
       std::ignore = mmsg.sendmmsg();
-    } catch (const std::system_error&) {
-      // ignore intermittent ECONNREFUSED errors
+    } catch (const std::system_error&) {  // NOLINT(*-empty-catch) intermittent ECONNREFUSED errors
     }
   }
   finished = true;
@@ -217,7 +215,7 @@ BENCHMARK_CAPTURE(BM_RecvmmsgIntoSameBuffer, TCPSendmmsg, connected_tcp(), sendm
     ->ArgsProduct({sizes, bursts});
 #endif
 
-void BM_PollThenNonBlockRecvIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
+static void BM_PollThenNonBlockRecvIntoSameBuffer(benchmark::State& state, std::pair<jl::unique_socket, jl::unique_socket> sockets, auto sender_loop) {
   size_t message_size = state.range(0);
   auto [in, out] = std::move(sockets);
   std::atomic<bool> sender_finished = false;
@@ -242,7 +240,7 @@ BENCHMARK_CAPTURE(BM_PollThenNonBlockRecvIntoSameBuffer, DatagramPipe, jl::unwra
     ->ArgName("MessageSize")
     ->ArgsProduct({sizes});
 
-void BM_NonBlockingRecvOnEmptySocket(benchmark::State& state, int socket_type, int recv_flags) {  // NOLINT(*swappable*)
+static void BM_NonBlockingRecvOnEmptySocket(benchmark::State& state, int socket_type, int recv_flags) {  // NOLINT(*swappable*)
   auto [in, _] = jl::unwrap(jl::unique_socket::pipes(AF_UNIX, socket_type));
   std::vector<char> buffer(1024);
   for (auto _ : state) {
@@ -255,7 +253,7 @@ BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, DatagramOnRecvCalls, SOCK_DGR
 BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, StreamOnSocketCreation, SOCK_STREAM | SOCK_NONBLOCK, 0);
 BENCHMARK_CAPTURE(BM_NonBlockingRecvOnEmptySocket, StreamOnRecvCalls, SOCK_STREAM, MSG_DONTWAIT);
 
-void BM_NonBlockingSendOnFullSocket(benchmark::State& state, int socket_type, int recv_flags) {  // NOLINT(*swappable*)
+static void BM_NonBlockingSendOnFullSocket(benchmark::State& state, int socket_type, int recv_flags) {  // NOLINT(*swappable*)
   auto [_, out] = jl::unwrap(jl::unique_socket::pipes(AF_UNIX, socket_type));
   std::vector<char> buffer(1024);
   while (send(out.fd(), buffer.data(), buffer.size(), recv_flags) >= 0);  // fill the socket

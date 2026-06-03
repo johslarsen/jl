@@ -1,7 +1,7 @@
 #include <benchmark/benchmark.h>
 #include <jl.h>
 
-void BM_chunk_manually(benchmark::State& state) {
+static void BM_chunk_manually(benchmark::State& state) {
   std::vector<char> data(state.range(0));
   size_t n = state.range(1);
   size_t bytes_processed = 0;
@@ -14,7 +14,7 @@ void BM_chunk_manually(benchmark::State& state) {
 }
 BENCHMARK(BM_chunk_manually)->ArgNames({"Size", "Chunk"})->ArgsProduct({{(1 << 30) - 1}, {1023, 1024, 1 << 20}});
 
-void BM_remove_prefix(benchmark::State& state) {
+static void BM_remove_prefix(benchmark::State& state) {
   std::vector<char> data(state.range(0));
   size_t n = state.range(1);
   size_t bytes_processed = 0;
@@ -30,7 +30,7 @@ void BM_remove_prefix(benchmark::State& state) {
 }
 BENCHMARK(BM_remove_prefix)->ArgNames({"Size", "Chunk"})->ArgsProduct({{(1 << 30) - 1}, {1023, 1024, 1 << 20}});
 
-void BM_chunked_span_iterate(benchmark::State& state) {
+static void BM_chunked_span_iterate(benchmark::State& state) {
   std::vector<char> data(state.range(0));
   size_t n = state.range(1);
   size_t bytes_processed = 0;
@@ -43,13 +43,13 @@ void BM_chunked_span_iterate(benchmark::State& state) {
 }
 BENCHMARK(BM_chunked_span_iterate)->ArgNames({"Size", "Chunk"})->ArgsProduct({{(1 << 30) - 1}, {1023, 1024, 1 << 20}});
 
-void BM_chunked_span_copy(benchmark::State& state) {
+static void BM_chunked_span_copy(benchmark::State& state) {
   std::vector<char> data(state.range(0));
   size_t n = state.range(1);
   size_t bytes_processed = 0;
   for (auto _ : state) {
     for (const auto& chunk : jl::chunked(std::span(data), n)) {
-      bytes_processed += std::copy(chunk.begin(), chunk.end(), data.begin()) - data.begin();
+      bytes_processed += std::ranges::copy(chunk.begin(), chunk.end(), data.begin()).out - data.begin();
     }
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_processed), benchmark::Counter::kIsRate);
@@ -58,7 +58,7 @@ BENCHMARK(BM_chunked_span_copy)->ArgNames({"Size", "Chunk"})->ArgsProduct({{(1 <
 
 #if __clang__ == 0 || __clang_major__ > 16
 #include <ranges>
-void BM_chunked_view_iterate(benchmark::State& state) {
+static void BM_chunked_view_iterate(benchmark::State& state) {
   std::vector<char> data(state.range(0));
   size_t n = state.range(1);
   size_t bytes_processed = 0;
@@ -71,13 +71,13 @@ void BM_chunked_view_iterate(benchmark::State& state) {
 }
 BENCHMARK(BM_chunked_view_iterate)->ArgNames({"Size", "Chunk"})->ArgsProduct({{(1 << 30) - 1}, {1023, 1024, 1 << 20}});
 
-void BM_chunked_view_copy(benchmark::State& state) {
+static void BM_chunked_view_copy(benchmark::State& state) {
   std::vector<char> data(state.range(0));
   size_t n = state.range(1);
   size_t bytes_processed = 0;
   for (auto _ : state) {
     for (const auto& chunk : data | std::views::chunk(n)) {
-      bytes_processed += std::copy(chunk.begin(), chunk.end(), data.begin()) - data.begin();
+      bytes_processed += std::ranges::copy(chunk, data.begin()).out - data.begin();
     }
   }
   state.counters["Throughput"] = benchmark::Counter(static_cast<double>(bytes_processed), benchmark::Counter::kIsRate);
@@ -85,4 +85,4 @@ void BM_chunked_view_copy(benchmark::State& state) {
 BENCHMARK(BM_chunked_view_copy)->ArgNames({"Size", "Chunk"})->ArgsProduct({{(1 << 30) - 1}, {1023, 1024, 1 << 20}});
 #endif
 
-BENCHMARK_MAIN();
+BENCHMARK_MAIN(); // NOLINT

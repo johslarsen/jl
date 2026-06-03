@@ -40,6 +40,7 @@ TEST_SUITE("RingIndex") {
   }
 }
 
+namespace {
 struct uncopyable {
   int n;
 
@@ -55,6 +56,7 @@ struct uncopyable {
     return *this;
   }
 };
+}  // namespace
 
 TEST_SUITE("Ring") {
   TEST_CASE("move-only type") {
