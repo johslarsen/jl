@@ -214,11 +214,6 @@ inline expected_or_errno<int> poll(int fd, short events, std::chrono::nanosecond
       .transform([&fds](int nfd) { return nfd == 1 ? fds.revents : 0; });
 }
 
-// @return lazy-initialized once from TMPDIR environment (or to /tmp if missing)
-inline const std::filesystem::path& tmpdir() {
-  static const std::filesystem::path tmpdir = jl::env_or("TMPDIR", "/tmp");
-  return tmpdir;
-}
 struct tmpname {
   std::optional<std::filesystem::path> dir = std::nullopt;
   std::string prefix;
@@ -226,7 +221,13 @@ struct tmpname {
 
   [[nodiscard]] std::string as_template() const {
     if (dir) return std::format("{}/{}XXXXXX{}", dir->native(), prefix, suffix);
-    return std::format("{}/{}XXXXXX{}", tmpdir().native(), prefix, suffix);
+    return std::format("{}/{}XXXXXX{}", default_dir().native(), prefix, suffix);
+  }
+
+  // @return lazy-initialized once from TMPDIR environment (or to /tmp if missing)
+  static const std::filesystem::path& default_dir() {
+    static const std::filesystem::path tmpdir = jl::env_or("TMPDIR", "/tmp");
+    return tmpdir;
   }
 };
 
