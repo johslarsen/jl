@@ -82,7 +82,7 @@ TEST_SUITE("unique_fd") {
   }
 }
 
-TEST_SUITE("tmp_fd") {
+TEST_SUITE("tmpfd") {
   TEST_CASE("read and write works with various inputs") {
     auto fd = jl::unwrap(jl::tmpfd::unlinked());
     std::vector<char> char_vector = {'f', 'o', 'o'};
@@ -106,6 +106,40 @@ TEST_SUITE("tmp_fd") {
     jl::tmpfd move_constructed(std::move(org));
     jl::tmpfd move_assigned = std::move(move_constructed);
     move_assigned = jl::unwrap(jl::tmpfd::open());
+  }
+}
+
+TEST_SUITE("tmpdir") {
+  TEST_CASE("removes all content when it goes out of scope") {
+    auto tmp_path = [] {
+      auto tmp = jl::unwrap(jl::tmpdir::create());
+      std::ignore = jl::unwrap(jl::unique_fd::open(tmp.path() / "file", O_RDONLY | O_CREAT));
+      std::filesystem::create_directories(tmp.path() / "dir" / "subdir");
+
+      CHECK(std::filesystem::exists(tmp.path()));
+      CHECK(std::filesystem::exists(tmp.path() / "file"));
+      CHECK(std::filesystem::exists(tmp.path() / "dir" / "subdir"));
+      return tmp.path();
+    }();
+    CHECK(!std::filesystem::exists(tmp_path));
+  }
+
+  TEST_CASE("move and assignment neither removes too early nor leaks") {
+    auto org = jl::unwrap(jl::tmpdir::create());
+    auto org_path = org.path();
+    jl::tmpdir move_constructed(std::move(org));
+    jl::tmpdir move_assigned = std::move(move_constructed);
+    CHECK(move_assigned.path() == org_path);
+    CHECK(std::filesystem::exists(org_path));
+    move_assigned = jl::unwrap(jl::tmpdir::create());
+    CHECK(move_assigned.path() != org_path);
+    CHECK(!std::filesystem::exists(org_path));
+  }
+
+  TEST_CASE("mkdtemp does not support suffix") {
+    auto dir = jl::tmpdir::create({.prefix = "foo", .suffix = ".dir"});
+    CHECK(!dir.has_value());
+    CHECK(dir.error().code() == std::errc::invalid_argument);
   }
 }
 

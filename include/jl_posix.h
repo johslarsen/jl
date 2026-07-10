@@ -285,6 +285,37 @@ class tmpfd {
   tmpfd(unique_fd fd, std::filesystem::path path) : _fd(std::move(fd)), _path(std::move(path)) {}
 };
 
+// A unique directory that is recursively deleted upon destruction.
+class tmpdir {
+  std::filesystem::path _path;
+
+ public:
+  [[nodiscard]] static std::expected<tmpdir, error> create(const tmpname& name = {.prefix = "jl_tmpdir_"}) {
+    auto path = name.as_template();
+    if (mkdtemp(path.data()) == nullptr) return std::unexpected(error(errno, "mkdtemp({})", path));
+    return tmpdir(path);
+  }
+  [[nodiscard]] const std::filesystem::path& path() const noexcept { return _path; }
+
+  tmpdir(const tmpdir&) = delete;
+  tmpdir& operator=(const tmpdir&) = delete;
+  tmpdir(tmpdir&& other) noexcept : _path(std::exchange(other._path, {})) {}
+  tmpdir& operator=(tmpdir&& other) noexcept {
+    std::swap(_path, other._path);  // delegate unlink of our old _path to the other
+    return *this;
+  }
+
+  ~tmpdir() {
+    if (!_path.empty()) {
+      std::error_code error{};
+      std::ignore = std::filesystem::remove_all(_path, error);
+    }
+  }
+
+ private:
+  explicit tmpdir(std::filesystem::path path) : _path(std::move(path)) {}
+};
+
 /// An owned addrinfo wrapper that also remembers the hostname you looked up.
 class unique_addr {
   std::string _host;
