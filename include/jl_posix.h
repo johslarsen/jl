@@ -215,18 +215,18 @@ inline expected_or_errno<int> poll(int fd, short events, std::chrono::nanosecond
 }
 
 // @return lazy-initialized once from TMPDIR environment (or to /tmp if missing)
-inline const std::string& tmpdir() {
-  static const std::string tmpdir = jl::env_or("TMPDIR", "/tmp");
+inline const std::filesystem::path& tmpdir() {
+  static const std::filesystem::path tmpdir = jl::env_or("TMPDIR", "/tmp");
   return tmpdir;
 }
 struct tmpname {
-  std::optional<std::string> dir = std::nullopt;
+  std::optional<std::filesystem::path> dir = std::nullopt;
   std::string prefix;
   std::string suffix = "";
 
   [[nodiscard]] std::string as_template() const {
-    if (dir) return std::format("{}/{}XXXXXX{}", *dir, prefix, suffix);
-    return std::format("{}/{}XXXXXX{}", tmpdir(), prefix, suffix);
+    if (dir) return std::format("{}/{}XXXXXX{}", dir->native(), prefix, suffix);
+    return std::format("{}/{}XXXXXX{}", tmpdir().native(), prefix, suffix);
   }
 };
 
