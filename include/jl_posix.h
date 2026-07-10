@@ -89,6 +89,25 @@ std::expected<size_t, error> inline spliceall(ofd in, ofd out, size_t len, unsig
       .transform_error([in, out](auto ec) { return error(ec, "splice({} -> {})", in.fd, out.fd); });
 }
 
+struct rpath {
+  std::filesystem::path path;
+  int base = AT_FDCWD;
+
+  rpath(std::filesystem::path path) : path(std::move(path)) {}  // NOLINT(*-explicit-*)
+  rpath(std::string_view path) : path(path) {}                  // NOLINT(*-explicit-*)
+  rpath(const std::string& path) : path(path) {}                // NOLINT(*-explicit-*)
+};
+[[nodiscard]] inline std::expected<std::filesystem::path, error> hardlink(const rpath& target, const rpath& link, int flags = 0) {
+  return zero_or_errno(linkat(target.base, target.path.c_str(), link.base, link.path.c_str(), flags))
+      .transform([&link] { return link.path; })
+      .transform_error([&](int ec) { return error(ec, "link({}, {})", target.path.native(), link.path.native()); });
+}
+[[nodiscard]] inline std::expected<std::filesystem::path, error> rename(const rpath& target, const rpath& link, int flags = 0) {
+  return zero_or_errno(renameat2(target.base, target.path.c_str(), link.base, link.path.c_str(), flags))
+      .transform([&link] { return link.path; })
+      .transform_error([&](int ec) { return error(ec, "rename({}, {})", target.path.native(), link.path.native()); });
+}
+
 /// An owned and managed file descriptor.
 class unique_fd {
  protected:
@@ -126,6 +145,11 @@ class unique_fd {
   unique_fd& operator=(unique_fd&& other) noexcept {
     reset(other.release());
     return *this;
+  }
+
+  /// Make a new hardlink to this fd, e.g. to persist an O_TMPFILE fd
+  [[nodiscard]] std::expected<std::filesystem::path, error> hardlink_to(const rpath& name) {
+    return jl::hardlink(std::format("/proc/self/fd/{}", _fd), name, AT_SYMLINK_FOLLOW);
   }
 
  protected:
@@ -252,6 +276,13 @@ class tmpfd {
   [[nodiscard]] const std::filesystem::path& path() const noexcept { return _path; }
   [[nodiscard]] std::string url() const noexcept { return std::format("file://{}", path().string()); }
 
+  /// Avoid removal upon destruction by moving this to a lasting name (on the same device!)
+  [[nodiscard]] std::expected<std::filesystem::path, error> rename_to(const rpath& persistent_name, int flags = 0) {
+    auto ok = jl::rename(_path, persistent_name, flags);
+    if (ok) _path.clear();
+    return ok;
+  }
+
   /// Tries to unlink the file, and clears path if this is successful to be idempotent.
   [[nodiscard]] std::error_code try_unlink() noexcept {
     if (!_path.empty()) {
@@ -262,7 +293,7 @@ class tmpfd {
     return {};
   }
   /// Explicitly convert this into an unlinked but still open unique_fd,
-  /// but silently ignores unlink failures that occurs.
+  /// NOTE: silently ignores unlink failures, since keeping the FD is more important.
   unique_fd unlink() && noexcept {
     if (try_unlink().value() > 0) _path.clear();
     return std::move(_fd);

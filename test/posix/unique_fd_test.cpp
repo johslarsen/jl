@@ -80,6 +80,13 @@ TEST_SUITE("unique_fd") {
       CHECK("foofoo" == jl::read(*in, buffer));
     }
   }
+
+  TEST_CASE("persisted O_TMPFILE") {
+    auto tmp = jl::unwrap(jl::tmpdir::create());
+    auto fd = jl::unwrap(jl::unique_fd::open(tmp.path(), O_RDWR | O_TMPFILE));
+    auto path = jl::unwrap(fd.hardlink_to(tmp.path() / "persisted"));
+    CHECK(std::filesystem::exists(path));
+  }
 }
 
 TEST_SUITE("tmpfd") {
@@ -99,6 +106,15 @@ TEST_SUITE("tmpfd") {
     CHECK("bar" == jl::read(*fd, string));
     auto int123 = jl::read(*fd, std::span<int>(int_vector));
     CHECK((std::vector<int>{1, 2, 3}) == std::vector<int>(int123.begin(), int123.end()));
+  }
+
+  TEST_CASE("renaming it avoids removal") {
+    auto tmp = jl::unwrap(jl::tmpdir::create());
+    auto path = [&tmp] {
+      auto fd = jl::unwrap(jl::tmpfd::open({.dir = tmp.path(), .prefix = "tmp"}));
+      return jl::unwrap(fd.rename_to(tmp.path() / "persisted"));
+    }();
+    CHECK(std::filesystem::exists(path));
   }
 
   TEST_CASE("move and assignment neither double close nor leaks") {
