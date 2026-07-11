@@ -89,6 +89,64 @@ TEST_SUITE("unique_fd") {
   }
 }
 
+TEST_SUITE("tmpname") {
+  TEST_CASE("as_template") {
+    CHECK(jl::tmpname{.dir = "./tmp", .prefix = "foo", .suffix = "bar"}.as_template() == "./tmp/fooXXXXXXbar");
+  }
+
+  TEST_CASE("combined_with filename") {
+    CHECK(jl::tmpname{.prefix = ".", .suffix = ".tmp"}.combined_with("foo/bar.txt").as_template() == "foo/.barXXXXXX.txt.tmp");
+  }
+
+  TEST_CASE("atomically_initialized_file") {
+    auto tmp = jl::unwrap(jl::tmpdir::create());
+    auto final_path = tmp.path() / "final";
+
+    SUBCASE("successful") {
+      auto result = jl::unwrap(jl::atomically_initialized_file(final_path, [&](int fd) {
+        CHECK(!std::filesystem::exists(final_path));
+        return jl::unwrap(jl::writeall(fd, std::string_view("foo")));
+      }));
+      CHECK(result == 3);
+      auto content = jl::unwrap(jl::fd_mmap<char>::open(final_path, O_RDONLY));
+      CHECK(jl::view_of(*content) == "foo");
+    }
+    SUBCASE("fails if final_path already exists") {
+      std::ignore = jl::unwrap(jl::unique_fd::open(final_path, O_WRONLY | O_CREAT));
+      auto result = jl::atomically_initialized_file(final_path, "foo");
+      CHECK(!result.has_value());
+      CHECK_MESSAGE(result.error().code() == std::errc::file_exists, result.error().what());
+    }
+  }
+
+  TEST_CASE("tmpname_initialized") {
+    auto tmp = jl::unwrap(jl::tmpdir::create());
+    auto final_path = tmp.path() / "final";
+
+    auto org = jl::unwrap(jl::fd_mmap<char>::allocated(final_path, 3));
+    std::ranges::copy(std::string_view("foo"), org->begin());
+
+    SUBCASE("overwriting existing file") {
+      auto result = jl::tmpname_initialized(final_path, [&](const jl::tmpfd& fd) {
+        CHECK(fd.path() != final_path);
+        return jl::unwrap(jl::writeall(fd->fd(), std::string_view("bar")));
+      });
+      CHECK_MESSAGE(result.has_value(), result.error().what());
+      CHECK(*result == 3);
+
+      auto overwritten = jl::unwrap(jl::fd_mmap<char>::open(final_path, O_RDONLY));
+      CHECK(jl::view_of(*org) == std::string_view("foo"));
+      CHECK(jl::view_of(*overwritten) == std::string_view("bar"));
+    }
+
+    SUBCASE("RENAME_NOREPLACE") {
+      auto result = jl::tmpname_initialized(final_path, "foo", {}, RENAME_NOREPLACE);
+      CHECK(!result.has_value());
+      CHECK(result.error().code() == std::errc::file_exists);
+    }
+  }
+}
+
 TEST_SUITE("tmpfd") {
   TEST_CASE("read and write works with various inputs") {
     auto fd = jl::unwrap(jl::tmpfd::unlinked());

@@ -248,6 +248,12 @@ struct tmpname {
     return std::format("{}/{}XXXXXX{}", default_dir().native(), prefix, suffix);
   }
 
+  [[nodiscard]] tmpname combined_with(const std::filesystem::path& file) const {
+    return {.dir = dir.value_or(file.parent_path()),
+            .prefix = prefix + file.stem().native(),
+            .suffix = file.extension().native() + suffix};
+  }
+
   // @return lazy-initialized once from TMPDIR environment (or to /tmp if missing)
   static const std::filesystem::path& default_dir() {
     static const std::filesystem::path tmpdir = jl::env_or("TMPDIR", "/tmp");
@@ -315,6 +321,43 @@ class tmpfd {
  private:
   tmpfd(unique_fd fd, std::filesystem::path path) : _fd(std::move(fd)), _path(std::move(path)) {}
 };
+
+/// Fill an O_TMPFILE, then atomically hardlink it to its final destination
+/// NOTE: this requires FS support for O_TMPFILE, and a mounted /proc/self FS
+template <std::invocable<int> F>
+  requires std::same_as<error, typename std::invoke_result_t<F, int>::error_type>
+[[nodiscard]] std::invoke_result_t<F, int> atomically_initialized_file(const std::filesystem::path& final, F&& initializer, int mode = O_WRONLY) {
+  auto fd = jl::unique_fd::open(final.parent_path(), mode | O_TMPFILE);
+  return fd.and_then([&](const auto& fd) { return std::invoke(initializer, fd.fd()); }).and_then([&]<class R>(R result) -> std::expected<R, error> {
+    if (auto ok = fd->hardlink_to(final); !ok) return std::unexpected(ok.error());
+    return result;
+  });
+}
+template <std::invocable<int> F>
+[[nodiscard]] std::expected<std::invoke_result_t<F, int>, error> atomically_initialized_file(const std::filesystem::path& final, F&& initializer, int mode = O_WRONLY) {
+  return atomically_initialized_file(final, [&](int fd) { return try_catch<error>(initializer, fd); }, mode);
+}
+[[nodiscard]] inline std::expected<size_t, error> atomically_initialized_file(const std::filesystem::path& final, std::string_view content) {
+  return atomically_initialized_file(final, [&](int fd) { return writeall(fd, content); });
+}
+
+/// Fill a tmpfd, then rename it to its final destination (by default overwrite if final path already exists)
+template <std::invocable<const tmpfd&> F>
+  requires std::same_as<error, typename std::invoke_result_t<F, const tmpfd&>::error_type>
+[[nodiscard]] std::invoke_result_t<F, const tmpfd&> tmpname_initialized(const std::filesystem::path& final, F&& f, const tmpname& wip = {.prefix = "."}, int rename_flags = 0) {
+  auto fd = jl::tmpfd::open(wip.combined_with(final));
+  return std::as_const(fd).and_then(f).and_then([&]<class R>(R result) -> std::expected<R, error> {
+    if (auto ok = fd->rename_to(final, rename_flags); !ok) return std::unexpected(ok.error());
+    return result;
+  });
+}
+template <std::invocable<const tmpfd&> F>
+[[nodiscard]] std::expected<std::invoke_result_t<F, const tmpfd&>, error> tmpname_initialized(const std::filesystem::path& final, F&& initializer, const tmpname& wip = {.prefix = "."}, int rename_flags = 0) {
+  return tmpname_initialized(final, [&](const tmpfd& fd) { return try_catch<error>(initializer, fd); }, wip, rename_flags);
+}
+[[nodiscard]] inline std::expected<size_t, error> tmpname_initialized(const std::filesystem::path& final, std::string_view content, const tmpname& wip = {.prefix = "."}, int rename_flags = 0) {
+  return tmpname_initialized(final, [&](const tmpfd& fd) { return writeall(fd->fd(), content); }, wip, rename_flags);
+}
 
 // A unique directory that is recursively deleted upon destruction.
 class tmpdir {
