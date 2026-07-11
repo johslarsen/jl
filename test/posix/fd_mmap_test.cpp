@@ -30,7 +30,7 @@ TEST_SUITE("fd_mmap") {
 
   TEST_CASE("allocated fails if there is not enough space") {
     jl::tmpfd fd = jl::unwrap(jl::tmpfd::open());
-    auto map = jl::fd_mmap<char>::allocated(fd.path(), 1UL<<40);
+    auto map = jl::fd_mmap<char>::allocated(fd.path(), 1UL << 40);
     CHECK_MESSAGE(!map.has_value(), "wow, you got 1PB available on /tmp");
     CHECK(map.error().code().value() == ENOSPC);
   }

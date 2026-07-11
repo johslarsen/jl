@@ -418,7 +418,7 @@ template <numeric T>
   return bytes;
 }
 
-[[nodiscard]] inline std::string to_xdigits(std::span<const std::byte> bytes, std::string_view separator = "", std::string_view prefix = "") { // NOLINT(*-swappable-*)
+[[nodiscard]] inline std::string to_xdigits(std::span<const std::byte> bytes, std::string_view separator = "", std::string_view prefix = "") {  // NOLINT(*-swappable-*)
   constexpr auto to_xdigit = [](std::byte b) { return std::format("{:02x}", static_cast<unsigned>(b)); };
   auto xdigits = bytes | std::views::transform(to_xdigit) | std::views::join_with(separator);
   return std::ranges::to<std::string>(xdigits, prefix);

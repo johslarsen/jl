@@ -5,17 +5,17 @@
 constexpr std::string_view rev_32 = "21987654321098765432109876543210";
 
 namespace {
-  template <jl::fixed_string Key>
-  struct charwise {
-    static size_t sum_after_xor(std::string_view plaintext) {
-      size_t sum = 0, i = 0;
-      for (auto c : Key.chars) {
-        sum += plaintext[i++] ^ c;
-      }
-      return sum;
+template <jl::fixed_string Key>
+struct charwise {
+  static size_t sum_after_xor(std::string_view plaintext) {
+    size_t sum = 0, i = 0;
+    for (auto c : Key.chars) {
+      sum += plaintext[i++] ^ c;
     }
-  };
-}
+    return sum;
+  }
+};
+}  // namespace
 
 static void BM_FixedStringXorSum(benchmark::State& state, std::string_view str) {
   size_t sum = -1;

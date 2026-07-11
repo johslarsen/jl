@@ -144,8 +144,7 @@ TEST_SUITE("strings") {
     SUBCASE("from std::string_view should not compile") {
       // jl::cstr_view from_sv(std::string_view("foo")); // should not compile
     }
-    SUBCASE("convert to std::string should be explicit")
-    {
+    SUBCASE("convert to std::string should be explicit") {
       std::ignore = std::string(jl::cstr_view(string));
       // std::stoi(jl::cstr_view("42")); // should not compile
     }

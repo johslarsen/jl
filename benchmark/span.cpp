@@ -85,4 +85,4 @@ static void BM_chunked_view_copy(benchmark::State& state) {
 BENCHMARK(BM_chunked_view_copy)->ArgNames({"Size", "Chunk"})->ArgsProduct({{(1 << 30) - 1}, {1023, 1024, 1 << 20}});
 #endif
 
-BENCHMARK_MAIN(); // NOLINT
+BENCHMARK_MAIN();  // NOLINT
