@@ -200,7 +200,7 @@ class mock final : public connection {
     }
   };
   /// A fixed table result. Note that getters here are more strictly type checked than regular database APIs.
-  [[nodiscard]] constexpr static db::result table(std::vector<std::vector<param>> rows, std::vector<std::string> column_names = {}) {
+  [[nodiscard]] static constexpr db::result table(std::vector<std::vector<param>> rows, std::vector<std::string> column_names = {}) {
     return db::result(std::make_unique<result>(std::move(rows), std::move(column_names)));
   }
 

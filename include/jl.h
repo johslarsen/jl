@@ -903,7 +903,7 @@ struct idx_iter {
 
   [[nodiscard]] constexpr difference_type operator-(const idx_iter& other) const { return _i - other._i; }
   [[nodiscard]] constexpr idx_iter operator-(difference_type n) const { return {_range, _i - n}; }
-  [[nodiscard]] constexpr friend idx_iter operator+(difference_type n, const idx_iter& iter) { return {iter._range, iter._i + n}; }
+  [[nodiscard]] friend constexpr idx_iter operator+(difference_type n, const idx_iter& iter) { return {iter._range, iter._i + n}; }
   [[nodiscard]] constexpr idx_iter operator+(difference_type n) const { return {_range, _i + n}; }
   constexpr idx_iter& operator+=(difference_type n) { return _i += n, *this; }
   constexpr idx_iter& operator-=(difference_type n) { return _i -= n, *this; }

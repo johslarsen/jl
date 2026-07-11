@@ -4,7 +4,7 @@
 namespace jl::eigen {
 
 template <class M>
-void constexpr for_each(const Eigen::MatrixBase<M>& m, std::invocable<Eigen::Index, Eigen::Index> auto&& f) {
+constexpr void for_each(const Eigen::MatrixBase<M>& m, std::invocable<Eigen::Index, Eigen::Index> auto&& f) {
   if constexpr (std::remove_cvref_t<M>::IsRowMajor) {
     for (Eigen::Index i = 0; i < m.rows(); ++i) {
       for (Eigen::Index j = 0; j < m.cols(); ++j) {
@@ -20,11 +20,11 @@ void constexpr for_each(const Eigen::MatrixBase<M>& m, std::invocable<Eigen::Ind
   }
 }
 template <class M>
-void constexpr for_each(M&& m, std::invocable<typename std::remove_reference_t<M>::Scalar&, Eigen::Index, Eigen::Index> auto&& f) {
+constexpr void for_each(M&& m, std::invocable<typename std::remove_reference_t<M>::Scalar&, Eigen::Index, Eigen::Index> auto&& f) {
   for_each(m, [&m, &f](Eigen::Index i, Eigen::Index j) { f(m(i, j), i, j); });
 }
 template <class M>
-void constexpr for_each(M&& m, std::invocable<typename std::remove_reference_t<M>::Scalar&> auto&& f) {
+constexpr void for_each(M&& m, std::invocable<typename std::remove_reference_t<M>::Scalar&> auto&& f) {
   for_each(m, [&m, &f](Eigen::Index i, Eigen::Index j) { f(m(i, j)); });
 }
 

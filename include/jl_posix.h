@@ -26,7 +26,7 @@ expected_or_errno<T*> ok_mmap(void* p) {
 
 template <std::ranges::contiguous_range R, class T = std::ranges::range_value_t<R>>
   requires std::is_trivially_copyable_v<T>
-inline constexpr iovec as_iovec(R& span) {
+constexpr inline iovec as_iovec(R& span) {
   return iovec{.iov_base = std::ranges::data(span), .iov_len = sizeof(T) * std::ranges::size(span)};
 }
 
@@ -73,7 +73,7 @@ struct ofd {
 
 /// Copy up to len bytes from in to out (see `man 2 sendfile` for details).
 /// NOTE: The system call requires that at most one of the file descriptors is a pipe.
-std::expected<size_t, error> inline sendfileall(int fd_out, ofd in, size_t len) {
+inline std::expected<size_t, error> sendfileall(int fd_out, ofd in, size_t len) {
   return rw_loop(len, [fd_out, in_fd = in.fd, in_off = nullable(in.offset)](size_t remaining, off_t) {
            return ::sendfile(fd_out, in_fd, in_off, remaining);
          })
@@ -82,7 +82,7 @@ std::expected<size_t, error> inline sendfileall(int fd_out, ofd in, size_t len) 
 
 /// Copy up to len bytes from in to out (see `man 2 splice` for details).
 /// NOTE: The system call requires that at least one of the file descriptors is a pipe.
-std::expected<size_t, error> inline spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {  // NOLINT(*swappable-parameters), to mimic ::splice
+inline std::expected<size_t, error> spliceall(ofd in, ofd out, size_t len, unsigned flags = 0) {  // NOLINT(*swappable-parameters), to mimic ::splice
   return rw_loop(len, [flags, in = in.fd, in_off = nullable(in.offset), out = out.fd, out_off = nullable(out.offset)](size_t remaining, off_t) {
            return ::splice(in, in_off, out, out_off, remaining, flags);
          })
@@ -162,7 +162,7 @@ template <class C>
   constexpr size_t size = sizeof(typename C::value_type);
   return unwrap(ok_or_errno(::write(fd, data.data(), size * data.size()))) / size;
 }
-[[nodiscard]] size_t inline write(int fd, std::string_view data) {
+[[nodiscard]] inline size_t write(int fd, std::string_view data) {
   return write(fd, std::span(data));
 }
 
@@ -186,7 +186,7 @@ template <class C>
 [[nodiscard]] std::span<typename C::value_type> read(int fd, C& buffer) {
   return read(fd, std::span(buffer));
 }
-[[nodiscard]] std::string_view inline read(int fd, std::string& buffer) {
+[[nodiscard]] inline std::string_view read(int fd, std::string& buffer) {
   auto result = read(fd, std::span(buffer));
   return {result.data(), result.size()};
 }
@@ -200,20 +200,20 @@ template <class T, size_t Size = sizeof(T)>
       .transform_error([fd](auto ec) { return error(ec, "write({})", fd); });
 }
 
-[[nodiscard]] std::expected<struct stat, error> inline stat(int fd) {
+[[nodiscard]] inline std::expected<struct stat, error> stat(int fd) {
   struct stat buf{};
   return zero_or_errno(fstat(fd, &buf))
       .transform([&] { return std::move(buf); })
       .transform_error([fd](auto ec) { return error(ec, "fstat({})", fd); });
 }
 
-[[nodiscard]] std::expected<void, error> inline truncate(int fd, off_t length) {
+[[nodiscard]] inline std::expected<void, error> truncate(int fd, off_t length) {
   return zero_or_errno(ftruncate(fd, length))
       .transform_error([=](auto ec) { return error(ec, "ftruncate({}, {})", fd, length); });
 }
 
 template <int mode>
-[[nodiscard]] std::expected<void, error> inline fallocate(int fd, off_t offset, off_t size) {
+[[nodiscard]] inline std::expected<void, error> fallocate(int fd, off_t offset, off_t size) {
   auto status = [&]() -> expected_or_errno<void> {
 #ifdef _GNU_SOURCE
     return zero_or_errno(::fallocate(fd, mode, offset, size));
@@ -471,7 +471,7 @@ template <class T>
       .transform_error([=](auto ec) { return error(ec, "setsockopt({}, {}, {})", fd, level, option_name); });
 }
 
-[[nodiscard]] std::expected<void, error> inline linger(int fd, std::chrono::seconds timeout) {
+[[nodiscard]] inline std::expected<void, error> linger(int fd, std::chrono::seconds timeout) {
   return setsockopt(fd, SOL_SOCKET, SO_LINGER,
                     ::linger{.l_onoff = 1, .l_linger = static_cast<int>(timeout.count())});
 }
@@ -537,7 +537,7 @@ template <class C>
   constexpr size_t size = sizeof(typename C::value_type);
   return unwrap(ok_or_errno(::send(fd, data.data(), size * data.size(), flags))) / size;
 }
-[[nodiscard]] size_t inline send(int fd, std::string_view data, int flags = 0) {
+[[nodiscard]] inline size_t send(int fd, std::string_view data, int flags = 0) {
   return send(fd, std::span(data), flags);
 }
 
@@ -551,31 +551,31 @@ template <class C>
 [[nodiscard]] std::span<typename C::value_type> recv(int fd, C& data, int flags = 0) {
   return recv(fd, std::span(data), flags);
 }
-[[nodiscard]] std::string_view inline recv(int fd, std::string& buffer, int flags = 0) {
+[[nodiscard]] inline std::string_view recv(int fd, std::string& buffer, int flags = 0) {
   auto result = recv(fd, std::span(buffer), flags);
   return {result.data(), result.size()};
 }
-void inline bind(int fd, const unique_addr& source = unique_addr("", "0")) {
+inline void bind(int fd, const unique_addr& source = unique_addr("", "0")) {
   for (const auto* p = source.get(); p != nullptr; p = p->ai_next) {
     if (::bind(fd, p->ai_addr, p->ai_addrlen) == 0) return;
   }
   throw error(errno, "bind({})", source.string());
 }
 
-void inline connect(int fd, const type_erased_sockaddr& addr) {
+inline void connect(int fd, const type_erased_sockaddr& addr) {
   if (::connect(fd, addr.get(), addr.length) != 0) {
     throw error(errno, "connect({})", host_port::from(addr.get()).string());
   }
 }
 
-void inline connect(int fd, const unique_addr& source) {
+inline void connect(int fd, const unique_addr& source) {
   for (const auto* p = source.get(); p != nullptr; p = p->ai_next) {
     if (::connect(fd, p->ai_addr, p->ai_addrlen) == 0) return;
   }
   throw error(errno, "connect({})", source.string());
 }
 
-void inline listen(int fd, int backlog) {
+inline void listen(int fd, int backlog) {
   std::ignore = unwrap(ok_or_errno(::listen(fd, backlog))
                            .transform_error([fd](auto ec) { return error(ec, "listen({})", fd); }));
 }
