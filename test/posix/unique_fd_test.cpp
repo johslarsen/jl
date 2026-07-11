@@ -117,16 +117,36 @@ TEST_SUITE("tmpname") {
       CHECK(!result.has_value());
       CHECK_MESSAGE(result.error().code() == std::errc::file_exists, result.error().what());
     }
+    SUBCASE("no traces on returned error or exceptions") {
+      auto result = jl::atomically_initialized_file(final_path, [](int fd) -> std::expected<int, jl::error> {
+        return std::unexpected(jl::error(fd, "fd"));
+      });
+      CHECK(!result.has_value());
+      CHECK(fcntl(result.error().code().value(), F_GETFD) == -1);
+      CHECK(errno == EBADF);
+      CHECK(!std::filesystem::exists(final_path));
+
+      try {
+        std::ignore = jl::atomically_initialized_file(final_path, [](int fd) -> std::expected<int, jl::error> {
+          throw fd;  // NOLINT(*-exception-baseclass)
+        });
+        FAIL("no exception thrown");
+      } catch (const int& fd) {
+        CHECK(fcntl(fd, F_GETFD) == -1);
+        CHECK(errno == EBADF);
+        CHECK(!std::filesystem::exists(final_path));
+      }
+    }
   }
 
   TEST_CASE("tmpname_initialized") {
     auto tmp = jl::unwrap(jl::tmpdir::create());
     auto final_path = tmp.path() / "final";
 
-    auto org = jl::unwrap(jl::fd_mmap<char>::allocated(final_path, 3));
-    std::ranges::copy(std::string_view("foo"), org->begin());
-
     SUBCASE("overwriting existing file") {
+      auto org = jl::unwrap(jl::fd_mmap<char>::allocated(final_path, 3));
+      std::ranges::copy(std::string_view("foo"), org->begin());
+
       auto result = jl::tmpname_initialized(final_path, [&](const jl::tmpfd& fd) {
         CHECK(fd.path() != final_path);
         return jl::unwrap(jl::writeall(fd->fd(), std::string_view("bar")));
@@ -138,11 +158,35 @@ TEST_SUITE("tmpname") {
       CHECK(jl::view_of(*org) == std::string_view("foo"));
       CHECK(jl::view_of(*overwritten) == std::string_view("bar"));
     }
-
     SUBCASE("RENAME_NOREPLACE") {
+      auto org = jl::unwrap(jl::fd_mmap<char>::allocated(final_path, 3));
+      std::ranges::copy(std::string_view("foo"), org->begin());
+
       auto result = jl::tmpname_initialized(final_path, "foo", {}, RENAME_NOREPLACE);
       CHECK(!result.has_value());
       CHECK(result.error().code() == std::errc::file_exists);
+    }
+    SUBCASE("no traces on returned error or exceptions") {
+      auto result = jl::tmpname_initialized(final_path, [](const jl::tmpfd& fd) -> std::expected<int, jl::error> {
+        return std::unexpected(jl::error(fd->fd(), fd.path().native()));
+      });
+      CHECK(!result.has_value());
+      CHECK(fcntl(result.error().code().value(), F_GETFD) == -1);
+      CHECK(errno == EBADF);
+      CHECK(!std::filesystem::exists(result.error().msg()));
+      CHECK(!std::filesystem::exists(final_path));
+
+      try {
+        std::ignore = jl::tmpname_initialized(final_path, [](const jl::tmpfd& fd) -> std::expected<int, jl::error> {
+          throw jl::error(fd->fd(), fd.path().native());
+        });
+        FAIL("no exception thrown");
+      } catch (const jl::error& e) {
+        CHECK(fcntl(e.code().value(), F_GETFD) == -1);
+        CHECK(errno == EBADF);
+        CHECK(!std::filesystem::exists(e.msg()));
+        CHECK(!std::filesystem::exists(final_path));
+      }
     }
   }
 }
