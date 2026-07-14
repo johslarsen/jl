@@ -8,9 +8,14 @@ const std::string url_to_this_file = std::format("file://{}", __FILE__);
 
 TEST_SUITE("synchronize easy API") {
   TEST_CASE("file://...") {
-    SUBCASE("GET") {
+    SUBCASE("GET file") {
       auto content = jl::unwrap(jl::curl::GET(url_to_this_file));
       CHECK(content.size() == std::filesystem::file_size(__FILE__));
+    }
+    SUBCASE("GET directory") {
+      std::filesystem::path url(url_to_this_file);
+      auto listing = jl::unwrap(jl::curl::GET(url.parent_path().native()));
+      CHECK(doctest::String(listing) == doctest::Contains(url.filename().native()));
     }
     SUBCASE("POST") {
       auto content = jl::unwrap(jl::curl::POST(url_to_this_file, "ignored"));
