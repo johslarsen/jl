@@ -120,7 +120,7 @@ class unique_mime {
 };
 
 /// C++ variant of https://curl.se/libcurl/c/CURLOPT_READFUNCTION.html
-using reader = std::function<size_t(std::span<std::byte>)>;
+using reader = std::move_only_function<size_t(std::span<std::byte>)>;
 inline size_t no_body(std::span<std::byte> /*ignored*/) { return 0; }
 inline reader read_from(std::span<const std::byte> body) {
   return [body](std::span<std::byte> buffer) mutable {
@@ -135,7 +135,7 @@ inline reader read_from(std::string_view body) {
 }
 
 /// C++ variant of https://curl.se/libcurl/c/CURLOPT_WRITEFUNCTION.html
-using writer = std::function<size_t(std::string_view)>;
+using writer = std::move_only_function<size_t(std::string_view)>;
 static size_t discard_body(std::string_view buffer) { return buffer.size(); }
 static writer append_to(std::string& buffer) {
   return [&buffer](std::string_view s) {
