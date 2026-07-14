@@ -136,14 +136,14 @@ inline reader read_from(std::string_view body) {
 
 /// C++ variant of https://curl.se/libcurl/c/CURLOPT_WRITEFUNCTION.html
 using writer = std::move_only_function<size_t(std::string_view)>;
-static size_t discard_body(std::string_view buffer) { return buffer.size(); }
-static writer append_to(std::string& buffer) {
+inline size_t discard_body(std::string_view buffer) { return buffer.size(); }
+inline writer append_to(std::string& buffer) {
   return [&buffer](std::string_view s) {
     buffer += s;
     return s.size();
   };
 }
-static writer overwrite(std::string& buffer) {
+inline writer overwrite(std::string& buffer) {
   buffer.clear();
   return append_to(buffer);
 }
