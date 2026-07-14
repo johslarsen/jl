@@ -197,4 +197,38 @@ TEST_SUITE("strings") {
       CHECK(but_no_eol == "");
     }
   }
+
+  TEST_CASE("linewise") {
+    std::vector<std::string> lines;
+    auto writer = jl::linewise::pushed_to(lines);
+
+    SUBCASE("aligned") {
+      writer("a line\n");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{"a line"});
+      writer("another\n");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{"another"});
+    }
+
+    SUBCASE("misaligned") {
+      writer("incomplete");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{});
+      writer(", then finished\nand a complete one\nand incomplete");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{"incomplete, then finished", "and a complete one"});
+      writer(", then continuing");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{});
+      writer(", and finally done\n");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{"and incomplete, then continuing, and finally done"});
+    }
+
+    SUBCASE("special cases") {
+      writer("");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{});
+      writer("\n\n");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{"", ""});
+      writer("\r\n");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{""});
+      writer("carriage-return\ris close enough to separate line\n");
+      CHECK(std::exchange(lines, {}) == std::vector<std::string>{"carriage-return", "is close enough to separate line"});
+    }
+  }
 }

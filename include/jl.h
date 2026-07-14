@@ -618,6 +618,42 @@ struct line_eol {
   }
 };
 
+/// A jl::curl::writer that passes along received data terminated by EOL separators
+class linewise {
+  std::move_only_function<void(std::string_view)> _each_line;
+  std::string _rollover;
+
+ public:
+  explicit linewise(decltype(_each_line) each_line, std::string buffer = {}) : _each_line(std::move(each_line)), _rollover(std::move(buffer)) {}
+
+  // @return a writer pushing lines back into container
+  static linewise pushed_to(std::ranges::range auto& container, std::string buffer = {}) {
+    return linewise([&container](std::string_view l) mutable { container.push_back(std::string(l)); }, std::move(buffer));
+  }
+
+  // Calls each_line for each completed line in _buffer+part
+  // @return bytes consumes, i.e. lines.size()
+  size_t operator()(std::string_view lines) {
+    auto rest = lines;
+    while (true) {
+      auto l = jl::line_eol::find_first_in(rest);
+      if (l.eol.empty()) {  // i.e. incomplete
+        _rollover += l.line;
+        return lines.size();
+      }
+
+      if (_rollover.empty()) {
+        _each_line(l.line);
+      } else {
+        _rollover += l.line;
+        _each_line(_rollover);
+        _rollover.clear();
+      }
+      rest = rest.substr(l.size());
+    }
+  }
+};
+
 /// Container that can be used to pass string literal as template parameter.
 /// NOTE: Like std::string/_view initializer, the stored string is not null-terminated!
 template <size_t N>

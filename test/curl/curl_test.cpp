@@ -14,8 +14,10 @@ TEST_SUITE("synchronize easy API") {
     }
     SUBCASE("GET directory") {
       std::filesystem::path url(url_to_this_file);
-      auto listing = jl::unwrap(jl::curl::GET(url.parent_path().native()));
-      CHECK(doctest::String(listing) == doctest::Contains(url.filename().native()));
+      std::vector<std::string> files;
+      auto& curl = jl::curl::easy::clean();
+      std::ignore = jl::unwrap(jl::curl::ok(curl.request(url.parent_path().native(), jl::linewise::pushed_to(files))));
+      CHECK(std::ranges::count(files, url.filename().native()) == 1);
     }
     SUBCASE("POST") {
       auto content = jl::unwrap(jl::curl::POST(url_to_this_file, "ignored"));

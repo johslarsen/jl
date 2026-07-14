@@ -28,6 +28,13 @@ TEST_SUITE("fd_mmap") {
     }
   }
 
+  TEST_CASE("as wannabe File.readlines") {
+    std::vector<std::string> lines;
+    auto content = jl::unwrap(jl::fd_mmap<char>::open(__FILE__, O_RDONLY));
+    jl::linewise::pushed_to(lines)(jl::view_of(*content));
+    CHECK(doctest::String(lines[__LINE__ - 1 - 4]) == doctest::Contains("File.readlines")); // obviously do not move this wrt. to TEST_CASE name
+  }
+
   TEST_CASE("allocated fails if there is not enough space") {
     jl::tmpfd fd = jl::unwrap(jl::tmpfd::open());
     auto map = jl::fd_mmap<char>::allocated(fd.path(), 1UL << 40);
