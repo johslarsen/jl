@@ -421,6 +421,7 @@ class multi {
 
  private:
   static int socket_callback(CURL* /*easy*/, curl_socket_t s, int what, stable_state* clientp, void* /*socketp*/) {  // NOLINT(*swappable-parameters)
+    // NOTE: best to ignore the easy parameter, since "It might even be an internal easy handle that the application did not add itself"[`man 3 CURLMOPT_SOCKETFUNCTION`]
     auto& fds = clientp->pollfds;
     auto fd = std::ranges::find(fds, s, &pollfd::fd);
     if (fd != fds.end()) {
