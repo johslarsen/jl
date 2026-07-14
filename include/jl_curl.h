@@ -436,7 +436,7 @@ class multi {
 // Wrapper around the curl_multi_socket_... interface that tracks responses to originating request
 class async {
   multi _multi;
-  std::unordered_map<CURLM*, std::promise<std::pair<CURLcode, easy>>> _results;
+  std::unordered_map<CURL*, std::promise<std::pair<CURLcode, easy>>> _results;
 
  public:
   /// Adds this request to the CURLM* handle.
